@@ -42,7 +42,9 @@ Read enough to split the task well: structure, README, how to build, how to run 
 
 ## Step 3: open the workers
 
-Run `foreman spawn --task <slug> [--effort <level>] <name>=<kind>[:<model>] ...`; spawn groups that need different efforts in separate calls. Use short lowercase names (`sec1`, `test1`). Claude workers start lean (no MCP servers or skills); add `--full` only for a worker that needs them, for example to test a web app in the browser.
+First, once per task, ask the user the question from "Permission questions" below: will they answer workers' permission questions themselves, or should you answer on their behalf, at their responsibility? If you answer, add `--auto` to every spawn: workers then start in their agent's auto-approve mode and rarely stop to ask. Follow "Auto mode" below.
+
+Run `foreman spawn --task <slug> [--auto] [--effort <level>] <name>=<kind>[:<model>] ...`; spawn groups that need different efforts in separate calls. Use short lowercase names (`sec1`, `test1`). Claude workers start lean (no MCP servers or skills); add `--full` only for a worker that needs them, for example to test a web app in the browser.
 
 The JSON lists per worker:
 
@@ -131,7 +133,7 @@ If you have to stop before step 9 (the user cancels, or something breaks), still
 
 They show up as `blocked` in `foreman wait`, or as `not_ready` right after spawn (read the pane with `herdr agent read <name> --source visible`).
 
-1. The first time in a task, ask the user once: will they answer such questions themselves, or should you answer on their behalf, at their responsibility? Keep that choice for the rest of the task.
+1. You asked the user once before Step 3: will they answer such questions themselves, or should you answer on their behalf, at their responsibility? Keep that choice for the rest of the task. If you never asked, ask now.
 2. If the user answers them, tell them which pane (`paneId`) is waiting and what it asks.
 3. If you answer them, use `herdr agent send-keys <name> <keys>`:
    - choose by the option's text: for example `1` or `enter` for "Yes", `esc` to cancel;
@@ -140,3 +142,13 @@ They show up as `blocked` in `foreman wait`, or as `not_ready` right after spawn
    - approve only requests that fit the worker's brief and whose concrete command you have read;
    - always refuse `git push`, pull requests, and anything that sends code off the machine;
    - ask the user first about deleting files outside the worker's worktree, global installs, or anything clearly outside the task.
+
+## Auto mode
+
+Used when you spawned with `--auto`.
+
+- Every worktree has a push guard (a failing pre-push hook and dead push URLs). It is a tripwire, not a wall: a worker can disarm it. The user's approval before `land` is the real control.
+- Every brief must say: do not touch anything outside your worktree, do not push, do not create pull requests.
+- Warnings from `spawn`, `status` or `merge` mean a kind has no auto mode or a guard is gone. Relay them to the user and read that worker's changes with extra care.
+- After collecting, check that the user's repo is untouched: `git status`, current branch and HEAD as before, nothing pushed. Tell the user if not.
+- Still refuse `git push` and pull requests if a worker asks.

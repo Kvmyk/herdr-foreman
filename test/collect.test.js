@@ -22,6 +22,7 @@ async function setup(names = ['w1', 'w2']) {
     const worktree = path.join(root, name);
     const branch = `foreman-work/t/${name}`;
     await git.addWorktree(repo, worktree, branch, base);
+    await git.armPushGuard(worktree);
     const reportDir = path.join(paths.runs, 't', name);
     mkdirSync(reportDir, { recursive: true });
     workers.push({ name, kind: 'claude', model: null, paneId: `w1:p${i + 2}`, worktree, branch, reportDir });
@@ -50,6 +51,7 @@ test('status shows dirty, commits ahead and reports', async () => {
     ['w1', false, 1, false, false],
     ['w2', true, 0, true, false],
   ]);
+  assert.deepEqual(st.map((s) => s.pushGuardArmed), [true, true]);
   assert.deepEqual(st[1].changedFiles, ['a.txt']);
 });
 
