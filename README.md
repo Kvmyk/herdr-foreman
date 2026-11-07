@@ -1,4 +1,4 @@
-<p align="center"><img src="media/banner.png" alt="foreman: one task, a crew of coding agents" width="820"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="media/banner.png"><source media="(prefers-color-scheme: light)" srcset="media/banner-light.png"><img src="media/banner.png" alt="foreman: one task, a crew of coding agents" width="820"></picture></p>
 
 <p align="center"><img src="media/demo.gif" alt="foreman splits a task across claude, codex and opencode in herdr panes" width="820"><br>
 <a href="media/demo.mp4">Watch with sound (40 s, MP4)</a></p>
@@ -124,7 +124,7 @@ To try the plugin from a working copy, run `herdr plugin link .` in it (and `her
 
 ## Media
 
-The logo (`media/logo.svg`), the banner, the demo video and its music are original and covered by the same license. `media/src/` holds the scripts that make them: `music.py` synthesises the soundtrack with numpy, and `demo.py` draws the frames with Pillow and encodes them with ffmpeg. The run in the video follows foreman's real flow and command names; its repository, findings and commit ids are made up.
+The logo (`media/logo.svg`), the banner, the demo video and its music are original and covered by the same license. `media/src/` holds the scripts that make them: `brand.py` draws the logo and both banners with Pillow, using the Barlow font vendored in `media/src/fonts/` under the SIL Open Font License, `music.py` synthesises the soundtrack with numpy, and `demo.py` draws the frames with Pillow and encodes them with ffmpeg. The run in the video follows foreman's real flow and command names; its repository, findings and commit ids are made up.
 
 ## License
 
