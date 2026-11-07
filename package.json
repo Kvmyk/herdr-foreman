@@ -1,0 +1,22 @@
+{
+  "name": "herdr-foreman",
+  "version": "0.1.0",
+  "description": "Describe a task in plain words; a lead agent splits it across the coding agents you have installed and runs them in herdr panes.",
+  "type": "module",
+  "bin": {
+    "foreman": "bin/foreman.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "knowledge",
+    "leader"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

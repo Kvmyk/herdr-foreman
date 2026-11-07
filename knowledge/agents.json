@@ -1,0 +1,203 @@
+{
+  "updated": "2026-11-07",
+  "note": "Built from docs/research/2026-11-07-dobor-agentow.md. Scores go stale within weeks; the user's own journal outweighs this file once a category has trusted stats.",
+  "categories": ["analysis", "security-audit", "testing", "bugfix", "feature", "refactor", "test-writing", "docs"],
+  "rules": [
+    "Judge harness + model + access together; the agent kind alone says little.",
+    "Review and security audit: give the same area to two different model families. Two harnesses running the same model do not count.",
+    "Treat subscription limits as a budget: expensive models for decisions and hard changes, cheaper or local models for mechanical work. Avoid two workers on the same subscription when there is an alternative.",
+    "Local models get only simple tasks.",
+    "A model with no data here, or an entry marked stale, is unproven: give it a smaller part.",
+    "Agents whose status is not ready are out of the pool; tell the user why in one sentence.",
+    "Once a category has trusted journal stats (n >= 5), they outweigh this file. Now and then give a part to another agent so new models get a chance."
+  ],
+  "sources": {
+    "coderouterbench": "https://arxiv.org/html/2606.22902v1",
+    "tbench2": "https://snorkel.ai/leaderboard/terminal-bench-2-0/",
+    "tbench21": "https://codex.danielvaughan.com/2026/06/11/terminal-bench-2-1-june-2026-benchmark-landscape-codex-cli-harness-engineering-model-scores/",
+    "harness-effect": "https://codex.danielvaughan.com/2026/04/19/the-harness-effect-same-model-different-tool-different-score/",
+    "tembo": "https://www.tembo.io/blog/codex-vs-claude-code-vs-gemini-cli",
+    "routing-guide": "https://www.augmentcode.com/guides/ai-model-routing-guide",
+    "gemini-migration": "https://github.com/google-gemini/gemini-cli/discussions/27274",
+    "agy-headless": "https://antigravity.google/docs/cli/headless/",
+    "agy-guide": "https://www.aibuilderclub.com/blog/antigravity-cli-guide",
+    "copilot-multipliers": "https://docs.github.com/en/copilot/reference/copilot-billing/model-multipliers-for-annual-plans",
+    "claude-limits": "https://www.morphllm.com/claude-code-usage-limits",
+    "local-models": "https://ianlpaterson.com/ai/best-local-llm/",
+    "pi-review": "https://urandom.io/blog/2026-03-07-pi-dev-deep-dive",
+    "benchlm-swepro": "https://benchlm.ai/benchmarks/swe-bench-pro",
+    "vuln-diversity": "https://dl.acm.org/doi/pdf/10.1145/3786181.3788719"
+  },
+  "harnesses": {
+    "claude": {
+      "strengths": ["Multi-file changes and repo-wide refactors (practitioner consensus).", "Planning changes across a whole repository."],
+      "weaknesses": ["Uses about 4x more tokens than Codex CLI on similar tasks (one source).", "The Pro plan has a 5-hour window and a weekly cap shared with claude.ai."],
+      "permissions": "Asks by default. --permission-mode acceptEdits|auto|bypassPermissions|manual|dontAsk|plan; --dangerously-skip-permissions.",
+      "trustDialog": "Shows a folder-trust dialog in every new worktree.",
+      "notes": "",
+      "sources": ["tembo", "tbench21", "claude-limits"]
+    },
+    "codex": {
+      "strengths": ["Code review.", "Terminal and CI tasks: Codex CLI + GPT-5.5 scored 83.4% on Terminal-Bench 2.1.", "Token efficiency."],
+      "weaknesses": [],
+      "permissions": "Sandbox read-only|workspace-write|danger-full-access plus approval policies; default on-request.",
+      "trustDialog": "Asks to trust a new folder.",
+      "notes": "",
+      "sources": ["tembo", "tbench21"]
+    },
+    "opencode": {
+      "strengths": ["One harness for many providers. Through GitHub Copilot it reaches Claude, GPT, Gemini, Grok and Kimi models: the easiest way to add a second model family."],
+      "weaknesses": ["No public benchmark scores as of 2026-07.", "Copilot multipliers (Claude Opus 4.6/4.7: 27x) burn the monthly allowance fast."],
+      "permissions": "Per-tool permissions; opencode run --auto approves what is not denied.",
+      "trustDialog": "",
+      "notes": "",
+      "sources": ["harness-effect", "copilot-multipliers"]
+    },
+    "agy": {
+      "strengths": ["Google's successor to Gemini CLI for personal accounts; serves Gemini, Claude and gpt-oss models from one binary."],
+      "weaknesses": ["Users report low Starter quotas and fast token use."],
+      "permissions": "--mode accept-edits|auto|plan (auto needs v1.4.4+ on Windows); --dangerously-skip-permissions.",
+      "trustDialog": "Trusted folders are listed in ~/.gemini/antigravity-cli/settings.json (trustedWorkspaces).",
+      "notes": "",
+      "sources": ["gemini-migration", "agy-headless", "agy-guide"]
+    },
+    "gemini": {
+      "strengths": ["1M-token context for reading large codebases (API key or enterprise license only)."],
+      "weaknesses": ["Personal, Pro and Ultra access ended on 2026-06-18; the successor is agy."],
+      "permissions": "",
+      "trustDialog": "",
+      "notes": "",
+      "sources": ["gemini-migration"]
+    },
+    "pi": {
+      "strengths": ["Minimal, extensible harness with 20+ providers, including local models."],
+      "weaknesses": ["Quality depends entirely on the configured model.", "No permission prompts by design (per reviews; unverified)."],
+      "permissions": "",
+      "trustDialog": "",
+      "notes": "",
+      "sources": ["pi-review"]
+    }
+  },
+  "families": [
+    {
+      "id": "gpt-codex",
+      "match": "gpt-[0-9.]+-codex",
+      "vendor": "openai",
+      "tendencies": ["GPT-5.3-Codex: 77.3% on Terminal-Bench 2.0 with the Droid harness."],
+      "updated": "2026-11-07",
+      "sources": ["tbench2"]
+    },
+    {
+      "id": "gpt",
+      "match": "gpt-[0-9]",
+      "vendor": "openai",
+      "tendencies": ["GPT-5.5 leads Terminal-Bench 2.0 at 82-85% depending on the harness.", "One routing guide recommends GPT-5.x for deep code review.", "GPT-6.x: no benchmark data found as of 2026-11-07; treat as unproven."],
+      "updated": "2026-11-07",
+      "sources": ["tbench2", "tbench21", "routing-guide"]
+    },
+    {
+      "id": "gpt-oss",
+      "match": "gpt-oss",
+      "vendor": "openai (open weights)",
+      "tendencies": ["gpt-oss-20b: decent tool calling for a local model; simple tasks only.", "gpt-oss-120b: no coding data found."],
+      "updated": "2026-11-07",
+      "sources": ["local-models"]
+    },
+    {
+      "id": "claude-opus",
+      "match": "claude-opus|^opus$",
+      "vendor": "anthropic",
+      "tendencies": ["Best average across coding categories in CodeRouterBench (Opus 4.6), but not the best in every category.", "Claude Code + Opus 4.8: 78.9% on Terminal-Bench 2.1.", "Opus 5.5 reported at 89.9% on SWE-bench Pro by one aggregator (low reliability)."],
+      "updated": "2026-11-07",
+      "sources": ["coderouterbench", "tbench21", "benchlm-swepro"]
+    },
+    {
+      "id": "claude-sonnet",
+      "match": "claude-sonnet|^sonnet$",
+      "vendor": "anthropic",
+      "tendencies": ["Close to Opus at lower cost: Sonnet 4.6 79.6% vs Opus 4.6 80.8% on SWE-bench Verified (one routing guide)."],
+      "updated": "2026-11-07",
+      "sources": ["routing-guide"]
+    },
+    {
+      "id": "claude-haiku",
+      "match": "claude-haiku|^haiku$",
+      "vendor": "anthropic",
+      "tendencies": ["Cheap and fast; fine for file navigation and quick edits, weaker on reasoning-heavy work."],
+      "updated": "2026-11-07",
+      "sources": ["routing-guide"]
+    },
+    {
+      "id": "claude-fable",
+      "match": "claude-fable|^fable$",
+      "vendor": "anthropic",
+      "tendencies": ["Claude Code + Claude 5 Fable: 83.1% on Terminal-Bench 2.1 (one source)."],
+      "updated": "2026-11-07",
+      "sources": ["harness-effect"]
+    },
+    {
+      "id": "gemini-pro",
+      "match": "gemini-[0-9.]+-pro|gemini-[0-9.]+-argon|gemini-4",
+      "vendor": "google",
+      "tendencies": ["Gemini 3.1 Pro: 80.2% on Terminal-Bench 2.0 (TongAgents harness), 70.7% in Gemini CLI on Terminal-Bench 2.1.", "1M-token context: good for reading large codebases.", "Gemini 4 Argon: no coding benchmark data found as of 2026-11-07."],
+      "updated": "2026-11-07",
+      "sources": ["tbench2", "tbench21", "tembo"]
+    },
+    {
+      "id": "gemini-flash",
+      "match": "gemini-.*flash",
+      "vendor": "google",
+      "tendencies": ["Cheaper, faster tier; no coding-specific data found."],
+      "updated": "2026-11-07",
+      "sources": []
+    },
+    {
+      "id": "qwen-coder-small",
+      "match": "qwen2\\.5-coder",
+      "vendor": "alibaba (open weights)",
+      "tendencies": ["Qwen2.5-Coder 7B: 57.9% on the Aider edit benchmark; trivial tasks only."],
+      "updated": "2026-11-07",
+      "sources": ["local-models"]
+    },
+    {
+      "id": "qwen",
+      "match": "qwen",
+      "vendor": "alibaba",
+      "tendencies": ["Qwen3-Max led test generation in CodeRouterBench (82.7% vs Opus 4.6 39.2%)."],
+      "updated": "2026-11-07",
+      "sources": ["coderouterbench"]
+    },
+    {
+      "id": "glm",
+      "match": "glm",
+      "vendor": "zhipu",
+      "tendencies": ["GLM-5 led algorithm design in CodeRouterBench (47.2% vs Opus 4.6 25.4%)."],
+      "updated": "2026-11-07",
+      "sources": ["coderouterbench"]
+    },
+    {
+      "id": "kimi",
+      "match": "kimi",
+      "vendor": "moonshot",
+      "tendencies": ["Kimi-K2.5 led data science in CodeRouterBench. Kimi K3: no data found."],
+      "updated": "2026-11-07",
+      "sources": ["coderouterbench"]
+    },
+    {
+      "id": "deepseek",
+      "match": "deepseek",
+      "vendor": "deepseek",
+      "tendencies": ["DeepSeek V4 Pro about 68% on Terminal-Bench 2.0 (aggregator)."],
+      "updated": "2026-11-07",
+      "sources": ["tbench2"]
+    },
+    {
+      "id": "grok",
+      "match": "grok",
+      "vendor": "xai",
+      "tendencies": ["No coding benchmark data found as of 2026-11-07; treat as unproven."],
+      "updated": "2026-11-07",
+      "sources": []
+    }
+  ]
+}
