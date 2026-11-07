@@ -82,8 +82,8 @@ def render_pad(length):
 
 
 # ---------------------------------------------------------------- keyboard foley
-# Synthesised key clicks (short filtered noise burst) and Enter thuds
-# (lower, slightly longer noise burst).
+# Synthesised key clicks (short filtered noise burst), a softer space bar and
+# Enter thuds (lower, slightly longer noise burst).
 
 def key_click():
     """A single mechanical key click — short high-frequency transient."""
@@ -92,6 +92,15 @@ def key_click():
     filtered = filt(noise, 'bandpass', [2000, 8000], order=2)
     e = np.exp(-np.arange(n) / SR * 200)
     return filtered * e * 0.6
+
+
+def space_click():
+    """The space bar — lower and softer than a letter key."""
+    n = int(0.03 * SR)
+    noise = rng.standard_normal(n)
+    filtered = filt(noise, 'bandpass', [700, 4000], order=2)
+    e = np.exp(-np.arange(n) / SR * 150)
+    return filtered * e * 0.5
 
 
 def enter_thud():
@@ -128,6 +137,8 @@ def render_foley(length, typing_events):
         if ch == '\n':
             sig = enter_thud()
             place(buf, t, sig, rng.uniform(-0.1, 0.1), 0.35)
+        elif ch == ' ':
+            place(buf, t, space_click(), rng.uniform(-0.1, 0.1), rng.uniform(0.12, 0.2))
         else:
             sig = key_click()
             # Slight random pan and velocity variation
