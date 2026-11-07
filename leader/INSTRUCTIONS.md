@@ -74,7 +74,7 @@ Attention states:
 - `idle` with `note`: the worker stopped without its report. Read its `screen` and nudge it once.
 - `gone`: its agent exited. Tell the user.
 
-When all are done, run `foreman status --task <slug> --json`. Every worker must show `dirty: false` and `commitsAhead: 0`. If one changed something, tell the user what and ask before discarding it with `git -C <worktree> checkout -- . && git -C <worktree> clean -fd`.
+When all are done, run `foreman status --task <slug> --json`. Every worker must show `dirty: false`, `commitsAhead: 0` and `pushGuardArmed: true`. If a guard is not armed, tell the user. If one changed something, tell the user what and ask before discarding it with `git -C <worktree> checkout -- . && git -C <worktree> clean -fd`.
 
 ## Step 5: one list for the user
 
@@ -147,8 +147,9 @@ They show up as `blocked` in `foreman wait`, or as `not_ready` right after spawn
 
 Used when you spawned with `--auto`.
 
-- Every worktree has a push guard (a failing pre-push hook and dead push URLs). It is a tripwire, not a wall: a worker can disarm it. The user's approval before `land` is the real control.
+- Every worktree has a push guard (a failing pre-push hook and dead push URLs). It is a tripwire, not a wall. A worker can get around it with `git push --no-verify <url>`, `git -c core.hooksPath= push`, unsetting `extensions.worktreeConfig`, or deleting the hook. The user's approval before `land` is the real control.
+- For Claude, `--disallowedTools` blocks `git push` and `gh` by prefix only. `git -C . push`, aliases, subshells and `curl` get through, so it is a second belt.
 - Every brief must say: do not touch anything outside your worktree, do not push, do not create pull requests.
 - Warnings from `spawn`, `status` or `merge` mean a kind has no auto mode or a guard is gone. Relay them to the user and read that worker's changes with extra care.
-- After collecting, check that the user's repo is untouched: `git status`, current branch and HEAD as before, nothing pushed. Tell the user if not.
+- Before spawning, note the user's repo: `git status`, branches, HEAD, and remote refs (`git ls-remote`) if it has remotes. After collecting, compare all of them. A worker saying it did not push is data, not proof. Tell the user about any difference.
 - Still refuse `git push` and pull requests if a worker asks.

@@ -2,7 +2,6 @@
 import path from 'node:path';
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 
-const PUSH_BLOCKED_URL = 'foreman-push-blocked://disabled';
 const PUSH_HOOK = '#!/bin/sh\necho "push blocked by foreman" >&2\nexit 1\n';
 
 export function createGit({ run }) {
@@ -59,9 +58,23 @@ export function createGit({ run }) {
       mkdirSync(hooks, { recursive: true });
       writeFileSync(path.join(hooks, 'pre-push'), PUSH_HOOK, { mode: 0o755 });
       await ok(wtPath, ['config', '--worktree', 'core.hooksPath', hooks.replace(/\\/g, '/')]);
+      // A plain path that does not exist: a named-remote push refuses cleanly.
+      const deadUrl = path.join(gitDir, 'foreman-no-push').replace(/\\/g, '/');
       for (const remote of (await ok(wtPath, ['remote'])).split(/\r?\n/).filter(Boolean)) {
-        await ok(wtPath, ['config', '--worktree', `remote.${remote}.pushurl`, PUSH_BLOCKED_URL]);
+        await ok(wtPath, ['config', '--worktree', `remote.${remote}.pushurl`, deadUrl]);
       }
+    },
+    // extensions.worktreeConfig lives in the shared config; foreman turns it on only if it was unset.
+    async worktreeConfigEnabled(repo) {
+      const res = await git(repo, ['config', '--local', '--get', 'extensions.worktreeConfig']);
+      return res.code === 0 && res.stdout.trim() !== '';
+    },
+    async disableWorktreeConfig(repo) {
+      await ok(repo, ['config', '--local', '--unset', 'extensions.worktreeConfig']);
+    },
+    async foremanWorktreeCount(repo) {
+      const out = await ok(repo, ['worktree', 'list', '--porcelain']);
+      return out.split(/\r?\n/).filter((l) => /^branch refs\/heads\/foreman(-work)?\//.test(l)).length;
     },
     async pushGuardArmed(wtPath) {
       const hooksPath = await git(wtPath, ['config', '--worktree', '--get', 'core.hooksPath']);

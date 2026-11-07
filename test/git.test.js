@@ -107,7 +107,10 @@ test('push guard blocks pushes from a worker worktree and leaves the main checko
   await g.addWorktree(repo, wt, 'foreman-work/t/w1', await g.head(repo));
   await g.armPushGuard(wt);
 
-  assert.notEqual(tryPush(wt, 'origin', 'HEAD:refs/heads/w1'), null);
+  const named = tryPush(wt, 'origin', 'HEAD:refs/heads/w1');
+  assert.notEqual(named, null);
+  assert.match(named, /does not appear to be a git repository|push blocked by foreman/);
+  assert.doesNotMatch(named, /not a git command/);
   assert.notEqual(tryPush(wt, bare, 'HEAD:refs/heads/w1-direct'), null);
   assert.match(tryPush(wt, bare, 'HEAD:refs/heads/w1-direct'), /push blocked by foreman/);
   assert.equal(rawGit(bare, 'branch', '--list').trim(), '');
@@ -128,5 +131,15 @@ test('pushGuardArmed turns false when the hook is deleted', async () => {
   await g.armPushGuard(wt);
   assert.equal(await g.pushGuardArmed(wt), true);
   rmSync(path.join(rawGit(wt, 'rev-parse', '--absolute-git-dir'), 'foreman-hooks', 'pre-push'));
+  assert.equal(await g.pushGuardArmed(wt), false);
+});
+
+test('pushGuardArmed turns false after a remote is added in the worker worktree', async () => {
+  const repo = makeRepo();
+  const wt = path.join(mkdtempSync(path.join(tmpdir(), 'foreman-wt-')), 'w1');
+  await g.addWorktree(repo, wt, 'foreman-work/t/w1', await g.head(repo));
+  await g.armPushGuard(wt);
+  assert.equal(await g.pushGuardArmed(wt), true);
+  rawGit(wt, 'remote', 'add', 'sneaky', 'https://example.invalid/y.git');
   assert.equal(await g.pushGuardArmed(wt), false);
 });

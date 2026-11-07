@@ -27,6 +27,7 @@ function fakes({ live = [], dirty = false, notReady = [], existingRun = null } =
     commonDir: async () => path.join(repo, '.git'),
     isDirty: async () => dirty,
     addWorktree: async (r, wt, branch, base) => { log.push(['worktree', { wt, branch, base }]); },
+    worktreeConfigEnabled: async () => false,
     armPushGuard: async (wt) => { log.push(['guard', wt]); },
     removeWorktree: async (r, wt) => { log.push(['rmworktree', wt]); },
     deleteBranch: async (r, b) => { log.push(['rmbranch', b]); },
@@ -220,7 +221,7 @@ test('--auto passes each kind its auto-approve args and records auto', async () 
   assert.deepEqual(args.x, []);
   assert.ok(warnings.some((w) => /codex/.test(w) && /auto/.test(w)));
   assert.ok(!warnings.some((w) => /\bpi\b/.test(w)));
-  assert.deepEqual(JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]).workers.map((w) => w.auto), [true, true, true, true, true]);
+  assert.deepEqual(JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]).workers.map((w) => w.auto), [true, true, true, true, false]);
 });
 
 test('without --auto no auto args are passed', async () => {

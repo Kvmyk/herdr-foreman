@@ -207,3 +207,23 @@ test('cleanup removes merge worktree and keeps foreman branch unless asked', asy
   assert.equal(await git.branchExists(run2.repo, 'foreman/t'), false);
   rawGit(run2.repo, 'status');
 });
+
+test('cleanup restores extensions.worktreeConfig only when foreman turned it on', async () => {
+  const a = await setup();
+  assert.equal(await git.worktreeConfigEnabled(a.repo), true);
+  await cleanup({ run: { ...a.run, ownsWorktreeConfig: true }, git, herdr: fakeHerdr([]), paths: a.paths, exists: existsSync });
+  assert.equal(await git.worktreeConfigEnabled(a.repo), false);
+
+  const b = await setup();
+  await cleanup({ run: { ...b.run, ownsWorktreeConfig: false }, git, herdr: fakeHerdr([]), paths: b.paths, exists: existsSync });
+  assert.equal(await git.worktreeConfigEnabled(b.repo), true);
+});
+
+test('cleanup keeps extensions.worktreeConfig while another foreman worktree remains', async () => {
+  const a = await setup(['w1', 'w2']);
+  const keep = a.run.workers[1];
+  const run = { ...a.run, ownsWorktreeConfig: true, workers: [a.run.workers[0]] };
+  await cleanup({ run, git, herdr: fakeHerdr([]), paths: a.paths, exists: existsSync });
+  assert.ok(existsSync(keep.worktree));
+  assert.equal(await git.worktreeConfigEnabled(a.repo), true);
+});

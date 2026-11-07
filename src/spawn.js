@@ -109,6 +109,8 @@ export async function spawnWorkers({
     reportDir: path.join(root, w.name, '.foreman'),
   }));
 
+  // Remember whether foreman turns on extensions.worktreeConfig, so cleanup can undo it.
+  const ownsWorktreeConfig = existing?.ownsWorktreeConfig ?? !(await git.worktreeConfigEnabled(repo));
   const made = [];
   try {
     for (const w of workers) {
@@ -144,6 +146,7 @@ ${help.stderr}`.includes(flagName)) {
 
   const results = await Promise.all(workers.map((w) => {
     const probe = PROBES[w.kind];
+    w.auto = false;
     const args = [];
     if (w.model && probe) args.push(...probe.modelArgs(w.model));
     else if (w.model) warnings.push(`no model flag known for ${w.kind}; ${w.name} starts with its default model`);
@@ -152,7 +155,10 @@ ${help.stderr}`.includes(flagName)) {
     else if (effort) warnings.push(`no effort setting known for ${w.kind}; ${w.name} uses its default effort`);
     // Lean start: fewer tool definitions re-sent on every turn. --full keeps MCP servers
     // and skills, e.g. for a worker that tests a web app in the browser.
-    if (auto && probe?.autoArgs) args.push(...probe.autoArgs);
+    if (auto && probe?.autoArgs) {
+      args.push(...probe.autoArgs);
+      w.auto = true;
+    }
     else if (auto) warnings.push(`no auto-approve mode known for ${w.kind}; ${w.name} may still ask for permission`);
     if (config.lean !== false && !full && probe?.leanArgs) args.push(...probe.leanArgs.worker);
     return herdr.agentStart({ name: w.name, kind: w.kind, pane: w.paneId, timeoutMs: config.startTimeoutMs, args });
@@ -167,9 +173,10 @@ ${help.stderr}`.includes(flagName)) {
     repo,
     base,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
+    ownsWorktreeConfig,
     workers: [
       ...(existing?.workers ?? []),
-      ...workers.map(({ name, kind, model, paneId, worktree, branch, reportDir }) => ({ name, kind, model, auto, paneId, worktree, branch, reportDir })),
+      ...workers.map(({ name, kind, model, auto = false, paneId, worktree, branch, reportDir }) => ({ name, kind, model, auto, paneId, worktree, branch, reportDir })),
     ],
   };
   saveRun(record, { paths, writeFile, mkdir });

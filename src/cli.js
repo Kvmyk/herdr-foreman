@@ -39,7 +39,7 @@ Subcommands (used by the leader; add --json for machine-readable output):
   journal add <file.json>              record how each worker did
   journal stats                        results per category and agent
 
-Nothing is pushed and no pull request is created; workers cannot push (a guard is set on each worktree).
+Foreman never pushes and creates no pull request. It arms a push guard (a tripwire) on each worker worktree.
 `;
 
 // Each subcommand: flags it accepts (true = takes a value), required flags,
@@ -239,7 +239,7 @@ export async function main(argv, deps) {
         return 0;
       }
       case 'status':
-        print(await ops.status({ task }), (v) => v.forEach((s) => stdout.write(`${s.name.padEnd(12)}${s.dirty ? 'changed' : 'clean'}  commits ahead: ${s.commitsAhead}  proposals: ${s.proposals ? 'yes' : 'no'}  report: ${s.report ? 'yes' : 'no'}\n`)));
+        print(await ops.status({ task }), (v) => v.forEach((s) => stdout.write(`${s.name.padEnd(12)}${s.dirty ? 'changed' : 'clean'}  commits ahead: ${s.commitsAhead}  proposals: ${s.proposals ? 'yes' : 'no'}  report: ${s.report ? 'yes' : 'no'}  guard: ${s.pushGuardArmed ? 'armed' : 'MISSING'}\n`)));
         return 0;
       case 'merge': {
         const res = await ops.merge({ task, only: r.flags['--only']?.split(',').map((s) => s.trim()).filter(Boolean) ?? null });
@@ -247,8 +247,7 @@ export async function main(argv, deps) {
           stdout.write(`merged into ${v.branch}: ${v.merged.join(', ') || 'nothing'}\n`);
           for (const s of v.skipped) stdout.write(`skipped ${s.worker}: ${s.reason}\n`);
           for (const s of v.refused) stdout.write(`refused ${s.worker}: ${s.reason}\n`);
-          for (const x of v.warnings ?? []) stdout.write(`warning: ${x}
-`);
+          for (const x of v.warnings ?? []) stdout.write(`warning: ${x}\n`);
           if (v.conflict) stdout.write(`conflict with ${v.conflict.worker}: ${v.conflict.files.join(', ')}\n`);
         });
         return res.conflict || res.refused.length ? 1 : 0;

@@ -146,6 +146,13 @@ export async function cleanup({ run, git, herdr, paths, exists, deleteBranch = f
     else out.removedWorktrees.push(wt);
   }
 
+  // Undo extensions.worktreeConfig if foreman turned it on and no foreman worktree is left.
+  if (run.ownsWorktreeConfig && await git.worktreeConfigEnabled(run.repo)) {
+    await attempt('unset extensions.worktreeConfig', async () => {
+      if ((await git.foremanWorktreeCount(run.repo)) === 0) await git.disableWorktreeConfig(run.repo);
+    });
+  }
+
   const branches = [...run.workers.map((w) => w.branch), ...(deleteBranch ? [mergeBranch(run)] : [])];
   for (const b of branches) {
     if (!(await git.branchExists(run.repo, b))) continue;
