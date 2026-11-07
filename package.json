@@ -2,6 +2,27 @@
   "name": "herdr-foreman",
   "version": "0.1.0",
   "description": "Describe a task in plain words; a lead agent splits it across the coding agents you have installed and runs them in herdr panes.",
+  "keywords": [
+    "herdr",
+    "herdr-plugin",
+    "ai-agents",
+    "coding-agents",
+    "claude-code",
+    "codex",
+    "opencode",
+    "orchestration",
+    "git-worktree",
+    "cli"
+  ],
+  "homepage": "https://github.com/Kuba7331/herdr-foreman#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kuba7331/herdr-foreman.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Kuba7331/herdr-foreman/issues"
+  },
+  "license": "MIT",
   "type": "module",
   "bin": {
     "foreman": "bin/foreman.js"
@@ -17,6 +38,5 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "license": "MIT"
+  }
 }

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="foreman">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#18233D"/>
+      <stop offset="1" stop-color="#0A101D"/>
+    </linearGradient>
+    <linearGradient id="hat" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD45E"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- hard hat: the foreman -->
+  <path d="M142 248 C142 160 192 100 256 100 C320 100 370 160 370 248 Z" fill="url(#hat)"/>
+  <path d="M240 102 Q256 98 272 102 L282 248 L230 248 Z" fill="#FFE7A3" opacity="0.6"/>
+  <rect x="100" y="236" width="312" height="42" rx="21" fill="#E38A00"/>
+  <!-- three panes: the crew, each in its own state -->
+  <g stroke-width="4">
+    <rect x="100" y="306" width="92" height="108" rx="16" fill="#17233A" stroke="#2D3F60"/>
+    <rect x="210" y="306" width="92" height="108" rx="16" fill="#17233A" stroke="#2D3F60"/>
+    <rect x="320" y="306" width="92" height="108" rx="16" fill="#17233A" stroke="#2D3F60"/>
+  </g>
+  <g fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M122 334 l16 13 l-16 13" stroke="#34D399"/>
+    <path d="M232 334 l16 13 l-16 13" stroke="#FBBF24"/>
+    <path d="M342 334 l16 13 l-16 13" stroke="#38BDF8"/>
+  </g>
+  <g fill="#51627F">
+    <rect x="120" y="376" width="52" height="8" rx="4"/>
+    <rect x="120" y="392" width="34" height="8" rx="4"/>
+    <rect x="230" y="376" width="52" height="8" rx="4"/>
+    <rect x="230" y="392" width="40" height="8" rx="4"/>
+    <rect x="340" y="376" width="52" height="8" rx="4"/>
+    <rect x="340" y="392" width="28" height="8" rx="4"/>
+  </g>
+</svg>

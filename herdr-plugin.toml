@@ -1,0 +1,20 @@
+id = "herdr-foreman"
+name = "foreman"
+version = "0.1.0"
+min_herdr_version = "0.9.5"
+description = "Describe a task; a lead agent splits it across your coding agents in panes and git worktrees"
+platforms = ["linux", "macos", "windows"]
+
+# prefix+f (see README) runs this action: it opens the task prompt over the
+# focused pane; the leader then starts in a new tab of the same workspace.
+[[actions]]
+id = "start"
+title = "foreman: new task"
+contexts = ["workspace"]
+command = ["node", "plugin/open.js"]
+
+[[panes]]
+id = "ask"
+title = "foreman"
+placement = "overlay"
+command = ["node", "plugin/ask.js"]

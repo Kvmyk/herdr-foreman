@@ -371,10 +371,10 @@ README: instalacja (`git clone`, `npm link`), wymagania (Node ≥ 20, herdr ≥ 
 
 Bez nowego kodu, chyba że próba wykaże błąd (wtedy test odtwarzający błąd, poprawka, commit).
 
-- [ ] `npm link` w repo; `foreman agents` w panelu herdr. Oczekiwane: claude, agy, opencode, pi `ready` (pi tylko przy działającym LM Studio, inaczej powód), gemini `unavailable` z powodem migracji.
+- [x] `npm link` w repo; `foreman agents` w panelu herdr. Oczekiwane: claude, agy, opencode, pi `ready` (pi tylko przy działającym LM Studio, inaczej powód), gemini `unavailable` z powodem migracji.
 - [x] `foreman brief --json | node -e "JSON.parse(require('fs').readFileSync(0,'utf8'))"` kończy się kodem 0.
 - [x] W repo testowym (`git init` w scratchpadzie, 2 pliki, commit): `foreman spawn --task probe w1=claude w2=opencode`. Oczekiwane: 2 panele obok, każdy w swoim worktree, `status` `ready` albo `not_ready` z opisem okna zaufania; potem `foreman status --task probe --json` i `foreman cleanup --task probe`; panele zamknięte, `git worktree list` w repo testowym pokazuje tylko główny katalog.
-- [ ] `foreman "przeanalizuj ten mały projekt i zaproponuj jedną poprawkę"` z panelu herdr w repo testowym. Oczekiwane: nowa karta, lider startuje i dostaje prompt.
+- [x] `foreman "przeanalizuj ten mały projekt i zaproponuj jedną poprawkę"` z panelu herdr w repo testowym. Oczekiwane: nowa karta, lider startuje i dostaje prompt.
 
 ## Poza tym planem (osobne plany)
 

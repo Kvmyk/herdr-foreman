@@ -89,7 +89,7 @@ Kuba zatwierdza PR; później można to zautomatyzować. Foreman przy starcie po
 - **Lider tylko koordynuje,** nie wykonuje części pracy. To propozycja: wynika z zasady „lider wypisuje, im zleca”.
 - **Instrukcja dla lidera** to plik Markdown w pluginie, przekazywany liderowi przy starcie. Nie zależy od mechanizmu skilli konkretnego agenta, więc działa dla każdego rodzaju lidera.
 - **Stan i dziennik:** katalog `~/.herdr-foreman/` (konfiguracja, dziennik JSONL, kopia pliku wiedzy).
-- **Plugin herdr** (manifest TOML, akcja pod klawiszem „opisz zadanie”) w późniejszym etapie. Najpierw samodzielna komenda `foreman`.
+- **Plugin herdr** (dodany 2026-11-07): `herdr-plugin.toml` w katalogu głównym repo, akcja `herdr-foreman.start` (użytkownik przypisuje ją do klawisza, np. `prefix+f`) otwiera nakładkę `ask` z pytaniem o zadanie; lider startuje w nowej karcie tej samej przestrzeni. Komenda `foreman` działa dalej samodzielnie, oba wejścia używają tego samego kodu.
 - **Workerzy startują od razu we własnych worktree,** także w fazie badania. Zakaz zmian w tej fazie wynika z instrukcji, a lider sprawdza go po fazie badania (czysty worktree, zero commitów). Worker poprawiający problem zachowuje wtedy kontekst, a okno zaufania do folderu pojawia się tylko raz.
 - **Lokalizacje:**
   - worktree poza repo: `~/.herdr-foreman/worktrees/<repo>-<hash>/<task>/<worker>`, gałęzie `foreman-work/<task>/<worker>` (git nie pozwala mieć naraz `foreman/<task>` i `foreman/<task>/<worker>`);
@@ -134,6 +134,7 @@ Starsze projekty z pierwszego przeglądu: crew, herdr-claude-teams, herdr-swarm,
 
 - Plugin to manifest TOML plus dowolny program. Ma akcje pod klawiszami (`[[keys.command]]` z `plugin_action`), panele `overlay`, `popup`, `split`, `tab`, `zoomed` i hooki. Dostaje `HERDR_BIN_PATH`, `HERDR_SOCKET_PATH`, `HERDR_PLUGIN_CONTEXT_JSON`. Instalacja: `herdr plugin install owner/repo[/subdir]`, lokalnie `herdr plugin link <ścieżka>`. Marketplace indeksuje publiczne repo z tematem `herdr-plugin`. Dokumentacja: https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/plugins.mdx
 - Na Windowsie komendy z `[[keys.command]]` idą przez `cmd.exe /d /c`.
+- Sprawdzone przy budowie wtyczki: `HERDR_PLUGIN_CONTEXT_JSON` ma `focused_pane_cwd` i `workspace_cwd`, także w panelu otwartym z akcji; panel wtyczki dostaje terminal (TTY), akcja nie. Nakładka (`overlay`) zawsze otwiera się nad aktywnym panelem: `--target-pane` daje błąd `invalid_params`. CLI 0.9.5 nie zna jeszcze `popup` przy `plugin pane open`. Karta utworzona z nakładki z `--focus` zostaje aktywna po jej zamknięciu. Komendy wtyczki dziedziczą `HERDR_SESSION` i `HERDR_SOCKET_PATH`, więc `herdr` wywołany z nich trafia do właściwej sesji.
 - `herdr agent start <nazwa> --kind <rodzaj> --pane <id> [--timeout MS] [-- <argumenty agenta>]` wymaga panelu z powłoką przy znaku zachęty i wraca, gdy agent jest gotowy, albo z `agent_not_ready`. Nazwy: `[a-z][a-z0-9_-]{0,31}`.
 - `herdr agent prompt <cel> "<tekst>" --wait`, `herdr agent wait`, `herdr agent read --source recent-unwrapped --lines N`, `herdr agent send-keys`, stany `idle`, `working`, `blocked`, `done`, `unknown`.
 - Rodzaje agentów: pi, claude, codex, gemini, cursor, devin, agy, cline, omp, mastracode, opencode, copilot, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qwen, letta, maki, muse.

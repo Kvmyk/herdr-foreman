@@ -1,3 +1,8 @@
+<p align="center"><img src="media/banner.png" alt="foreman: one task, a crew of coding agents" width="820"></p>
+
+<p align="center"><img src="media/demo.gif" alt="foreman splits a task across claude, codex and opencode in herdr panes" width="820"><br>
+<a href="media/demo.mp4">Watch with sound (40 s, MP4)</a></p>
+
 # herdr-foreman
 
 Describe a task in plain words. A lead agent reads the repository, checks which coding agents you have installed and signed in, splits the work, picks the best agent and model for each part, and runs them side by side in [herdr](https://herdr.dev) panes. Workers first only investigate and propose changes; you approve a single numbered list; then they implement in separate git worktrees, and the leader collects, tests and asks before anything lands on your branch.
@@ -17,13 +22,33 @@ Nothing is pushed and no pull request is created.
 
 ## Install
 
+### As a herdr plugin
+
 ```
-git clone <this repo> herdr-foreman
-cd herdr-foreman
-npm link
+herdr plugin install Kuba7331/herdr-foreman
 ```
 
-`npm link` puts `foreman` on your PATH. Without it, run `node /path/to/herdr-foreman/bin/foreman.js`; the leader is told which form to use.
+herdr shows the manifest and the commands it will run before you confirm. Then bind a key in herdr's `config.toml` (`herdr --help` prints its path):
+
+```toml
+[[keys.command]]
+key = "prefix+f"
+type = "plugin_action"
+command = "herdr-foreman.start"
+description = "foreman: new task"
+```
+
+Run `herdr server reload-config`. In any pane inside a git repository, press `prefix+f` (default `ctrl+b`, then `f`), type the task and press Enter; an empty line cancels. The leader opens in a new tab of the same workspace. Without a key binding: `herdr plugin action invoke herdr-foreman.start`.
+
+### As a command
+
+```
+npm install -g github:Kuba7331/herdr-foreman
+```
+
+or clone the repository and run `npm link` in it. Then run `foreman "<task>"` in any git repository: outside herdr it starts the herdr server if needed and attaches; inside herdr it opens a new tab.
+
+The plugin and the command run the same code. If `foreman` is not on your PATH, the leader is told to run its subcommands as `node /path/to/herdr-foreman/bin/foreman.js`.
 
 ## How a task runs
 
@@ -94,3 +119,13 @@ npm test
 ```
 
 Tests use only Node's built-in test runner; git tests create throwaway repositories in the system temp directory.
+
+To try the plugin from a working copy, run `herdr plugin link .` in it (and `herdr plugin unlink herdr-foreman` to undo).
+
+## Media
+
+The logo (`media/logo.svg`), the banner, the demo video and its music are original and covered by the same license. `media/src/` holds the scripts that make them: `music.py` synthesises the soundtrack with numpy, and `demo.py` draws the frames with Pillow and encodes them with ffmpeg. The run in the video follows foreman's real flow and command names; its repository, findings and commit ids are made up.
+
+## License
+
+MIT
