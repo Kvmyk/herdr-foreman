@@ -68,3 +68,14 @@ test('agentList returns agents', async () => {
   const herdr = createHerdr({ run: fakeRun([[/^herdr agent list/, json({ type: 'agent_list', agents: [{ name: 'lead' }] })]]) });
   assert.deepEqual(await herdr.agentList(), [{ name: 'lead' }]);
 });
+
+test('agentRead returns the plain screen text', async () => {
+  const run = fakeRun([[/^herdr agent read w1 --source visible/, { stdout: 'line 1\nline 2\n' }]]);
+  const herdr = createHerdr({ run });
+  assert.equal(await herdr.agentRead('w1'), 'line 1\nline 2\n');
+});
+
+test('paneList returns panes', async () => {
+  const herdr = createHerdr({ run: fakeRun([[/^herdr pane list/, json({ type: 'pane_list', panes: [{ pane_id: 'w1:p1' }] })]]) });
+  assert.deepEqual(await herdr.paneList(), [{ pane_id: 'w1:p1' }]);
+});

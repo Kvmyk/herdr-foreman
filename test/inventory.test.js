@@ -139,3 +139,21 @@ test('inventory honours exclude', async () => {
   const list = await inventory({ run, which: (k) => (k === 'kimi' ? '/bin/kimi' : null), env: {}, home, readJson: () => null, exists: () => false, exclude: ['kimi'] });
   assert.equal(list.length, 0);
 });
+
+test('lean and effort args per kind', () => {
+  assert.ok(PROBES.claude.leanArgs.worker.includes('--strict-mcp-config'));
+  assert.ok(PROBES.claude.leanArgs.leader.join(' ').includes('AskUserQuestion'));
+  assert.ok(!PROBES.claude.leanArgs.worker.join(' ').includes('AskUserQuestion'));
+  assert.deepEqual(PROBES.claude.effortArgs('low'), ['--effort', 'low']);
+  assert.deepEqual(PROBES.agy.effortArgs('high'), ['--effort', 'high']);
+  assert.equal(PROBES.opencode.effortArgs, undefined);
+});
+
+test('a remembered default that is no longer listed is dropped with a note', async () => {
+  const run = fakeRun([[/--version$/, { stdout: '1\n' }], ['opencode models', { stdout: 'google/gemini-3.5-flash\n' }]]);
+  const readJson = (p) => (p.endsWith('model.json') ? { recent: [{ providerID: 'github-copilot', modelID: 'gpt-5.3-codex' }] } : null);
+  const [a] = await inventory({ run, which: (k) => (k === 'opencode' ? '/bin/opencode' : null), env: {}, home, readJson, exists: () => false });
+  assert.equal(a.status, 'ready');
+  assert.equal(a.defaultModel, null);
+  assert.match(a.reason, /github-copilot\/gpt-5\.3-codex/);
+});

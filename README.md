@@ -45,7 +45,8 @@ If a worker asks for permission, the leader asks you once whether you answer suc
 |---|---|
 | `foreman agents [--json]` | Installed agent kinds: signed in?, models, default model |
 | `foreman brief [--json]` | Inventory, knowledge, models.dev facts and your stats in one JSON |
-| `foreman spawn --task <slug> [--new-tab] <name>=<kind>[:<model>]...` | Open workers in worktrees and panes |
+| `foreman spawn --task <slug> [--new-tab] [--effort <level>] [--full] <name>=<kind>[:<model>]...` | Open workers in worktrees and panes. `--effort low\|medium\|high\|xhigh\|max` (claude, agy); `--full` keeps MCP servers and skills for claude workers |
+| `foreman wait --task <slug> [--phase investigate\|implement] [--only a,b] [--timeout ms]` | Block until every worker finished (its report written) or one needs attention; returns within 9 minutes |
 | `foreman status --task <slug> [--json]` | Changes, commits and reports per worker |
 | `foreman merge --task <slug> [--only a,b] [--json]` | Collect committed work on `foreman/<slug>` |
 | `foreman land --task <slug>` | Merge `foreman/<slug>` into your current branch (refuses with uncommitted changes) |
@@ -64,13 +65,23 @@ Choosing is based on three layers:
 2. **General knowledge:** `knowledge/agents.json` holds harness strengths and model family tendencies, with dates and sources. Model facts (context, price, release date) come from [models.dev](https://models.dev), fetched at most once a day.
 3. **Your results:** the journal in `~/.herdr-foreman/journal.jsonl`. Once a category has 5 or more results, they outweigh the general knowledge.
 
+## Token use
+
+Every turn an agent takes re-sends its whole conversation, so foreman cuts turns and per-turn context rather than thinking (details and measurements in `docs/research/2026-11-07-tokeny.md`):
+
+- **`foreman wait`:** the leader blocks once instead of polling workers; it gets a worker's screen only when that worker asks something.
+- **Lean starts:** claude leaders and workers start without MCP servers, skills and unused tools. That measured about 23k instead of 44k tokens of context per turn. Use `--full` for a worker that needs them, or set `"lean": false`.
+- **Effort per worker:** `--effort low` for mechanical parts, higher only where reasoning pays.
+- **Compact data:** `foreman brief` carries only what planning needs (about 9k characters instead of 33k), and `--json` output has no whitespace.
+- **Leader instructions:** batched commands, targeted briefs (files and test command) and short reports.
+
 ## Files
 
 Everything lives in `~/.herdr-foreman/` (set `FOREMAN_HOME` to move it):
 
 | Path | Contents |
 |---|---|
-| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `knowledgeUrl`, `excludeKinds` |
+| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl`, `excludeKinds` |
 | `knowledge.override.json` | Optional: your corrections to the knowledge file, deep-merged |
 | `journal.jsonl` | Your results |
 | `worktrees/` | Worker worktrees, outside your repository |

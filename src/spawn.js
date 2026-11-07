@@ -1,7 +1,7 @@
 // Opens workers: one git worktree and one herdr pane per worker, agents
 // started in parallel. Panes sit next to the leader in columns of up to three.
 import path from 'node:path';
-import { HERDR_KINDS, PROBES } from './inventory/kinds.js';
+import { HERDR_KINDS, PROBES, EFFORT_LEVELS } from './inventory/kinds.js';
 import { planLayout, columnRatios, rowRatios } from './layout.js';
 import { worktreeRoot, saveRun, loadRun } from './runs.js';
 import { fail } from './errors.js';
@@ -15,11 +15,12 @@ export function parseSpec(s) {
   return { name: m[1], kind: m[2], model: m[3] ?? null };
 }
 
-async function validate({ herdr, config, task, specs, existing, pane, newTab }) {
+async function validate({ herdr, config, task, specs, existing, pane, newTab, effort }) {
   if (specs.length < 1 || specs.length > config.maxWorkers) {
     throw fail('TOO_MANY', `between 1 and ${config.maxWorkers} workers per spawn (got ${specs.length})`);
   }
   if (!TASK.test(task)) throw fail('BAD_TASK', `bad task slug "${task}"; use lowercase letters, digits and -`);
+  if (effort && !EFFORT_LEVELS.includes(effort)) throw fail('BAD_EFFORT', `effort must be one of ${EFFORT_LEVELS.join(', ')}`);
   const parsed = specs.map(parseSpec);
   const unknown = parsed.find((w) => !HERDR_KINDS.includes(w.kind));
   if (unknown) throw fail('UNKNOWN_KIND', `herdr cannot start agent kind "${unknown.kind}"`);
@@ -89,9 +90,11 @@ async function excludeReports({ git, repo, readFile, appendFile, mkdir }) {
   appendFile(file, `${text && !text.endsWith('\n') ? '\n' : ''}.foreman/\n`);
 }
 
-export async function spawnWorkers({ herdr, git, paths, config, repo, task, specs, pane, newTab = false, writeFile, readFile, appendFile, mkdir }) {
+export async function spawnWorkers({
+  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, writeFile, readFile, appendFile, mkdir,
+}) {
   const existing = loadRun(task, { paths, readFile });
-  const parsed = await validate({ herdr, config, task, specs, existing, pane, newTab });
+  const parsed = await validate({ herdr, config, task, specs, existing, pane, newTab, effort });
   const warnings = [];
 
   const base = existing?.base ?? await git.head(repo);
@@ -125,8 +128,14 @@ export async function spawnWorkers({ herdr, git, paths, config, repo, task, spec
 
   const results = await Promise.all(workers.map((w) => {
     const probe = PROBES[w.kind];
-    if (w.model && !probe) warnings.push(`no model flag known for ${w.kind}; ${w.name} starts with its default model`);
-    const args = w.model && probe ? probe.modelArgs(w.model) : [];
+    const args = [];
+    if (w.model && probe) args.push(...probe.modelArgs(w.model));
+    else if (w.model) warnings.push(`no model flag known for ${w.kind}; ${w.name} starts with its default model`);
+    if (effort && probe?.effortArgs) args.push(...probe.effortArgs(effort));
+    else if (effort) warnings.push(`no effort setting known for ${w.kind}; ${w.name} uses its default effort`);
+    // Lean start: fewer tool definitions re-sent on every turn. --full keeps MCP servers
+    // and skills, e.g. for a worker that tests a web app in the browser.
+    if (config.lean !== false && !full && probe?.leanArgs) args.push(...probe.leanArgs.worker);
     return herdr.agentStart({ name: w.name, kind: w.kind, pane: w.paneId, timeoutMs: config.startTimeoutMs, args });
   }));
   workers.forEach((w, i) => {

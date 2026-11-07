@@ -105,6 +105,12 @@ Kuba zatwierdza PR; później można to zautomatyzować. Foreman przy starcie po
   - lider na koniec pyta, czy zamknąć jego kartę, i przy zgodzie woła `foreman close-leader`;
   - `foreman cleanup` bez `--task` pokazuje porzucone zadania, a `--all` je sprząta;
   - panel z zapisu jest zamykany tylko wtedy, gdy nadal siedzi w nim ten worker albo proces w jego worktree, bo po restarcie herdr numery paneli zaczynają się od nowa.
+- **Oszczędzanie tokenów** (prośba Kuby po próbie; research i pomiary w `docs/research/2026-11-07-tokeny.md`): koszt to liczba tur razy kontekst na turę. Wdrożone:
+  - `foreman wait` zamiast odpytywania workerów przez lidera;
+  - odchudzony start Claude Code (bez MCP, skilli i zbędnych narzędzi; `--full` i `"lean": false` to wyłączają);
+  - `--effort` przy `spawn`;
+  - zwięzły `brief` i JSON;
+  - instrukcja lidera nastawiona na mniej tur (łączenie komend, celne briefy, krótkie raporty).
 - **herdr po zamknięciu ostatniego panelu** (sprawdzone na osobnej sesji 2026-11-07): karta i przestrzeń robocza znikają, serwer działa dalej z zerem przestrzeni i można tworzyć nowe. Niesprawdzone: zachowanie okna (klienta) podłączonego do sesji, w której znika ostatnia przestrzeń.
 
 ## Co już istnieje (przegląd 2026-11-07)

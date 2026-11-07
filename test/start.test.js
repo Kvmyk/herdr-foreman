@@ -91,7 +91,8 @@ test('inside herdr creates tab in current workspace and prompts the leader', asy
   assert.equal(r.slug, 'sprawdz-blad-w-logowaniu');
   const tab = log.find(([k]) => k === 'tab')[1];
   assert.deepEqual([tab.workspaceId, tab.cwd, tab.focus], ['w1', repo, true]);
-  assert.deepEqual(log.find(([k]) => k === 'start')[1], { name: 'lead', kind: 'claude', pane: 'w1:p9', timeoutMs: DEFAULT_CONFIG.startTimeoutMs });
+  const start = log.find(([k]) => k === 'start')[1];
+  assert.deepEqual([start.name, start.kind, start.pane, start.timeoutMs], ['lead', 'claude', 'w1:p9', DEFAULT_CONFIG.startTimeoutMs]);
   assert.equal(log.find(([k]) => k === 'prompt')[1].name, 'lead');
   assert.equal(log.some(([k]) => k === 'attach'), false);
 });
@@ -125,4 +126,19 @@ test('trust prompt leaves instructions instead of prompting', async () => {
   assert.equal(log.some(([k]) => k === 'prompt'), false);
   assert.match(r.message, /w1:p9/);
   assert.match(r.message, /herdr agent prompt lead/);
+});
+
+test('claude leader starts lean with AskUserQuestion; extra leader args are appended', async () => {
+  const { deps, log } = fakes();
+  await startForeman({ ...deps, config: { ...DEFAULT_CONFIG, leaderArgs: ['--effort', 'high'] }, task: 'fix it' });
+  const args = log.find(([k]) => k === 'start')[1].args;
+  assert.ok(args.includes('--strict-mcp-config'));
+  assert.ok(args.join(' ').includes('AskUserQuestion'));
+  assert.deepEqual(args.slice(-2), ['--effort', 'high']);
+});
+
+test('lean can be switched off', async () => {
+  const { deps, log } = fakes();
+  await startForeman({ ...deps, config: { ...DEFAULT_CONFIG, lean: false }, task: 'fix it' });
+  assert.deepEqual(log.find(([k]) => k === 'start')[1].args, []);
 });

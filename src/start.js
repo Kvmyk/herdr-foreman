@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
+import { PROBES } from './inventory/kinds.js';
 
 export const INSTRUCTIONS_PATH = fileURLToPath(new URL('../leader/INSTRUCTIONS.md', import.meta.url));
 
@@ -62,7 +63,9 @@ export async function startForeman({
   for (let n = 2; live.has(leader); n++) leader = `lead${n}`;
 
   const prompt = buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd });
-  const started = await herdr.agentStart({ name: leader, kind: config.leader, pane: paneId, timeoutMs: config.startTimeoutMs });
+  const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];
+  const args = [...lean, ...(config.leaderArgs ?? [])];
+  const started = await herdr.agentStart({ name: leader, kind: config.leader, pane: paneId, timeoutMs: config.startTimeoutMs, args });
   let message;
   if (started.ok) {
     await herdr.agentPrompt(leader, prompt);

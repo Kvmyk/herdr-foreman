@@ -97,6 +97,13 @@ export function createHerdr({ run, bin = 'herdr' }) {
       return { ok: false, code: err.code, message: err.message };
     },
 
+    // Plain text of what the agent's pane shows (not JSON).
+    async agentRead(target, { source = 'visible' } = {}) {
+      const res = await run(bin, ['agent', 'read', target, '--source', source], { timeoutMs: 15000 });
+      if (res.code !== 0) throw errorOf(res);
+      return res.stdout;
+    },
+
     async agentPrompt(target, text) {
       await call(['agent', 'prompt', target, text]);
     },

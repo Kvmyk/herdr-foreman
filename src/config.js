@@ -6,6 +6,9 @@ export const DEFAULT_CONFIG = Object.freeze({
   leader: 'claude',
   maxWorkers: 6,
   startTimeoutMs: 90000,
+  waitTimeoutMs: 540000,
+  lean: true,
+  leaderArgs: [],
   knowledgeUrl: null,
   excludeKinds: [],
 });

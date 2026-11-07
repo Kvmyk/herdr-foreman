@@ -88,13 +88,26 @@ async function probeCodex({ run, timeoutMs }) {
   return ready([]);
 }
 
-const flag = (name) => (model) => [name, model];
+const flag = (name) => (value) => [name, value];
+
+// Claude Code starts with ~26k tokens of context per turn; without MCP servers,
+// skills and unused tools it is ~14k (measured 2026-11-07). Every turn re-sends it.
+const CLAUDE_LEAN = ['--strict-mcp-config', '--disable-slash-commands', '--tools'];
+const CLAUDE_TOOLS = 'Bash,Read,Glob,Grep,Edit,Write';
+
+export const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
 
 export const PROBES = Object.freeze({
-  claude: { probe: probeClaude, modelArgs: flag('--model'), verified: true },
-  agy: { probe: probeAgy, modelArgs: flag('--model'), verified: true },
-  opencode: { probe: probeOpencode, modelArgs: flag('--model'), verified: true },
-  pi: { probe: probePi, modelArgs: flag('--model'), verified: true },
+  claude: {
+    probe: probeClaude,
+    modelArgs: flag('--model'),
+    effortArgs: flag('--effort'),
+    leanArgs: { leader: [...CLAUDE_LEAN, `${CLAUDE_TOOLS},AskUserQuestion`], worker: [...CLAUDE_LEAN, CLAUDE_TOOLS] },
+    verified: true,
+  },
+  agy: { probe: probeAgy, modelArgs: flag('--model'), effortArgs: flag('--effort'), verified: true },
+  opencode: { probe: probeOpencode, modelArgs: flag('--model'), listsModels: true, verified: true },
+  pi: { probe: probePi, modelArgs: flag('--model'), listsModels: true, verified: true },
   gemini: { probe: probeGemini, modelArgs: flag('-m'), verified: true },
   codex: { probe: probeCodex, modelArgs: flag('-m'), verified: false },
 });

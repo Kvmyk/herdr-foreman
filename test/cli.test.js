@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { main, summarizeModels } from '../src/cli.js';
+import { main } from '../src/cli.js';
 
 function harness(ops = {}, extra = {}) {
   let out = '';
@@ -89,19 +89,6 @@ test('failed start returns 1 with message', async () => {
   assert.match(h.err(), /git repository/);
 });
 
-test('summarizeModels keeps default and subscription first and caps the list', () => {
-  const models = [
-    ...Array.from({ length: 50 }, (_, i) => ({ id: `openrouter/m${i}`, access: 'api' })),
-    { id: 'github-copilot/gpt-5.3-codex', access: 'subscription' },
-    { id: 'ollama/qwen', access: 'local' },
-  ];
-  const s = summarizeModels({ models, defaultModel: 'openrouter/m7' }, 10);
-  assert.equal(s.models.length, 10);
-  assert.deepEqual(s.models.slice(0, 3).map((m) => m.id), ['openrouter/m7', 'github-copilot/gpt-5.3-codex', 'ollama/qwen']);
-  assert.equal(s.modelsTotal, 52);
-  assert.equal(s.modelsOmitted, 42);
-});
-
 test('cleanup without task lists leftovers', async () => {
   const h = harness({ leftovers: async () => [{ task: 'old-run', repo: '/r', worktrees: ['/w/a'], liveWorkers: ['w1'] }] });
   assert.equal(await main(['cleanup'], h.deps), 0);
@@ -125,4 +112,22 @@ test('cleanup words still start a task', async () => {
   const h = harness();
   assert.equal(await main(['cleanup', 'the', 'old', 'code'], h.deps), 0);
   assert.deepEqual(h.calls, [['start', 'cleanup the old code']]);
+});
+
+test('wait prints compact json', async () => {
+  const h = harness({ wait: async (o) => { h.calls.push(['wait', o.task, o.phase, o.only, o.timeoutMs]); return { result: 'done', elapsedS: 3, workers: { w1: 'done' } }; } });
+  assert.equal(await main(['wait', '--task', 't', '--phase', 'investigate', '--only', 'w1', '--timeout', '1000'], h.deps), 0);
+  assert.deepEqual(h.calls, [['wait', 't', 'investigate', ['w1'], 1000]]);
+  assert.equal(h.out(), '{"result":"done","elapsedS":3,"workers":{"w1":"done"}}\n');
+});
+
+test('wait rejects an unknown phase', async () => {
+  const h = harness({ wait: async () => ({}) });
+  assert.equal(await main(['wait', '--task', 't', '--phase', 'later'], h.deps), 2);
+});
+
+test('spawn passes effort and full', async () => {
+  const h = harness({ spawn: async (o) => { h.calls.push(['spawn', o.effort, o.full, o.specs]); return { workers: [], warnings: [] }; } });
+  assert.equal(await main(['spawn', '--task', 't', '--effort', 'low', '--full', 'w1=claude', '--json'], h.deps), 0);
+  assert.deepEqual(h.calls, [['spawn', 'low', true, ['w1=claude']]]);
 });

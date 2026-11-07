@@ -165,3 +165,31 @@ test('pane failure rolls back created worktrees', async () => {
   assert.equal(f.log.filter(([k]) => k === 'rmworktree').length, 2);
   assert.equal(f.log.filter(([k]) => k === 'rmbranch').length, 2);
 });
+
+test('claude workers start lean by default; --full keeps everything', async () => {
+  const f = fakes();
+  await call(f, { specs: ['w1=claude:sonnet'] });
+  const args = f.log.find(([k]) => k === 'start')[1].args;
+  assert.deepEqual(args.slice(0, 2), ['--model', 'sonnet']);
+  assert.ok(args.includes('--strict-mcp-config') && args.includes('--disable-slash-commands'));
+  const g = fakes();
+  await call(g, { specs: ['w1=claude'], full: true });
+  assert.deepEqual(g.log.find(([k]) => k === 'start')[1].args, []);
+  const h = fakes();
+  await call(h, { specs: ['w1=claude'], config: { ...DEFAULT_CONFIG, lean: false } });
+  assert.deepEqual(h.log.find(([k]) => k === 'start')[1].args, []);
+});
+
+test('effort is passed where supported and warned about elsewhere', async () => {
+  const f = fakes();
+  const { warnings } = await call(f, { specs: ['w1=agy', 'w2=opencode'], effort: 'low' });
+  const starts = f.log.filter(([k]) => k === 'start').map(([, o]) => [o.name, o.args]);
+  assert.deepEqual(starts, [['w1', ['--effort', 'low']], ['w2', []]]);
+  assert.ok(warnings.some((w) => /opencode/.test(w) && /effort/.test(w)));
+});
+
+test('rejects an unknown effort level before creating anything', async () => {
+  const f = fakes();
+  await assert.rejects(call(f, { specs: ['w1=claude'], effort: 'turbo' }), (e) => e.code === 'BAD_EFFORT');
+  assert.equal(f.log.length, 0);
+});
