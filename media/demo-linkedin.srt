@@ -1,23 +1,23 @@
 1
-00:00:00,200 --> 00:00:03,799
-One command. The task is described in plain words.
+00:00:00,000 --> 00:00:01,700
+Describe the task in plain words.
 
 2
-00:00:04,000 --> 00:00:08,500
-The leader checks which agents you have and splits the work.
+00:00:02,000 --> 00:00:07,100
+The leader splits the work.
 
 3
-00:00:09,000 --> 00:00:14,000
-Workers investigate in parallel. Nothing changes yet.
+00:00:07,400 --> 00:00:12,000
+Workers investigate. Nothing changes yet.
 
 4
-00:00:14,500 --> 00:00:18,500
-You approve a numbered list of proposals.
+00:00:12,400 --> 00:00:16,400
+You approve what gets done.
 
 5
-00:00:19,000 --> 00:00:24,000
-Workers implement, commit and test in separate worktrees.
+00:00:16,600 --> 00:00:21,600
+Workers implement, test and commit.
 
 6
-00:00:24,500 --> 00:00:27,500
-Nothing is pushed. No pull request. Your call.
+00:00:21,900 --> 00:00:26,600
+Nothing is pushed. You decide.

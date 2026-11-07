@@ -1,17 +1,19 @@
 """Quiet ambient pad with keyboard foley for the foreman demo video.
 
 Synthesised from scratch with numpy/scipy — no samples, no licensing questions.
-Key clicks and Enter thuds are synced to the typing events in demo.py.
+Key clicks and Enter thuds are synced to the typing events in demo.py, and
+the length comes from the cut there.
 
-    python media/src/music.py out.wav               # default 37.4 s (16:9)
-    python media/src/music.py out.wav --linkedin     # 30 s (LinkedIn cut)
-    python media/src/music.py out.wav --length 40    # custom length
+    python media/src/music.py music.wav              # 16:9 cut
+    python media/src/music.py music-li.wav --linkedin  # LinkedIn cut
 """
 import sys
 
 import numpy as np
 from scipy.io import wavfile
 from scipy.signal import butter, fftconvolve, sosfilt
+
+import demo
 
 SR = 44100
 rng = np.random.default_rng(42)
@@ -136,35 +138,6 @@ def render_foley(length, typing_events):
     return buf
 
 
-# ---------------------------------------------------------------- typing events from demo.py timeline
-
-def _typing_events_16x9():
-    """Hardcoded typing events matching demo.py timeline."""
-    events = []
-    typed_lines = [
-        # (start_time, text, cps)
-        (0.2 + 0.25, 'foreman "fix payment security holes"', 15),
-        (7.5 + 0.25, f'foreman spawn --task fix-payment-security-holes …', 34),
-        (18.0 + 0.25, '1, 2 and 3 yes, 4 no', 15),
-        (27.6 + 0.25, '1', 6),
-    ]
-    for start, text, cps in typed_lines:
-        for i, ch in enumerate(text):
-            events.append((start + i / cps, ch))
-        events.append((start + len(text) / cps + 0.05, '\n'))
-    return events
-
-
-def _typing_events_linkedin():
-    """Remap 16:9 events to LinkedIn timeline."""
-    from demo import _remap_li
-    events_16x9 = _typing_events_16x9()
-    events = []
-    for t, ch in events_16x9:
-        events.append((_remap_li(t), ch))
-    return events
-
-
 # ---------------------------------------------------------------- reverb
 
 def add_reverb(buf, wet=0.15):
@@ -182,17 +155,10 @@ def add_reverb(buf, wet=0.15):
 
 # ---------------------------------------------------------------- main
 
-def render(length=37.4, is_linkedin=False):
+def render(cut='wide'):
+    length = demo.length(cut)
     pad = render_pad(length)
-
-    if is_linkedin:
-        try:
-            events = _typing_events_linkedin()
-        except Exception:
-            events = _typing_events_16x9()
-    else:
-        events = _typing_events_16x9()
-
+    events = demo.typing_events(cut)
     foley = render_foley(length, events)
 
     # Mix: pad is the bed, foley on top
@@ -217,19 +183,10 @@ def render(length=37.4, is_linkedin=False):
 
 
 if __name__ == '__main__':
-    is_linkedin = '--linkedin' in sys.argv
+    cut = 'linkedin' if '--linkedin' in sys.argv else 'wide'
     argv = [a for a in sys.argv[1:] if a != '--linkedin']
-
-    length = 37.4
-    if is_linkedin:
-        length = 30.0
-    if '--length' in argv:
-        i = argv.index('--length')
-        length = float(argv[i + 1])
-        argv = argv[:i] + argv[i + 2:]
-
     out = argv[0] if argv else 'music.wav'
-    audio = render(length=length, is_linkedin=is_linkedin)
+    audio = render(cut)
     wavfile.write(out, SR, (audio.T * 32767).astype(np.int16))
     rms = 20 * np.log10(np.sqrt((audio ** 2).mean()) + 1e-10)
-    print(f'{out}: {length:.0f} s, peak {20 * np.log10(np.abs(audio).max() + 1e-10):.0f} dBFS, RMS {rms:.1f} dBFS')
+    print(f'{out}: {demo.length(cut):.1f} s, peak {20 * np.log10(np.abs(audio).max() + 1e-10):.0f} dBFS, RMS {rms:.1f} dBFS')

@@ -1,7 +1,7 @@
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="media/banner.png"><source media="(prefers-color-scheme: light)" srcset="media/banner-light.png"><img src="media/banner.png" alt="foreman: one task, a crew of coding agents" width="820"></picture></p>
 
 <p align="center"><img src="media/demo.gif" alt="foreman splits a task across claude, codex and opencode in herdr panes" width="820"><br>
-<a href="media/demo.mp4">Watch with sound (40 s, MP4)</a></p>
+<a href="media/demo.mp4">Watch with sound (32 s, MP4)</a></p>
 
 # herdr-foreman
 
@@ -124,7 +124,7 @@ To try the plugin from a working copy, run `herdr plugin link .` in it (and `her
 
 ## Media
 
-The logo (`media/logo.svg`), the banner, the demo video and its music are original and covered by the same license. `media/src/` holds the scripts that make them: `brand.py` draws the logo and both banners with Pillow, using the Barlow font vendored in `media/src/fonts/` under the SIL Open Font License, `music.py` synthesises the soundtrack with numpy, and `demo.py` draws the frames with Pillow and encodes them with ffmpeg. The run in the video follows foreman's real flow and command names; its repository, findings and commit ids are made up.
+The logo (`media/logo.svg`), the banners, the demo videos and their music are original and covered by the same license. `media/src/` holds the scripts that make them: `brand.py` draws the logo and both banners with Pillow, using the Barlow font vendored in `media/src/fonts/` under the SIL Open Font License; `music.py` synthesises an ambient pad and key-click foley with numpy; `demo.py` draws the frames with Pillow and encodes them with ffmpeg, both for `media/demo.mp4` (16:9) and for the 29-second 4:5 LinkedIn cut `media/demo-linkedin.mp4` with its captions as `media/demo-linkedin.srt` and its 1080x1350 cover `media/demo-linkedin-cover.png`; and `gif.py` turns the 16:9 cut into `media/demo.gif` with ffmpeg. The run in the videos follows foreman's real flow and command names; its repository, findings and commit ids are made up.
 
 ## License
 

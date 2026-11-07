@@ -2,6 +2,7 @@
 
 Two-pass ffmpeg palettegen/paletteuse, 12 fps, 820 px wide (matching
 README width=820), terminal scene only (skips the outro), target ≤ 3 MB.
+ffmpeg only, nothing else to install.
 
     python media/src/gif.py media/demo.mp4 media/demo.gif
 """
@@ -10,6 +11,8 @@ import subprocess
 import shutil
 import sys
 
+import demo
+
 
 def main():
     if len(sys.argv) < 3:
@@ -17,9 +20,8 @@ def main():
     inp, out = sys.argv[1], sys.argv[2]
     ffmpeg = shutil.which('ffmpeg') or sys.exit('ffmpeg not found on PATH')
 
-    # Terminal scene runs 0 – ~35.4 s in the 16:9 cut (outro starts at 35.4)
-    # We trim to 0–35 s to avoid the fade-to-outro.
-    duration = '35'
+    # The terminal scene only; the outro lockup repeats the README banner.
+    duration = f'{demo.main_end("wide"):.2f}'
 
     palette = out + '.palette.png'
 

@@ -1,24 +1,32 @@
 """Render the foreman demo: frames drawn with Pillow, piped to ffmpeg.
 
     python media/src/music.py music.wav
-    python media/src/demo.py music.wav demo.mp4               # 16:9, README
-    python media/src/demo.py music.wav demo-li.mp4 --linkedin  # 4:5, LinkedIn
-    python media/src/demo.py --still 21 frame.png              # one 16:9 frame
-    python media/src/demo.py --still 21 frame.png --linkedin   # one 4:5 frame
+    python media/src/demo.py music.wav media/demo.mp4                  # 16:9, README
+    python media/src/music.py music-li.wav --linkedin
+    python media/src/demo.py music-li.wav media/demo-linkedin.mp4 --linkedin
+    python media/src/demo.py --srt media/demo-linkedin.srt --linkedin   # captions as SRT
+    python media/src/demo.py --cover media/demo-linkedin-cover.png      # 1080x1350 cover
+    python media/src/demo.py --still 12 frame.png [--linkedin]          # one frame, for checking
 
-Needs Pillow, numpy, ffmpeg on PATH and the Cascadia Mono and Segoe UI
-fonts (Windows). Barlow (SIL OFL) is vendored in media/src/fonts.
-FOREMAN_REPO sets the GitHub repo shown at the end.
+Needs Pillow, numpy, ffmpeg on PATH and the Cascadia Mono font (Windows).
+Barlow (SIL OFL) is vendored in media/src/fonts; the outro lockup comes from
+brand.py. FOREMAN_REPO sets the GitHub repo shown at the end.
 The run shown follows foreman's real flow and command names; the repository,
 findings and commit ids are made up.
+
+All events below are on one story clock. Each cut maps video time to story
+time piecewise (the LinkedIn cut shortens the two waits), and captions, the
+SRT and the key clicks in music.py are placed on the cut's video clock.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
 
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+import brand
 
 REPO = os.environ.get('FOREMAN_REPO', 'Kvmyk/herdr-foreman')
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -26,10 +34,13 @@ FONT_DIRS = [os.path.join(HERE, 'fonts'),
              os.path.join(os.environ.get('WINDIR', 'C:/Windows'), 'Fonts'),
              os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'Windows', 'Fonts')]
 
-# Brand palette (from brand.py)
-INK = (17, 17, 19)         # #111113
-PAPER = (244, 241, 234)    # #F4F1EA
-AMBER = (255, 176, 0)      # #FFB000
+INK, PAPER, AMBER = brand.INK, brand.PAPER, brand.AMBER
+FG, DIM, MUTED = (214, 211, 204), (128, 126, 121), (190, 186, 178)
+GREEN, BLUE, VIOLET, RED = (52, 211, 153), (56, 189, 248), (192, 132, 252), (248, 113, 113)
+WIN, WIN_BORDER, TITLEBAR = (22, 22, 26), (46, 46, 54), (28, 28, 33)
+PANE, PANE_BORDER, PANE_FOCUS = (24, 24, 29), (46, 46, 54), (104, 102, 98)
+STATE_COLOR = {'starting': DIM, 'working': AMBER, 'done': GREEN, 'idle': BLUE}
+STATE_LABEL = {'starting': 'starting', 'working': 'working', 'done': 'done', 'idle': 'waiting for you'}
 
 
 def load(name, size, variation=None):
@@ -43,113 +54,78 @@ def load(name, size, variation=None):
     raise SystemExit(f'font {name} not found')
 
 
-# ---------------------------------------------------------------- profiles
-# Each profile defines canvas size, terminal geometry and caption placement.
+# ---------------------------------------------------------------- cuts
 
-def _profile_16x9():
-    W, H, FPS = 1920, 1080, 30
-    X0, Y0, X1, Y1 = 100, 40, 1820, 870
-    TITLE_H = 46
-    return dict(W=W, H=H, FPS=FPS, X0=X0, Y0=Y0, X1=X1, Y1=Y1, TITLE_H=TITLE_H,
-                CAP_Y=Y1 + 30, CAP_FONT_SIZE=36, CAP_SAFE_BOTTOM=H)
-
-
-def _profile_linkedin():
-    W, H, FPS = 1080, 1350, 30
-    X0, Y0, X1, Y1 = 30, 40, 1050, 1060
-    TITLE_H = 46
-    # Captions inside the safe zone: top 150 px, bottom 250 px reserved by LI UI
-    return dict(W=W, H=H, FPS=FPS, X0=X0, Y0=Y0, X1=X1, Y1=Y1, TITLE_H=TITLE_H,
-                CAP_Y=Y1 + 30, CAP_FONT_SIZE=36, CAP_SAFE_BOTTOM=H - 250)
+CUTS = {
+    # Window, pane layout, terminal font and caption placement per format.
+    # 'map' pairs (story time, video time); the main scene ends at the last
+    # pair and a 2 s outro follows.
+    'wide': dict(W=1920, H=1080, window=(100, 40, 1820, 870), layout='side',
+                 mono=24, line_h=34, cap_size=36, cap_y=930, lockup=0.9,
+                 map=[(2.6, 0.0), (32.6, 30.0)]),
+    # 4:5 feed video: caption on top, clear of the player controls at the
+    # bottom; lead pane full width on top, workers stacked below it.
+    'linkedin': dict(W=1080, H=1350, window=(24, 160, 1056, 1318), layout='stack',
+                     mono=25, line_h=35, cap_size=40, cap_y=92, lockup=0.84,
+                     map=[(2.6, 0.0), (11.3, 8.7), (15.5, 11.9), (20.2, 16.6), (24.4, 19.8), (31.6, 27.0)]),
+}
+FPS, OUTRO, TITLE_H = 30, 2.0, 46
 
 
-# ---------------------------------------------------------------- timeline
-
-# LinkedIn compresses some pauses; these offsets are applied additively
-# to timestamps >= the key. Built by _remap_linkedin().
-_LI_CUTS = [
-    # (original_t, new_t) — piecewise-linear remap
-    (0.0,   0.0),
-    (4.0,   4.0),     # shell typing unchanged
-    (7.5,   6.5),     # leader start: slightly compressed
-    (13.8,  11.0),    # split opens
-    (19.5,  16.0),    # investigate done — compress the wait
-    (24.0,  20.0),    # approve section
-    (28.4,  23.5),    # implement done
-    (30.5,  25.0),    # "you decide" section
-    (32.4,  26.5),    # merge
-    (34.4,  27.5),    # cleanup done
-    (35.4,  28.0),    # outro starts
-    (37.4,  30.0),    # outro ends (2 s)
-]
+def main_end(cut):
+    return CUTS[cut]['map'][-1][1]
 
 
-def _remap_li(t):
-    """Remap a 16:9 timestamp to LinkedIn time."""
-    for i in range(len(_LI_CUTS) - 1):
-        t0, n0 = _LI_CUTS[i]
-        t1, n1 = _LI_CUTS[i + 1]
+def length(cut):
+    return main_end(cut) + OUTRO
+
+
+def to_video(cut, t):
+    m = CUTS[cut]['map']
+    for (t0, v0), (t1, v1) in zip(m, m[1:]):
         if t <= t1:
-            return n0 + (n1 - n0) * (t - t0) / (t1 - t0)
-    # Past the last cut point
-    t0, n0 = _LI_CUTS[-1]
-    return n0 + (t - t0)
+            return v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+    return m[-1][1] + t - m[-1][0]
 
 
-def _remap_li_inv(nt):
-    """Inverse: given LinkedIn time, return original time."""
-    for i in range(len(_LI_CUTS) - 1):
-        t0, n0 = _LI_CUTS[i]
-        t1, n1 = _LI_CUTS[i + 1]
-        if nt <= n1:
-            if n1 == n0:
-                return t0
-            return t0 + (t1 - t0) * (nt - n0) / (n1 - n0)
-    t0, n0 = _LI_CUTS[-1]
-    return t0 + (nt - n0)
+def to_story(cut, v):
+    m = CUTS[cut]['map']
+    for (t0, v0), (t1, v1) in zip(m, m[1:]):
+        if v <= v1:
+            return t0 + (t1 - t0) * (v - v0) / (v1 - v0)
+    return m[-1][0] + v - m[-1][1]
 
 
-# Total lengths
-LENGTH_16x9 = 37.4     # no intro, short outro: terminal scene + 2 s outro
-LENGTH_LI = 30.0
-
+# ---------------------------------------------------------------- the run (story time)
 
 def L(t, *spans):
     return {'t': t, 'spans': list(spans)}
 
 
-def TYPED(t, prefix, text, cps, color=None):
-    if color is None:
-        color = PAPER
+def TYPED(t, prefix, text, cps, color=FG):
     return {'t': t, 'spans': [prefix], 'type': text, 'cps': cps, 'color': color}
 
 
 TASK = 'fix-payment-security-holes'
+ENTER = 3.2                         # the opening command is already typed; Enter here
 
 SHELL = [
-    L(0.0, ('~/shop ', (56, 189, 248)), ('main', (192, 132, 252))),
-    TYPED(0.2, ('> ', (52, 211, 153)), 'foreman "fix payment security holes"', 15),
-    L(3.5, (f'Leader "lead" (claude) started in pane w1:p1 for task "{TASK}".', (110, 125, 156))),
+    L(-9, ('~/shop ', BLUE), ('main', VIOLET)),
+    dict(L(-9, ('> ', GREEN), ('foreman "fix payment security holes"', PAPER)), cursor_until=ENTER),
+    L(3.5, (f'Leader "lead" (claude) started in pane w1:p1 for task "{TASK}".', DIM)),
 ]
-
-DIM = (110, 125, 156)
-FG = (214, 222, 235)
-GREEN = (52, 211, 153)
-BLUE = (56, 189, 248)
-VIOLET = (192, 132, 252)
-RED = (248, 113, 113)
 
 LEAD = [
     L(4.7, ('$ ', DIM), ('foreman brief --json', FG)),
-    L(5.3, ('agents   ', DIM), ('claude ✓', GREEN), ('  codex ✓', GREEN), ('  opencode ✓', GREEN), ('  gemini – not signed in', DIM)),
+    L(5.3, ('agents  ', DIM), ('claude ✓', GREEN), ('  codex ✓', GREEN), ('  opencode ✓', GREEN), ('  gemini –', DIM)),
     L(5.9, ('', FG)),
     L(6.0, ('plan', AMBER), ('   part   category        agent         effort', DIM)),
     L(6.3, ('       sec1   ', BLUE), ('security-audit  ', FG), ('claude:opus   ', VIOLET), ('high', FG)),
     L(6.6, ('       test1  ', BLUE), ('testing         ', FG), ('codex         ', VIOLET), ('medium', FG)),
     L(6.9, ('       deps1  ', BLUE), ('security-audit  ', FG), ('opencode      ', VIOLET), ('low', FG)),
-    TYPED(7.5, ('$ ', DIM), f'foreman spawn --task {TASK} …', 34, FG),
+    TYPED(7.5, ('$ ', DIM), f'foreman spawn --task {TASK} …', 34),
     L(9.3, ('3 workers · 3 git worktrees · 3 panes', GREEN)),
-    L(10.8, ('$ ', DIM), ('herdr agent prompt ×3', FG), ('   investigate only, change nothing', DIM)),
+    L(10.8, ('$ ', DIM), ('herdr agent prompt ×3', FG), ('  investigate only, change nothing', DIM)),
     L(11.3, ('$ ', DIM), (f'foreman wait --task {TASK}', FG)),
     L(15.5, ('done  ', GREEN), ('sec1 test1 deps1', FG)),
     L(15.8, ('', FG)),
@@ -159,16 +135,16 @@ LEAD = [
     L(16.8, ('3 ', PAPER), ('[med]  ', AMBER), ('refund paths have no tests             ', FG), ('test1', DIM)),
     L(17.1, ('4 ', PAPER), ('[low]  ', BLUE), ('payment-sdk 2.1: advisory -> 2.4       ', FG), ('deps1', DIM)),
     L(17.6, ('Which items should I do?', PAPER)),
-    TYPED(18.0, ('› ', AMBER), '1, 2 and 3 yes, 4 no', 15),
-    L(20.2, ('$ ', DIM), (f'foreman wait --task {TASK} --phase implement', FG)),
+    TYPED(18.0, ('› ', AMBER), '1, 2 and 3 yes, 4 no', 15, PAPER),
+    L(20.2, ('$ ', DIM), ('foreman wait --phase implement', FG)),
     L(24.4, ('$ ', DIM), (f'foreman merge --task {TASK}', FG)),
     L(24.9, ('merged ', GREEN), ('sec1 test1', FG), (f' → foreman/{TASK}', DIM)),
     L(25.4, ('$ ', DIM), ('npm test', FG)),
     L(25.9, ('46 passed', GREEN), (', 0 failed', DIM)),
     L(26.4, ('', FG)),
     L(26.5, ('3 changes in 4 files, tests pass. What now?', PAPER)),
-    L(26.9, ('1 ', AMBER), ('merge into main    ', FG), ('2 ', AMBER), ('leave the branch    ', FG), ('3 ', AMBER), ('comments', FG)),
-    TYPED(27.6, ('› ', AMBER), '1', 6),
+    L(26.9, ('1 ', AMBER), ('merge into main   ', FG), ('2 ', AMBER), ('leave the branch   ', FG), ('3 ', AMBER), ('comments', FG)),
+    TYPED(27.6, ('› ', AMBER), '1', 6, PAPER),
     L(28.4, ('$ ', DIM), (f'foreman land --task {TASK}', FG)),
     L(28.9, ('main updated · nothing pushed, no pull request', GREEN)),
     L(29.6, ('$ ', DIM), (f'foreman cleanup --task {TASK}', FG)),
@@ -211,62 +187,40 @@ WORKERS = [
                L(20.5, ('no approved items', DIM))]},
 ]
 
-CAPTIONS_16x9 = [
-    (0.2,   4.3,  'Describe the task in plain words.'),
-    (4.6,   9.7,  'The leader checks agents and splits the work.'),
-    (10.0,  15.8, 'Each worker investigates in its own worktree. Nothing changes yet.'),
-    (16.0,  20.0, 'You approve what gets done.'),
-    (20.2,  26.3, 'Workers implement, commit and test.'),
-    (26.5,  31.2, 'Nothing is pushed. Your call.'),
+# (story start, story end, 16:9 text, 4:5 text); the 4:5 lines are shorter so
+# they fit one line at the larger size.
+CAPTIONS = [
+    (2.6, 4.3, 'Describe the task in plain words.', 'Describe the task in plain words.'),
+    (4.6, 9.7, 'The leader checks your agents and splits the work.', 'The leader splits the work.'),
+    (10.0, 15.6, 'Each worker investigates in its own worktree. Nothing changes yet.', 'Workers investigate. Nothing changes yet.'),
+    (16.0, 20.0, 'You approve what gets done.', 'You approve what gets done.'),
+    (20.2, 26.2, 'Workers implement, test and commit in their worktrees.', 'Workers implement, test and commit.'),
+    (26.5, 31.2, 'Nothing is pushed. You decide what lands.', 'Nothing is pushed. You decide.'),
 ]
 
-CAPTIONS_LI = [
-    (0.2,   3.8,  'One command. The task is described in plain words.'),
-    (4.0,   8.5,  'The leader checks which agents you have and splits the work.'),
-    (9.0,   14.0, 'Workers investigate in parallel. Nothing changes yet.'),
-    (14.5,  18.5, 'You approve a numbered list of proposals.'),
-    (19.0,  24.0, 'Workers implement, commit and test in separate worktrees.'),
-    (24.5,  27.5, 'Nothing is pushed. No pull request. Your call.'),
-]
 
-STATE_COLOR = {'starting': DIM, 'working': AMBER, 'done': GREEN, 'idle': BLUE}
-STATE_LABEL = {'starting': 'starting', 'working': 'working', 'done': 'done', 'idle': 'waiting for you'}
+def captions(cut):
+    """Captions on the cut's video clock: (start, end, text)."""
+    i = 2 if cut == 'wide' else 3
+    out = []
+    for c in CAPTIONS:
+        v0, v1 = to_video(cut, c[0]), min(to_video(cut, c[1]), main_end(cut))
+        out.append((round(v0, 2), round(v1, 2), c[i]))
+    return out
 
 
-# ---------------------------------------------------------------- font loading
-
-class Fonts:
-    """Lazily loaded fonts for a given profile."""
-    def __init__(self, profile):
-        self.profile = profile
-        self._cache = {}
-
-    def _get(self, key, name, size, variation=None):
-        if key not in self._cache:
-            self._cache[key] = load(name, size, variation)
-        return self._cache[key]
-
-    @property
-    def MONO(self):        return self._get('MONO', 'CascadiaMono.ttf', 24)
-    @property
-    def MONO_B(self):      return self._get('MONO_B', 'CascadiaMono.ttf', 24, 'Bold')
-    @property
-    def MONO_BIG(self):    return self._get('MONO_BIG', 'CascadiaMono.ttf', 36)
-    @property
-    def CAPTION(self):     return self._get('CAPTION', 'Barlow-SemiBold.ttf', self.profile['CAP_FONT_SIZE'])
-    @property
-    def STEP(self):        return self._get('STEP', 'Barlow-SemiBold.ttf', 21)
-    @property
-    def TITLE(self):       return self._get('TITLE', 'Barlow-SemiBold.ttf', 104)
-    @property
-    def TAG(self):         return self._get('TAG', 'Barlow-Regular.ttf', 40)
-    @property
-    def SMALL(self):       return self._get('SMALL', 'Barlow-Regular.ttf', 28)
-    @property
-    def WIN_TITLE(self):   return self._get('WIN_TITLE', 'Barlow-Regular.ttf', 22)
+def typing_events(cut):
+    """(video time, char) for the key clicks in music.py; '\\n' is Enter."""
+    events = [(ENTER, '\n')]
+    for line in SHELL + LEAD:
+        if 'type' in line:
+            start = line['t'] + 0.25
+            events += [(start + i / line['cps'], ch) for i, ch in enumerate(line['type'])]
+            events.append((start + len(line['type']) / line['cps'] + 0.05, '\n'))
+    return sorted((to_video(cut, t), ch) for t, ch in events if 0 <= to_video(cut, t) < main_end(cut))
 
 
-# ---------------------------------------------------------------- geometry helpers
+# ---------------------------------------------------------------- helpers
 
 def clamp(v, lo=0.0, hi=1.0):
     return max(lo, min(hi, v))
@@ -281,9 +235,6 @@ def mix(a, b, k):
     return tuple(int(a[i] + (b[i] - a[i]) * k) for i in range(3))
 
 
-LINE_H = 34
-
-
 def state_at(states, t):
     current = None
     for when, s in states:
@@ -293,7 +244,7 @@ def state_at(states, t):
 
 
 def split_at(t):
-    """0 = leader fills the window, 1 = leader left, workers right."""
+    """0 = the leader fills the window, 1 = workers shown."""
     if t < 9.8:
         return 0.0
     if t < 30.6:
@@ -301,350 +252,260 @@ def split_at(t):
     return 1 - ease((t - 30.6) / 0.6)
 
 
-# ---------------------------------------------------------------- drawing helpers
+class Fonts:
+    def __init__(self, c):
+        self.mono = load('CascadiaMono.ttf', c['mono'])
+        self.mono_b = load('CascadiaMono.ttf', c['mono'], 'Bold')
+        self.mono_big = load('CascadiaMono.ttf', round(c['mono'] * 1.45))
+        self.caption = load('Barlow-SemiBold.ttf', c['cap_size'])
+        self.small = load('Barlow-Regular.ttf', round(c['mono'] * 1.2))
+        self.win_title = load('Barlow-Regular.ttf', 22)
+        self.line_h = c['line_h']
+
+
+# ---------------------------------------------------------------- drawing
 
 def spans_at(line, t, bg):
     """Spans of a line at time t, faded in from bg, plus whether to draw a cursor."""
     k = clamp((t - line['t']) / 0.18)
     spans = [(text, mix(bg, color, k)) for text, color in line['spans']]
-    cursor = False
+    cursor = t < line.get('cursor_until', -1)
     if 'type' in line:
         start = line['t'] + 0.25
         n = int(clamp((t - start) * line['cps'], 0, len(line['type'])))
         spans.append((line['type'][:n], mix(bg, line['color'], k)))
-        done_at = start + len(line['type']) / line['cps']
-        cursor = t < done_at + 0.4
+        cursor = t < start + len(line['type']) / line['cps'] + 0.4
     return spans, cursor
 
 
-def draw_spans(d, x, y, spans, font, cursor=False, char_w=None):
+def wrap(spans, font, width):
+    """Word-wrap spans into rows no wider than width, like a terminal that
+    breaks at spaces; a word longer than a row is split."""
+    rows, row, x = [], [], 0.0
     for text, color in spans:
-        d.text((x, y), text, font=font, fill=color)
-        x += font.getlength(text)
-    if cursor and char_w:
-        d.rectangle((x + 2, y + 3, x + char_w - 1, y + LINE_H - 7), fill=FG)
+        for tok in re.findall(r'\S+\s*|\s+', text):
+            w = font.getlength(tok.rstrip())
+            if x > 0 and x + w > width:
+                rows.append(row)
+                row, x = [], 0.0
+                tok = tok.lstrip()
+                if not tok:
+                    continue
+            while font.getlength(tok.rstrip()) > width:
+                n = max(1, int(width // font.getlength('M')))
+                rows.append(row + [(tok[:n], color)])
+                row, tok = [], tok[n:]
+            row.append((tok, color))
+            x += font.getlength(tok)
+    rows.append(row)
+    return rows
 
 
-def text_block(w, h, lines, t, bg, font, char_w):
-    """Render the visible lines into a w x h image, scrolled to the bottom."""
+def text_block(w, h, lines, t, bg, font, lh):
+    """Render the visible lines into a w x h image, wrapped and scrolled to the bottom."""
     img = Image.new('RGB', (w, h), bg)
     d = ImageDraw.Draw(img)
-    shown = [ln for ln in lines if t >= ln['t']]
-    rows = max(1, h // LINE_H)
-    for i, ln in enumerate(shown[-rows:]):
-        spans, cursor = spans_at(ln, t, bg)
-        draw_spans(d, 0, i * LINE_H, spans, font, cursor=cursor, char_w=char_w)
+    char_w = font.getlength('M')
+    if w < 8 * char_w:              # a pane still opening
+        return img
+    rows = []
+    for ln in lines:
+        if t >= ln['t']:
+            spans, cursor = spans_at(ln, t, bg)
+            r = wrap(spans, font, w - char_w)
+            rows += [(row, False) for row in r[:-1]] + [(r[-1], cursor)]
+    for i, (row, cursor) in enumerate(rows[-max(1, h // lh):]):
+        x, y = 0, i * lh
+        for text, color in row:
+            d.text((x, y), text, font=font, fill=color)
+            x += font.getlength(text)
+        if cursor:
+            d.rectangle((x + 2, y + lh * 0.09, x + char_w - 1, y + lh * 0.8), fill=FG)
     return img
 
 
-# ---------------------------------------------------------------- pane colours (from old palette, but darker)
-WIN = (14, 14, 18)
-WIN_BORDER = (40, 40, 50)
-TITLEBAR = (20, 20, 26)
-PANE = (18, 18, 24)
-PANE_BORDER = (40, 40, 50)
-PANE_FOCUS = (96, 96, 120)
-
-
 def draw_pane(img, box, title, state, lines, t, fonts, focus=False, alpha=1.0):
-    x0, y0, x1, y1 = (int(v) for v in box)
+    x0, y0, x1, y1 = (round(v) for v in box)
     w, h = x1 - x0, y1 - y0
-    if w < 40 or alpha <= 0:
+    if w < 40 or h < 60 or alpha <= 0:
         return
     pane = Image.new('RGB', (w, h), WIN)
     d = ImageDraw.Draw(pane)
-    border = mix(WIN, PANE_FOCUS if focus else PANE_BORDER, alpha)
-    d.rounded_rectangle((0, 0, w - 1, h - 1), 12, fill=mix(WIN, PANE, alpha), outline=border, width=2)
+    d.rounded_rectangle((0, 0, w - 1, h - 1), 12, fill=mix(WIN, PANE, alpha),
+                        outline=mix(WIN, PANE_FOCUS if focus else PANE_BORDER, alpha), width=2)
     hx = 18
     for text, color in title:
-        d.text((hx, 9), text, font=fonts.MONO_B if color == PAPER else fonts.MONO, fill=mix(PANE, color, alpha))
-        hx += fonts.MONO.getlength(text)
+        d.text((hx, 10), text, font=fonts.mono_b if color == PAPER else fonts.mono, fill=mix(PANE, color, alpha))
+        hx += fonts.mono.getlength(text)
     if state:
         label, color = STATE_LABEL[state], STATE_COLOR[state]
-        lw = fonts.MONO.getlength(label)
-        d.text((w - 18 - lw, 9), label, font=fonts.MONO, fill=mix(PANE, color, alpha))
-        cx, cy = w - 34 - lw, 23
+        lw = fonts.mono.getlength(label)
+        d.text((w - 18 - lw, 10), label, font=fonts.mono, fill=mix(PANE, color, alpha))
+        cx, cy = w - 34 - lw, 24
         d.ellipse((cx - 7, cy - 7, cx + 7, cy + 7), fill=mix(PANE, color, alpha))
-    d.line((2, 46, w - 3, 46), fill=mix(PANE, PANE_BORDER, alpha), width=1)
-    char_w = fonts.MONO.getlength('M')
-    inner = text_block(max(1, w - 36), max(1, h - 66), lines, t, PANE, fonts.MONO, char_w)
+    d.line((2, TITLE_H, w - 3, TITLE_H), fill=mix(PANE, PANE_BORDER, alpha), width=1)
+    inner = text_block(max(1, w - 36), max(1, h - TITLE_H - 18), lines, t, PANE, fonts.mono, fonts.line_h)
     if alpha < 1:
         inner = Image.blend(Image.new('RGB', inner.size, PANE), inner, alpha)
-    pane.paste(inner, (18, 58))
+    pane.paste(inner, (18, TITLE_H + 12))
     img.paste(pane, (x0, y0))
 
 
-def draw_window(img, title, prof, fonts):
-    X0, Y0, X1, Y1, TITLE_H = prof['X0'], prof['Y0'], prof['X1'], prof['Y1'], prof['TITLE_H']
+def draw_window(img, c, title, fonts):
+    X0, Y0, X1, Y1 = c['window']
     d = ImageDraw.Draw(img)
     d.rounded_rectangle((X0, Y0, X1, Y1), 18, fill=WIN, outline=WIN_BORDER, width=2)
     d.rounded_rectangle((X0 + 2, Y0 + 2, X1 - 2, Y0 + TITLE_H), 16, fill=TITLEBAR)
     d.rectangle((X0 + 2, Y0 + 24, X1 - 2, Y0 + TITLE_H), fill=TITLEBAR)
     d.line((X0 + 2, Y0 + TITLE_H, X1 - 2, Y0 + TITLE_H), fill=WIN_BORDER, width=2)
-    tw = fonts.WIN_TITLE.getlength(title)
-    d.text(((X0 + X1 - tw) / 2, Y0 + 10), title, font=fonts.WIN_TITLE, fill=DIM)
+    tw = fonts.win_title.getlength(title)
+    d.text(((X0 + X1 - tw) / 2, Y0 + 10), title, font=fonts.win_title, fill=DIM)
 
 
-def draw_caption(img, t, prof, fonts, captions, is_linkedin=False):
-    d = ImageDraw.Draw(img)
-    W = prof['W']
-    cap_y = prof['CAP_Y']
-    safe_bottom = prof['CAP_SAFE_BOTTOM']
-    for t0, t1, text in captions:
-        if t0 <= t <= t1:
-            k = min(ease((t - t0) / 0.3), ease((t1 - t) / 0.25))
-            tw = fonts.CAPTION.getlength(text)
-            y = min(cap_y, safe_bottom - 50)
-            d.text(((W - tw) / 2, y + (1 - k) * 8), text, font=fonts.CAPTION, fill=mix(INK, PAPER, k))
+def pane_boxes(c, s):
+    """Lead box and three worker boxes for split amount s."""
+    X0, Y0, X1, Y1 = c['window']
+    cx0, cy0, cx1, cy1 = X0 + 14, Y0 + TITLE_H + 14, X1 - 14, Y1 - 14
+    gap = 14
+    if c['layout'] == 'side':
+        lead_x1 = cx1 - (cx1 - cx0) * 0.42 * s
+        ph = (cy1 - cy0 - 2 * gap) / 3
+        workers = [(lead_x1 + gap / 2 * s, cy0 + i * (ph + gap), cx1, cy0 + i * (ph + gap) + ph) for i in range(3)]
+        return (cx0, cy0, lead_x1 - gap / 2 * s, cy1), workers
+    # stack: workers get four rows each, the lead the rest
+    wh = TITLE_H + 18 + 4 * c['line_h']
+    lead_y1 = cy1 - (3 * wh + 3 * gap) * s
+    workers = [(cx0, lead_y1 + gap * s + i * (wh + gap), cx1, lead_y1 + gap * s + i * (wh + gap) + wh) for i in range(3)]
+    return (cx0, cy0, cx1, lead_y1), workers
 
 
-LOGO = None
-
-
-def get_logo():
-    global LOGO
-    if LOGO is None:
-        LOGO = Image.open(os.path.join(HERE, '..', 'logo-512.png')).convert('RGBA')
-    return LOGO
-
-
-def paste_logo(img, size, cx, cy, alpha):
-    logo = get_logo().resize((int(size), int(size)), Image.LANCZOS)
-    if alpha < 1:
-        logo.putalpha(logo.getchannel('A').point(lambda v: int(v * alpha)))
-    img.paste(logo, (int(cx - size / 2), int(cy - size / 2)), logo)
-
-
-def centered(d, y, text, font, color, W):
-    d.text(((W - font.getlength(text)) / 2, y), text, font=font, fill=color)
-
-
-# ---------------------------------------------------------------- scenes
-
-def scene_main(t, prof, fonts, captions, is_linkedin=False):
-    W, H = prof['W'], prof['H']
-    X0, Y0, X1, Y1, TITLE_H = prof['X0'], prof['Y0'], prof['X1'], prof['Y1'], prof['TITLE_H']
-    img = Image.new('RGB', (W, H), INK)
-
+def scene_main(t, c, fonts):
+    """The terminal at story time t."""
+    X0, Y0, X1, Y1 = c['window']
+    img = Image.new('RGB', (c['W'], c['H']), INK)
     if t < 4.4:
-        draw_window(img, 'pwsh · ~/shop', prof, fonts)
-        char_w = fonts.MONO.getlength('M')
-        block = text_block(X1 - X0 - 64, Y1 - Y0 - TITLE_H - 40, SHELL, t, bg=WIN, font=fonts.MONO, char_w=char_w)
-        img.paste(block, (X0 + 32, Y0 + TITLE_H + 24))
-    else:
-        draw_window(img, 'herdr · foreman', prof, fonts)
-        s = split_at(t)
-        cx0, cy0, cx1, cy1 = X0 + 14, Y0 + TITLE_H + 14, X1 - 14, Y1 - 14
-        full = cx1 - cx0
-        lead_x1 = cx1 - (full * 0.42) * s
-        draw_pane(img, (cx0, cy0, lead_x1 - 7 * s, cy1), [('lead', PAPER), (' · claude:opus', DIM)],
-                  state_at(LEAD_STATES, t), LEAD, t, fonts, focus=True)
-        if s > 0:
-            gap = 14
-            ph = (cy1 - cy0 - 2 * gap) / 3
-            for i, w in enumerate(WORKERS):
-                top = cy0 + i * (ph + gap)
-                draw_pane(img, (lead_x1 + 7 * s, top, cx1, top + ph), [(w['name'], PAPER), (f" · {w['agent']}", DIM)],
-                          state_at(w['states'], t), w['lines'], t, fonts, alpha=s)
-
-    draw_caption(img, t, prof, fonts, captions, is_linkedin)
+        draw_window(img, c, 'pwsh · ~/shop', fonts)
+        # zoomed in, so the command reads on the first frame
+        block = text_block(X1 - X0 - 72, Y1 - Y0 - TITLE_H - 48, SHELL, t, WIN, fonts.mono_big,
+                           round(fonts.line_h * 1.45))
+        img.paste(block, (X0 + 36, Y0 + TITLE_H + 30))
+        return img
+    draw_window(img, c, 'herdr · foreman', fonts)
+    s = split_at(t)
+    lead, workers = pane_boxes(c, s)
+    draw_pane(img, lead, [('lead', PAPER), (' · claude:opus', DIM)], state_at(LEAD_STATES, t), LEAD, t, fonts, focus=True)
+    if s > 0:
+        for box, w in zip(workers, WORKERS):
+            draw_pane(img, box, [(w['name'], PAPER), (f" · {w['agent']}", DIM)],
+                      state_at(w['states'], t), w['lines'], t, fonts, alpha=s)
     return img
 
 
-def scene_outro(t, outro_start, prof, fonts):
-    W, H = prof['W'], prof['H']
-    t_local = t - outro_start
-    img = Image.new('RGB', (W, H), INK)
+def draw_caption(img, v, c, fonts, caps):
     d = ImageDraw.Draw(img)
+    for v0, v1, text in caps:
+        if v0 <= v <= v1:
+            k = min(1.0 if v0 == 0 else ease((v - v0) / 0.3), ease((v1 - v) / 0.25))
+            d.text((c['W'] / 2, c['cap_y'] + (1 - k) * 6), text, font=fonts.caption,
+                   fill=mix(INK, PAPER, k), anchor='mm')
 
-    a = ease(t_local / 0.5)
-    logo_size = 120 if prof['W'] == 1080 else 140
-    cy_logo = H * 0.32
-    paste_logo(img, logo_size * (0.9 + 0.1 * a), W / 2, cy_logo, a)
 
-    k = ease((t_local - 0.2) / 0.4)
+def scene_outro(u, c, fonts):
+    """u seconds into the outro: the lockup as on the banner, the install command, the URL."""
+    W, H = c['W'], c['H']
+    img = Image.new('RGB', (W, H), INK)
+    s = c['lockup']
+    lock_w, top = brand.lockup_metrics(s)
     cmd = f'herdr plugin install {REPO}'
-    cw = fonts.MONO_BIG.getlength('$ ' + cmd)
-    bx0, bx1 = (W - cw) / 2 - 28, (W + cw) / 2 + 28
-    by = cy_logo + logo_size * 0.5 + 40
-    d.rounded_rectangle((bx0, by, bx1, by + 60), 10,
-                        fill=mix(INK, (24, 24, 30), k),
-                        outline=mix(INK, WIN_BORDER, k), width=2)
-    d.text((bx0 + 28, by + 14), '$ ', font=fonts.MONO_BIG, fill=mix(INK, AMBER, k))
-    d.text((bx0 + 28 + fonts.MONO_BIG.getlength('$ '), by + 14), cmd, font=fonts.MONO_BIG, fill=mix(INK, PAPER, k))
-
-    k2 = ease((t_local - 0.6) / 0.4)
-    url_y = by + 80
-    centered(d, url_y, f'github.com/{REPO}', fonts.SMALL, mix(INK, AMBER, k2), W)
-
-    return img
-
-
-def frame_16x9(t, prof, fonts):
-    outro_start = LENGTH_16x9 - 2.0  # 2 s outro
-    if t < outro_start:
-        return scene_main(t, prof, fonts, CAPTIONS_16x9)
-    if t < outro_start + 0.4:
-        return Image.blend(scene_main(t, prof, fonts, CAPTIONS_16x9),
-                           scene_outro(t, outro_start, prof, fonts),
-                           ease((t - outro_start) / 0.4))
-    img = scene_outro(t, outro_start, prof, fonts)
-    if t > LENGTH_16x9 - 0.6:
-        img = Image.blend(img, Image.new('RGB', img.size, (0, 0, 0)), clamp((t - (LENGTH_16x9 - 0.6)) / 0.6))
-    return img
-
-
-def frame_linkedin(nt, prof, fonts):
-    """nt is LinkedIn time (0..30). Remap to original timeline."""
-    t = _remap_li_inv(nt)
-    outro_start_orig = 35.4
-    outro_start_li = _remap_li(outro_start_orig)
-    if nt < outro_start_li:
-        return scene_main(t, prof, fonts, CAPTIONS_LI, is_linkedin=True)
-    if nt < outro_start_li + 0.4:
-        return Image.blend(scene_main(t, prof, fonts, CAPTIONS_LI, is_linkedin=True),
-                           scene_outro(nt, outro_start_li, prof, fonts),
-                           ease((nt - outro_start_li) / 0.4))
-    img = scene_outro(nt, outro_start_li, prof, fonts)
-    if nt > LENGTH_LI - 0.6:
-        img = Image.blend(img, Image.new('RGB', img.size, (0, 0, 0)), clamp((nt - (LENGTH_LI - 0.6)) / 0.6))
-    return img
-
-
-# ---------------------------------------------------------------- SRT generation
-
-def generate_srt(captions, path):
-    """Write an SRT subtitle file for the given caption list."""
-    lines = []
-    for i, (t0, t1, text) in enumerate(captions, 1):
-        def fmt(s):
-            m, s = divmod(s, 60)
-            h, m = divmod(int(m), 60)
-            ms = int((s % 1) * 1000)
-            return f'{h:02d}:{int(m):02d}:{int(s):02d},{ms:03d}'
-        lines.append(f'{i}')
-        lines.append(f'{fmt(t0)} --> {fmt(t1)}')
-        lines.append(text)
-        lines.append('')
-    with open(path, 'w', encoding='utf-8', newline='\n') as f:
-        f.write('\n'.join(lines))
-
-
-# ---------------------------------------------------------------- cover image
-
-def render_cover(path, prof, fonts):
-    """1080x1350 LinkedIn cover with a clear headline."""
-    W, H = 1080, 1350
-    img = Image.new('RGB', (W, H), INK)
+    box_h = round(fonts.mono_big.size * 1.9)
+    block_h = top + 70 + box_h + 40 + fonts.small.size
+    base = (H - block_h) / 2 + top
+    lock = Image.new('RGB', (W, H), INK)
+    brand.draw_lockup(lock, (W - lock_w) / 2, base, s, PAPER)
+    img = Image.blend(img, lock, ease(u / 0.4))
     d = ImageDraw.Draw(img)
 
-    # Logo
-    paste_logo(img, 200, W / 2, 340, 1.0)
+    k = ease((u - 0.3) / 0.4)
+    cw = fonts.mono_big.getlength('$ ' + cmd)
+    bx0, bx1, by = (W - cw) / 2 - 28, (W + cw) / 2 + 28, base + 70
+    d.rounded_rectangle((bx0, by, bx1, by + box_h), 10, fill=mix(INK, WIN, k), outline=mix(INK, WIN_BORDER, k), width=2)
+    d.text((bx0 + 28, by + box_h / 2), '$ ', font=fonts.mono_big, fill=mix(INK, AMBER, k), anchor='lm')
+    d.text((bx0 + 28 + fonts.mono_big.getlength('$ '), by + box_h / 2), cmd, font=fonts.mono_big,
+           fill=mix(INK, PAPER, k), anchor='lm')
+    k = ease((u - 0.6) / 0.4)
+    d.text((W / 2, by + box_h + 40), f'github.com/{REPO}', font=fonts.small, fill=mix(INK, MUTED, k), anchor='mt')
+    return img
 
-    # Title
-    title_font = load('Barlow-SemiBold.ttf', 72)
-    tag_font = load('Barlow-Regular.ttf', 36)
-    mono_font = load('CascadiaMono.ttf', 28)
 
-    centered(d, 480, 'foreman', title_font, PAPER, W)
-    centered(d, 580, 'One task.', tag_font, (190, 186, 178), W)
-    centered(d, 630, 'A crew of coding agents.', tag_font, (190, 186, 178), W)
+def frame(cut, v, fonts, caps):
+    c, end = CUTS[cut], main_end(cut)
+    if v < end:
+        img = scene_main(to_story(cut, v), c, fonts)
+        draw_caption(img, v, c, fonts, caps)
+        return img
+    img = scene_outro(v - end, c, fonts)
+    if v - end < 0.3:
+        img = Image.blend(scene_main(to_story(cut, end), c, fonts), img, ease((v - end) / 0.3))
+    return img
 
-    # Terminal preview — a simplified snapshot
-    tx0, ty0, tx1, ty1 = 60, 740, W - 60, 1100
-    d.rounded_rectangle((tx0, ty0, tx1, ty1), 14, fill=WIN, outline=WIN_BORDER, width=2)
-    d.rounded_rectangle((tx0 + 2, ty0 + 2, tx1 - 2, ty0 + 40), 12, fill=TITLEBAR)
-    d.rectangle((tx0 + 2, ty0 + 20, tx1 - 2, ty0 + 40), fill=TITLEBAR)
-    d.text(((tx0 + tx1) / 2 - mono_font.getlength('herdr · foreman') / 2, ty0 + 8),
-           'herdr · foreman', font=mono_font, fill=DIM)
 
-    small_mono = load('CascadiaMono.ttf', 22)
-    preview_lines = [
-        ('> foreman "fix payment security holes"', GREEN),
-        ('plan   sec1 security-audit  claude:opus', FG),
-        ('       test1 testing        codex', FG),
-        ('3 workers · 3 git worktrees · 3 panes', GREEN),
-        ('proposals', AMBER),
-        ('1 [high] charge.ts: amount trusted from client', RED),
-        ('2 [high] webhook.ts: signature never checked', RED),
-        ('merged sec1 test1 → main', GREEN),
-        ('46 passed, 0 failed', GREEN),
-    ]
-    for i, (text, color) in enumerate(preview_lines):
-        d.text((tx0 + 20, ty0 + 54 + i * 32), text, font=small_mono, fill=color)
+# ---------------------------------------------------------------- SRT and cover
 
-    # Bottom tagline
-    centered(d, 1160, 'herdr plugin · github.com/Kvmyk/herdr-foreman', load('Barlow-Regular.ttf', 24), AMBER, W)
+def write_srt(cut, path):
+    def ts(v):
+        ms = round(v * 1000)
+        return f'{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}'
+    out = [f'{i}\n{ts(v0)} --> {ts(v1)}\n{text}\n' for i, (v0, v1, text) in enumerate(captions(cut), 1)]
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write('\n'.join(out))
 
+
+def render_cover(path):
+    """1080x1350 cover: the lockup, the tagline and the 4:5 terminal at the approval step."""
+    c = CUTS['linkedin']
+    W, H = c['W'], c['H']
+    img = Image.new('RGB', (W, H), INK)
+    lock_w, top = brand.lockup_metrics(0.84)
+    base = 70 + top
+    brand.draw_lockup(img, (W - lock_w) / 2, base, 0.84, PAPER)
+    d = ImageDraw.Draw(img)
+    d.text((W / 2, base + 70), 'One task. A crew of coding agents.', font=load('Barlow-Regular.ttf', 44),
+           fill=MUTED, anchor='ms')
+    X0, Y0, X1, Y1 = c['window']
+    term = scene_main(20.0, c, Fonts(c)).crop((X0, Y0, X1 + 1, Y1 + 1))
+    y = round(base + 124)
+    k = min((W - 2 * 60) / term.width, (H - 56 - y) / term.height)
+    term = term.resize((round(term.width * k), round(term.height * k)), Image.LANCZOS)
+    img.paste(term, ((W - term.width) // 2, y))
     img.save(path)
-
-
-# ---------------------------------------------------------------- typing events (for music sync)
-
-def typing_events():
-    """Return list of (time, char_or_enter) for the keyboard foley sync."""
-    events = []
-    all_typed = []
-    for lines in [SHELL, LEAD]:
-        for line in lines:
-            if 'type' in line:
-                all_typed.append(line)
-    for line in all_typed:
-        start = line['t'] + 0.25
-        cps = line['cps']
-        text = line['type']
-        for i, ch in enumerate(text):
-            events.append((start + i / cps, ch))
-        # Enter at the end
-        events.append((start + len(text) / cps + 0.05, '\n'))
-    return events
 
 
 # ---------------------------------------------------------------- main
 
 def main(argv):
-    is_linkedin = '--linkedin' in argv
+    cut = 'linkedin' if '--linkedin' in argv else 'wide'
     argv = [a for a in argv if a != '--linkedin']
-
+    c = CUTS[cut]
+    if argv[:1] == ['--srt']:
+        return write_srt(cut, argv[1])
+    if argv[:1] == ['--cover']:
+        return render_cover(argv[1])
+    fonts, caps = Fonts(c), captions(cut)
     if argv[:1] == ['--still']:
-        t = float(argv[1])
-        out = argv[2]
-        if is_linkedin:
-            prof = _profile_linkedin()
-            fonts = Fonts(prof)
-            frame_linkedin(t, prof, fonts).save(out)
-        else:
-            prof = _profile_16x9()
-            fonts = Fonts(prof)
-            frame_16x9(t, prof, fonts).save(out)
-        return
+        return frame(cut, float(argv[1]), fonts, caps).save(argv[2])
 
     music, out = argv[0], argv[1]
     ffmpeg = shutil.which('ffmpeg') or sys.exit('ffmpeg not found on PATH')
-
-    if is_linkedin:
-        prof = _profile_linkedin()
-        fonts = Fonts(prof)
-        length = LENGTH_LI
-        frame_fn = lambda t: frame_linkedin(t, prof, fonts)
-    else:
-        prof = _profile_16x9()
-        fonts = Fonts(prof)
-        length = LENGTH_16x9
-        frame_fn = lambda t: frame_16x9(t, prof, fonts)
-
-    W, H, FPS = prof['W'], prof['H'], prof['FPS']
-
     proc = subprocess.Popen([
         ffmpeg, '-y', '-loglevel', 'error',
-        '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{W}x{H}', '-r', str(FPS), '-i', '-',
+        '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f"{c['W']}x{c['H']}", '-r', str(FPS), '-i', '-',
         '-i', music,
         '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-tune', 'animation',
         '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', out,
     ], stdin=subprocess.PIPE)
-    total = int(length * FPS)
+    total = round(length(cut) * FPS)
     for i in range(total):
-        proc.stdin.write(frame_fn(i / FPS).tobytes())
+        proc.stdin.write(frame(cut, i / FPS, fonts, caps).tobytes())
         if i % (FPS * 5) == 0:
             print(f'{i / FPS:4.0f} s', flush=True)
     proc.stdin.close()

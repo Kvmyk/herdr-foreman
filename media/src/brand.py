@@ -100,34 +100,46 @@ def tracked(d, x, y, text, font, fill, track):
     return font.getlength(text) + (len(text) - 1) * track
 
 
+def lockup_metrics(s):
+    """Width of the mark + wordmark lockup at scale s, and its height above the baseline."""
+    word = load('Barlow-SemiBold.ttf', round(WORD_SIZE * s))
+    track = TRACK * WORD_SIZE * s
+    k = MARK_W * s / (BRIM[2] - BRIM[0])
+    width = (MARK_W + GAP_X) * s + word.getlength(WORD) + (len(WORD) - 1) * track
+    top = max(-word.getbbox('f', anchor='ls')[1], (BRIM[3] - (CY - R)) * k)
+    return width, top
+
+
+def draw_lockup(img, x, base, s, fg):
+    """Mark + wordmark at scale s (1 = banner size): mark ink starts at x and its
+    brim bottom sits on the wordmark baseline. Returns the wordmark's x."""
+    word = load('Barlow-SemiBold.ttf', round(WORD_SIZE * s))
+    k = MARK_W * s / (BRIM[2] - BRIM[0])
+    m = mark(round(512 * k), fg)
+    img.paste(m, (round(x - BRIM[0] * k), round(base - BRIM[3] * k)), m)
+    tx = x + (MARK_W + GAP_X) * s
+    tracked(ImageDraw.Draw(img), tx, base, WORD, word, fg, TRACK * WORD_SIZE * s)
+    return tx
+
+
 def banner(theme):
     bg, fg, tag_c, mono_c, accent = THEMES[theme]
     s = BS
-    word = load('Barlow-SemiBold.ttf', WORD_SIZE * s)
     tag = load('Barlow-Regular.ttf', TAG_SIZE * s)
     mono = load('CascadiaMono.ttf', MONO_SIZE * s)
-    track = TRACK * WORD_SIZE * s
     mono_text = MONO_SEP.join(MONO_PARTS)
 
-    # Mark scaled so its ink is MARK_W wide; its brim bottom sits on the wordmark baseline.
-    k = MARK_W * s / (BRIM[2] - BRIM[0])
-    tile = round(512 * k)
-    m = mark(tile, fg)
-    word_w = word.getlength(WORD) + (len(WORD) - 1) * track
-    text_w = max(word_w, tag.getlength(TAGLINE), mono.getlength(mono_text))
-    group_w = MARK_W * s + GAP_X * s + text_w
-    left = (W * s - group_w) / 2
+    lock_w, top = lockup_metrics(s)
+    text_w = max(lock_w - (MARK_W + GAP_X) * s, tag.getlength(TAGLINE), mono.getlength(mono_text))
+    left = (W * s - ((MARK_W + GAP_X) * s + text_w)) / 2
 
     # Centre the block from the top of the mark or wordmark to the bottom of the mono line.
-    top = max(-word.getbbox('f', anchor='ls')[1], (BRIM[3] - (CY - R)) * k)
     bottom = MONO_DY * s + mono.getbbox('gp', anchor='ls')[3]
     base = (H * s - (top + bottom)) / 2 + top
 
     img = Image.new('RGB', (W * s, H * s), bg)
-    img.paste(m, (round(left - BRIM[0] * k), round(base - BRIM[3] * k)), m)
+    tx = draw_lockup(img, left, base, s, fg)
     d = ImageDraw.Draw(img)
-    tx = left + MARK_W * s + GAP_X * s
-    tracked(d, tx, base, WORD, word, fg, track)
     d.text((tx, base + TAG_DY * s), TAGLINE, font=tag, fill=tag_c, anchor='ls')
     x = tx
     for i, part in enumerate(MONO_PARTS):
