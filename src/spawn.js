@@ -74,20 +74,36 @@ async function openPanes({ herdr, pane, newTab, task, workers }) {
   }
 }
 
-export async function spawnWorkers({ herdr, git, paths, config, repo, task, specs, pane, newTab = false, writeFile, readFile, mkdir }) {
+// Worker reports live in <worktree>/.foreman/, inside the worker's own folder
+// (agents ask before writing outside it) but excluded from git for every worktree.
+async function excludeReports({ git, repo, readFile, appendFile, mkdir }) {
+  const file = path.join(await git.commonDir(repo), 'info', 'exclude');
+  let text = '';
+  try {
+    text = readFile(file);
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+  if (text.split(/\r?\n/).some((l) => l.trim() === '.foreman/')) return;
+  mkdir(path.dirname(file), { recursive: true });
+  appendFile(file, `${text && !text.endsWith('\n') ? '\n' : ''}.foreman/\n`);
+}
+
+export async function spawnWorkers({ herdr, git, paths, config, repo, task, specs, pane, newTab = false, writeFile, readFile, appendFile, mkdir }) {
   const existing = loadRun(task, { paths, readFile });
   const parsed = await validate({ herdr, config, task, specs, existing, pane, newTab });
   const warnings = [];
 
   const base = existing?.base ?? await git.head(repo);
   if (await git.isDirty(repo)) warnings.push(`uncommitted changes in ${repo} are not visible to workers`);
+  await excludeReports({ git, repo, readFile, appendFile, mkdir });
 
   const root = worktreeRoot({ paths, repo, task });
   const workers = parsed.map((w) => ({
     ...w,
     worktree: path.join(root, w.name),
     branch: `foreman-work/${task}/${w.name}`,
-    reportDir: path.join(paths.runs, task, w.name),
+    reportDir: path.join(root, w.name, '.foreman'),
   }));
 
   const made = [];

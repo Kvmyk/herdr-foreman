@@ -6,7 +6,7 @@ import path from 'node:path';
 import { run as runProcess } from '../src/run.js';
 import { createGit } from '../src/git.js';
 import { worktreeRoot } from '../src/runs.js';
-import { workerStatus, mergeWorkers, land, cleanup } from '../src/collect.js';
+import { workerStatus, mergeWorkers, land, cleanup, findLeftovers } from '../src/collect.js';
 import { makeRepo, commitFile, git as rawGit } from './git-repo.js';
 
 const git = createGit({ run: runProcess });
@@ -29,8 +29,10 @@ async function setup(names = ['w1', 'w2']) {
   return { repo, paths, run: { task: 't', repo, base, createdAt: 'x', workers } };
 }
 
-function fakeHerdr(log, { failClose = false } = {}) {
+function fakeHerdr(log, { failClose = false, agents = null, panes = [] } = {}) {
   return {
+    agentList: async () => agents ?? [{ name: 'w1', pane_id: 'w1:p2' }, { name: 'w2', pane_id: 'w1:p3' }, { name: 'w3', pane_id: 'w1:p4' }],
+    paneList: async () => panes,
     paneClose: async (id) => {
       log.push(['close', id]);
       if (failClose) throw Object.assign(new Error('boom'), { code: 'herdr_failed' });
@@ -132,7 +134,7 @@ test('cleanup closes panes before removing worktrees', async () => {
   const log = [];
   const order = [];
   const tracingGit = { ...git, removeWorktree: async (r, wt) => { order.push('rm'); return git.removeWorktree(r, wt); } };
-  const herdr = { paneClose: async (id) => { order.push('close'); log.push(id); } };
+  const herdr = { ...fakeHerdr(log), paneClose: async (id) => { order.push('close'); log.push(id); } };
   const res = await cleanup({ run, git: tracingGit, herdr, paths, exists: existsSync });
   assert.deepEqual(order.slice(0, 2), ['close', 'close']);
   assert.equal(res.closedPanes.length, 2);
@@ -166,6 +168,26 @@ test('cleanup retries a locked worktree and falls back to deleting the folder', 
   assert.deepEqual(calls, ['remove', 'remove', 'remove', 'rmdir', 'prune']);
   assert.deepEqual(res.removedWorktrees, [wt]);
   assert.deepEqual(res.errors, []);
+});
+
+test('cleanup never closes a pane that another agent now uses', async () => {
+  const { run, paths } = await setup(['w1', 'w2']);
+  const log = [];
+  // After a herdr restart w1:p2 hosts someone else; w1:p3 is a plain shell inside w2's worktree.
+  const herdr = fakeHerdr(log, {
+    agents: [{ name: 'reviewer', pane_id: 'w1:p2' }],
+    panes: [{ pane_id: 'w1:p2', cwd: '/elsewhere' }, { pane_id: 'w1:p3', cwd: run.workers[1].worktree }],
+  });
+  const res = await cleanup({ run, git, herdr, paths, exists: existsSync });
+  assert.deepEqual(log.filter(([k]) => k === 'close').map(([, id]) => id), ['w1:p3']);
+  assert.deepEqual(res.closedPanes, ['w1:p3']);
+});
+
+test('findLeftovers lists runs with worktrees or live workers', async () => {
+  const { run, paths } = await setup(['w1']);
+  const done = { ...run, task: 'old', workers: [{ ...run.workers[0], name: 'gone', worktree: path.join(paths.worktrees, 'nope') }] };
+  const list = findLeftovers({ runs: [run, done], paths, exists: existsSync, agents: [{ name: 'w1', pane_id: 'w1:p2' }] });
+  assert.deepEqual(list.map((l) => [l.task, l.worktrees.length, l.liveWorkers]), [['t', 1, ['w1']]]);
 });
 
 test('cleanup removes merge worktree and keeps foreman branch unless asked', async () => {

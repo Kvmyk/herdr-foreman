@@ -46,7 +46,7 @@ Run `foreman spawn --task <slug> <name>=<kind>[:<model>] ...` with short lowerca
 - `paneId`;
 - `worktree`: a separate copy of the repository on the worker's own branch;
 - `branch`;
-- `reportDir`: where the worker writes its reports;
+- `reportDir`: where the worker writes its reports. It is the `.foreman` folder inside the worker's worktree, excluded from git, so writing there needs no extra permission and never ends up in a commit;
 - `status`.
 
 Relay any `warnings` to the user; for example, uncommitted changes in the user's repo are not visible to workers.
@@ -118,7 +118,10 @@ Summarise what changed, in which files, and the test result. Then give the user 
      ```
      `model` is the model you passed (or the agent's `defaultModel`, or null). `testsPassed` and `reviewPassed` are null when they did not apply. `fixRounds` is how many times you sent the worker back. `stuck` is true if it timed out or needed rescuing.
    - run `foreman journal add <file>`.
-3. Tell the user you are done, in one or two sentences.
+3. Tell the user you are done, in one or two sentences, and ask whether to close your tab.
+4. If they say yes, run `foreman close-leader` as your very last action; it closes your own pane (and with it this tab). If they say no or do not answer, leave it open. The herdr server keeps running either way.
+
+If you have to stop before step 9 (the user cancels, or something breaks), still run `foreman cleanup --task <slug>` so no worker panes or worktrees are left behind. `foreman cleanup` without `--task` lists runs left behind from earlier.
 
 ## Permission questions from workers
 

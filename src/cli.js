@@ -7,8 +7,8 @@ import { inventory } from './inventory/index.js';
 import { loadKnowledge, lookupModel, familyFor, builtinKnowledge } from './knowledge.js';
 import { appendEntries, readEntries, computeStats } from './journal.js';
 import { spawnWorkers, SPEC_PATTERN } from './spawn.js';
-import { loadRun } from './runs.js';
-import { workerStatus, mergeWorkers, land, cleanup } from './collect.js';
+import { loadRun, listRuns } from './runs.js';
+import { workerStatus, mergeWorkers, land, cleanup, findLeftovers } from './collect.js';
 import { startForeman } from './start.js';
 import { fail } from './errors.js';
 
@@ -28,6 +28,8 @@ Subcommands (used by the leader; add --json for machine-readable output):
   land --task <slug>                   merge foreman/<slug> into your current branch
   cleanup --task <slug> [--delete-branch]
                                        close worker panes, remove worktrees and worker branches
+  cleanup [--all]                      list runs left behind (open workers, worktrees); --all cleans them
+  close-leader                         close the calling leader's pane (its last step)
   journal add <file.json>              record how each worker did
   journal stats                        results per category and agent
 
@@ -43,7 +45,8 @@ const COMMANDS = {
   status: { flags: { '--task': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   merge: { flags: { '--task': true, '--only': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   land: { flags: { '--task': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
-  cleanup: { flags: { '--task': true, '--delete-branch': false, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
+  cleanup: { flags: { '--task': true, '--all': false, '--delete-branch': false, '--json': false }, positionals: (p) => p.length === 0 },
+  'close-leader': { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   journal: { flags: { '--json': false }, positionals: (p) => (p[0] === 'add' && p.length === 2) || (p[0] === 'stats' && p.length === 1) },
   help: { flags: {}, positionals: (p) => p.length === 0 },
 };
@@ -152,12 +155,29 @@ function defaultOps(deps) {
       if (!repo) throw fail('USAGE', 'run foreman spawn inside the git repository');
       return spawnWorkers({
         herdr: herdr(), git: g, paths: deps.paths, config: config(), repo, task, specs, newTab,
-        pane: deps.env.HERDR_PANE_ID, writeFile: deps.writeFile, readFile: deps.readFile, mkdir: deps.mkdir,
+        pane: deps.env.HERDR_PANE_ID, writeFile: deps.writeFile, readFile: deps.readFile, appendFile: deps.appendFile, mkdir: deps.mkdir,
       });
     },
     status: async ({ task }) => workerStatus({ run: needRun(task), git: git(), exists: deps.exists }),
     merge: async ({ task, only }) => mergeWorkers({ run: needRun(task), git: git(), paths: deps.paths, exists: deps.exists, only }),
     land: async ({ task }) => land({ run: needRun(task), git: git() }),
+    async leftovers() {
+      const agents = await herdr().agentList().catch(() => []);
+      const runs = listRuns({ paths: deps.paths, readdir: deps.readdir, readFile: deps.readFile });
+      return findLeftovers({ runs, paths: deps.paths, exists: deps.exists, agents });
+    },
+    async cleanupAll({ deleteBranch }) {
+      const results = [];
+      for (const left of await this.leftovers()) {
+        results.push({ task: left.task, ...(await this.cleanup({ task: left.task, deleteBranch })) });
+      }
+      return results;
+    },
+    async closeLeader() {
+      if (deps.env.HERDR_ENV !== '1' || !deps.env.HERDR_PANE_ID) throw fail('USAGE', 'close-leader runs inside a herdr pane');
+      await herdr().paneClose(deps.env.HERDR_PANE_ID);
+      return { closed: deps.env.HERDR_PANE_ID };
+    },
     cleanup: async ({ task, deleteBranch }) => cleanup({
       run: needRun(task), git: git(), herdr: herdr(), paths: deps.paths, exists: deps.exists, deleteBranch, sleep: deps.sleep, removeDir: deps.removeDir,
     }),
@@ -246,8 +266,32 @@ export async function main(argv, deps) {
         print(res, (v) => stdout.write(v.ok ? `merged ${v.branch} into your current branch\n` : `not merged: ${v.reason}${v.files ? ` (${v.files.join(', ')})` : ''}\n`));
         return res.ok ? 0 : 1;
       }
+      case 'close-leader':
+        print(await ops.closeLeader(), (v) => stdout.write(`closed ${v.closed}\n`));
+        return 0;
       case 'cleanup': {
-        const res = await ops.cleanup({ task, deleteBranch: Boolean(r.flags['--delete-branch']) });
+        const deleteBranch = Boolean(r.flags['--delete-branch']);
+        if (!task && r.flags['--all']) {
+          const all = await ops.cleanupAll({ deleteBranch });
+          print(all, (v) => {
+            if (!v.length) stdout.write('nothing to clean up\n');
+            for (const x of v) stdout.write(`${x.task}: closed ${x.closedPanes.length} panes, removed ${x.removedWorktrees.length} worktrees${x.errors.length ? `, ${x.errors.length} errors` : ''}\n`);
+          });
+          return all.some((x) => x.errors.length) ? 1 : 0;
+        }
+        if (!task) {
+          const left = await ops.leftovers();
+          print(left, (v) => {
+            if (!v.length) {
+              stdout.write('nothing left behind\n');
+              return;
+            }
+            for (const x of v) stdout.write(`${x.task}  (${x.repo})  worktrees: ${x.worktrees.length}  live workers: ${x.liveWorkers.join(', ') || 'none'}\n`);
+            stdout.write('Clean one with "foreman cleanup --task <slug>", or all with "foreman cleanup --all".\n');
+          });
+          return 0;
+        }
+        const res = await ops.cleanup({ task, deleteBranch });
         print(res, (v) => {
           stdout.write(`closed ${v.closedPanes.length} panes, removed ${v.removedWorktrees.length} worktrees, deleted ${v.deletedBranches.length} branches\n`);
           for (const e of v.errors) stdout.write(`error: ${e}\n`);

@@ -73,6 +73,11 @@ export function createHerdr({ run, bin = 'herdr' }) {
       await call(['pane', 'close', paneId]);
     },
 
+    async paneList() {
+      const r = await call(['pane', 'list']);
+      return r.panes ?? [];
+    },
+
     async agentList() {
       const r = await call(['agent', 'list']);
       return r.agents ?? [];

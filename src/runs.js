@@ -9,9 +9,12 @@ export function slugify(text) {
     .toLowerCase()
     .replace(/[ąćęłńóśźż]/g, (ch) => POLISH[ch])
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '');
-  const slug = ascii.replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 40).replace(/-+$/, '');
-  return slug || 'task';
+    .replace(/\p{M}/gu, '');
+  const full = ascii.replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').replace(/-+$/, '');
+  let slug = full.slice(0, 40);
+  // Cut at a word boundary when the limit falls inside a word.
+  if (full.length > 40 && full[40] !== '-' && slug.lastIndexOf('-') >= 10) slug = slug.slice(0, slug.lastIndexOf('-'));
+  return slug.replace(/-+$/, '') || 'task';
 }
 
 export function uniqueSlug(base, exists) {
@@ -32,6 +35,25 @@ const runFile = (paths, task) => path.join(paths.runs, `${task}.json`);
 export function saveRun(run, { paths, writeFile, mkdir }) {
   mkdir(paths.runs, { recursive: true });
   writeFile(runFile(paths, run.task), JSON.stringify(run, null, 2));
+}
+
+export function listRuns({ paths, readdir, readFile }) {
+  let names;
+  try {
+    names = readdir(paths.runs);
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+  return names
+    .filter((n) => n.endsWith('.json'))
+    .flatMap((n) => {
+      try {
+        return [JSON.parse(readFile(path.join(paths.runs, n)))];
+      } catch {
+        return [];
+      }
+    });
 }
 
 export function loadRun(task, { paths, readFile }) {

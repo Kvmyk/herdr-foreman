@@ -1,6 +1,6 @@
 // Real implementations of everything main() needs; tests pass their own.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +41,7 @@ export function realDeps() {
     appendFile,
     mkdir: (dir, opts) => mkdirSync(dir, opts),
     exists: existsSync,
+    readdir: (dir) => readdirSync(dir),
     removeDir: (dir) => rmSync(dir, { recursive: true, force: true, maxRetries: 30, retryDelay: 500 }),
     fetchImpl: fetch,
     now: Date.now,

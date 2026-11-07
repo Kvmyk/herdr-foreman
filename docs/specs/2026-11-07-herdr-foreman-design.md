@@ -94,12 +94,18 @@ Kuba zatwierdza PR; później można to zautomatyzować. Foreman przy starcie po
 - **Lokalizacje:**
   - worktree poza repo: `~/.herdr-foreman/worktrees/<repo>-<hash>/<task>/<worker>`, gałęzie `foreman-work/<task>/<worker>` (git nie pozwala mieć naraz `foreman/<task>` i `foreman/<task>/<worker>`);
   - zmiany zbierane w osobnym worktree `_merge` na gałęzi `foreman/<task>`, więc gałąź i katalog użytkownika są nietknięte aż do `scal`;
-  - raporty workerów w `~/.herdr-foreman/runs/<task>/<worker>/`.
+  - raporty workerów w `<worktree>/.foreman/`, a `.foreman/` dopisane do `.git/info/exclude` repozytorium. Pierwotnie raporty leżały w `~/.herdr-foreman/runs/`, ale w próbie na żywo agy pytał o zgodę przy każdym zapisie poza swoim folderem.
 - **Wyjście CLI po angielsku** (publikacja). Lider rozmawia z użytkownikiem w języku zadania.
 - **Plan implementacji:** `docs/plans/2026-11-07-foreman-mvp.md`.
 - **Zabezpieczenia startu** (wyszły w trakcie budowy): foreman odmawia, gdy repozytorium to katalog domowy (u Kuby `C:\Users\Kuba` jest repozytorium git bez commitów), i gdy repo nie ma jeszcze commitów.
 - **Sprzątanie w Windows:** po zamknięciu paneli proces agenta trzyma folder jeszcze kilka sekund, więc `cleanup` czeka, ponawia próbę, a w ostateczności usuwa folder i robi `git worktree prune`.
 - **Okno zaufania Claude Code** ma domyślnie zaznaczone „No, exit”; lider wybiera „Yes” klawiszami `down`, `enter`.
+- **Koniec pracy** (ustalone z Kubą po próbie na żywo):
+  - workerów zamyka `foreman cleanup` w ostatnim kroku lidera, także gdy praca zostanie przerwana;
+  - lider na koniec pyta, czy zamknąć jego kartę, i przy zgodzie woła `foreman close-leader`;
+  - `foreman cleanup` bez `--task` pokazuje porzucone zadania, a `--all` je sprząta;
+  - panel z zapisu jest zamykany tylko wtedy, gdy nadal siedzi w nim ten worker albo proces w jego worktree, bo po restarcie herdr numery paneli zaczynają się od nowa.
+- **herdr po zamknięciu ostatniego panelu** (sprawdzone na osobnej sesji 2026-11-07): karta i przestrzeń robocza znikają, serwer działa dalej z zerem przestrzeni i można tworzyć nowe. Niesprawdzone: zachowanie okna (klienta) podłączonego do sesji, w której znika ostatnia przestrzeń.
 
 ## Co już istnieje (przegląd 2026-11-07)
 

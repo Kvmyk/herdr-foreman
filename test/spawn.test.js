@@ -24,6 +24,7 @@ function fakes({ live = [], dirty = false, notReady = [], existingRun = null } =
   };
   const git = {
     head: async () => 'abc123',
+    commonDir: async () => path.join(repo, '.git'),
     isDirty: async () => dirty,
     addWorktree: async (r, wt, branch, base) => { log.push(['worktree', { wt, branch, base }]); },
     removeWorktree: async (r, wt) => { log.push(['rmworktree', wt]); },
@@ -36,6 +37,7 @@ function fakes({ live = [], dirty = false, notReady = [], existingRun = null } =
       return files[f];
     },
     mkdir: () => {},
+    appendFile: (f, d) => { files[f] = (files[f] ?? '') + d; },
   };
   return { herdr, git, io, log, files };
 }
@@ -132,7 +134,17 @@ test('saves run record with base sha', async () => {
   assert.equal(saved.base, 'abc123');
   assert.equal(saved.repo, repo);
   assert.equal(saved.workers[0].paneId, 'w1:p2');
-  assert.equal(saved.workers[0].reportDir, path.join(paths.runs, 'fix-login', 'w1'));
+  assert.equal(saved.workers[0].reportDir, path.join(saved.workers[0].worktree, '.foreman'));
+});
+
+test('reports live in the worktree and are excluded from git once', async () => {
+  const f = fakes();
+  const exclude = path.join(repo, '.git', 'info', 'exclude');
+  f.files[exclude] = 'node_modules/\n';
+  await call(f, { specs: ['w1=claude', 'w2=agy'] });
+  assert.equal(f.files[exclude], 'node_modules/\n.foreman/\n');
+  await call(f, { specs: ['w3=claude'] });
+  assert.equal(f.files[exclude], 'node_modules/\n.foreman/\n');
 });
 
 test('adding workers to an existing run keeps its base', async () => {

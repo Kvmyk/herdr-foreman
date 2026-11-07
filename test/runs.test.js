@@ -10,6 +10,8 @@ test('slugify transliterates Polish and trims', () => {
   const long = slugify('a'.repeat(30) + ' ' + 'b'.repeat(30));
   assert.ok(long.length <= 40);
   assert.ok(!long.endsWith('-'));
+  assert.equal(slugify('Znajdź i popraw błędy w kalkulatorze i dopisz brakujące testy'), 'znajdz-i-popraw-bledy-w-kalkulatorze-i');
+  assert.equal(slugify('x'.repeat(50)), 'x'.repeat(40));
 });
 
 test('uniqueSlug appends a number', () => {

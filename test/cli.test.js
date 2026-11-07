@@ -101,3 +101,28 @@ test('summarizeModels keeps default and subscription first and caps the list', (
   assert.equal(s.modelsTotal, 52);
   assert.equal(s.modelsOmitted, 42);
 });
+
+test('cleanup without task lists leftovers', async () => {
+  const h = harness({ leftovers: async () => [{ task: 'old-run', repo: '/r', worktrees: ['/w/a'], liveWorkers: ['w1'] }] });
+  assert.equal(await main(['cleanup'], h.deps), 0);
+  assert.match(h.out(), /old-run/);
+  assert.match(h.out(), /foreman cleanup --all/);
+});
+
+test('cleanup --all cleans every leftover run', async () => {
+  const h = harness({ cleanupAll: async (o) => { h.calls.push(['all', o.deleteBranch]); return [{ task: 'old-run', closedPanes: [], removedWorktrees: ['/w/a'], deletedBranches: [], errors: [] }]; } });
+  assert.equal(await main(['cleanup', '--all'], h.deps), 0);
+  assert.deepEqual(h.calls, [['all', false]]);
+});
+
+test('close-leader closes the calling pane', async () => {
+  const h = harness({ closeLeader: async () => { h.calls.push(['close']); return { closed: 'w1:p9' }; } });
+  assert.equal(await main(['close-leader'], h.deps), 0);
+  assert.deepEqual(h.calls, [['close']]);
+});
+
+test('cleanup words still start a task', async () => {
+  const h = harness();
+  assert.equal(await main(['cleanup', 'the', 'old', 'code'], h.deps), 0);
+  assert.deepEqual(h.calls, [['start', 'cleanup the old code']]);
+});

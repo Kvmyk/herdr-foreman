@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, existsSync, mkdtempSync } from 'node:fs';
+import { writeFileSync, existsSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { run } from '../src/run.js';
@@ -62,6 +62,19 @@ test('clean merge succeeds', async () => {
   rawGit(repo, 'checkout', '-q', '-');
   assert.deepEqual(await g.merge(repo, 'other'), { ok: true });
   assert.ok(existsSync(path.join(repo, 'b.txt')));
+});
+
+test('commonDir points at the shared .git, also from a worktree', async () => {
+  const repo = makeRepo();
+  const wt = path.join(mkdtempSync(path.join(tmpdir(), 'foreman-wt-')), 'w1');
+  await g.addWorktree(repo, wt, 'foreman-work/t/w1', await g.head(repo));
+  const common = path.join(repo, '.git');
+  assert.equal(path.resolve(await g.commonDir(repo)), path.resolve(common));
+  assert.equal(path.resolve(await g.commonDir(wt)), path.resolve(common));
+  writeFileSync(path.join(common, 'info', 'exclude'), '.foreman/\n');
+  mkdirSync(path.join(wt, '.foreman'));
+  writeFileSync(path.join(wt, '.foreman', 'proposals.md'), '- x\n');
+  assert.equal(await g.isDirty(wt), false, 'excluded reports do not dirty the worktree');
 });
 
 test('removeWorktree and deleteBranch clean up', async () => {

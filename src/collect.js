@@ -3,6 +3,16 @@
 import path from 'node:path';
 import { worktreeRoot } from './runs.js';
 
+function isInside(child, parent) {
+  const norm = (p) => {
+    const r = path.resolve(p).replace(/[\\/]+$/, '');
+    return process.platform === 'win32' ? r.toLowerCase() : r;
+  };
+  const c = norm(child);
+  const p = norm(parent);
+  return c === p || c.startsWith(p + path.sep);
+}
+
 const mergeBranch = (run) => `foreman/${run.task}`;
 const mergeWorktree = (run, paths) => path.join(worktreeRoot({ paths, repo: run.repo, task: run.task }), '_merge');
 
@@ -101,8 +111,20 @@ export async function cleanup({ run, git, herdr, paths, exists, deleteBranch = f
   };
 
   // Panes first: on Windows a worktree with a process still inside cannot be removed.
+  // Pane ids restart after a herdr restart, so close a recorded pane only if it
+  // still hosts this worker, or a process working inside this worker's worktree.
+  const [agents, panes] = await Promise.all([
+    herdr.agentList().catch(() => []),
+    herdr.paneList ? herdr.paneList().catch(() => []) : [],
+  ]);
+  const ownsPane = (w) => {
+    if (agents.some((a) => a.pane_id === w.paneId && a.name === w.name)) return true;
+    const pane = panes.find((p) => p.pane_id === w.paneId);
+    const cwd = pane?.foreground_cwd || pane?.cwd;
+    return Boolean(cwd && isInside(cwd, w.worktree));
+  };
   for (const w of run.workers) {
-    if (!w.paneId) continue;
+    if (!w.paneId || !ownsPane(w)) continue;
     try {
       await herdr.paneClose(w.paneId);
       out.closedPanes.push(w.paneId);
@@ -128,4 +150,19 @@ export async function cleanup({ run, git, herdr, paths, exists, deleteBranch = f
     if (await attempt(`delete branch ${b}`, () => git.deleteBranch(run.repo, b))) out.deletedBranches.push(b);
   }
   return out;
+}
+
+// Runs that still have worktrees on disk or worker agents alive in herdr,
+// for example because the leader stopped before cleaning up.
+export function findLeftovers({ runs, paths, exists, agents = [] }) {
+  const live = new Set(agents.map((a) => a.name).filter(Boolean));
+  return runs
+    .map((run) => ({
+      task: run.task,
+      repo: run.repo,
+      createdAt: run.createdAt,
+      worktrees: [...run.workers.map((w) => w.worktree), mergeWorktree(run, paths)].filter((wt) => exists(wt)),
+      liveWorkers: run.workers.map((w) => w.name).filter((n) => live.has(n)),
+    }))
+    .filter((r) => r.worktrees.length || r.liveWorkers.length);
 }

@@ -27,6 +27,10 @@ export function createGit({ run }) {
       return res.code === 0 ? path.resolve(res.stdout.trim()) : null;
     },
     head: (repo) => ok(repo, ['rev-parse', 'HEAD']),
+    // The .git directory shared by the repository and all its worktrees.
+    async commonDir(dir) {
+      return path.resolve(dir, await ok(dir, ['rev-parse', '--git-common-dir']));
+    },
     currentBranch: (dir) => ok(dir, ['rev-parse', '--abbrev-ref', 'HEAD']),
     // untracked: false ignores new files nobody has added yet (they do not block a merge).
     async isDirty(dir, { untracked = true } = {}) {
