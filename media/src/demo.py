@@ -18,7 +18,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 W, H, FPS, LENGTH = 1920, 1080, 30, 40.0
-REPO = os.environ.get('FOREMAN_REPO', 'Kuba7331/herdr-foreman')
+REPO = os.environ.get('FOREMAN_REPO', 'Kvmyk/herdr-foreman')
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONT_DIRS = [os.path.join(os.environ.get('WINDIR', 'C:/Windows'), 'Fonts'),
              os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Microsoft', 'Windows', 'Fonts')]

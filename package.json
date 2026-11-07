@@ -14,13 +14,13 @@
     "git-worktree",
     "cli"
   ],
-  "homepage": "https://github.com/Kuba7331/herdr-foreman#readme",
+  "homepage": "https://github.com/Kvmyk/herdr-foreman#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Kuba7331/herdr-foreman.git"
+    "url": "git+https://github.com/Kvmyk/herdr-foreman.git"
   },
   "bugs": {
-    "url": "https://github.com/Kuba7331/herdr-foreman/issues"
+    "url": "https://github.com/Kvmyk/herdr-foreman/issues"
   },
   "license": "MIT",
   "type": "module",

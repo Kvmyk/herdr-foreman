@@ -25,7 +25,7 @@ Nothing is pushed and no pull request is created.
 ### As a herdr plugin
 
 ```
-herdr plugin install Kuba7331/herdr-foreman
+herdr plugin install Kvmyk/herdr-foreman
 ```
 
 herdr shows the manifest and the commands it will run before you confirm. Then bind a key in herdr's `config.toml` (`herdr --help` prints its path):
@@ -43,7 +43,7 @@ Run `herdr server reload-config`. In any pane inside a git repository, press `pr
 ### As a command
 
 ```
-npm install -g github:Kuba7331/herdr-foreman
+npm install -g github:Kvmyk/herdr-foreman
 ```
 
 or clone the repository and run `npm link` in it. Then run `foreman "<task>"` in any git repository: outside herdr it starts the herdr server if needed and attaches; inside herdr it opens a new tab.
