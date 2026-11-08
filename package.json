@@ -33,6 +33,7 @@
     "knowledge",
     "leader",
     "plugin",
+    "app",
     "herdr-plugin.toml"
   ],
   "scripts": {

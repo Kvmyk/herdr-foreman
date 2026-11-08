@@ -7,6 +7,8 @@ platforms = ["linux", "macos", "windows"]
 
 # Right after install: bind prefix+f (or the first free fallback) to the
 # start action in herdr's config.toml, checked by "herdr config check" first.
+# If the Herdr desktop app is installed, the same step adds its task prompt
+# (mods/foreman) and a key in the app's keys.json.
 [[build]]
 command = ["node", "plugin/setup.js", "--quiet"]
 
