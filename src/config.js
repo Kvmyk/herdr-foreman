@@ -11,6 +11,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   leaderArgs: [],
   knowledgeUrl: null,
   excludeKinds: [],
+  // false: foreman never adds or restores its herdr shortcut by itself.
+  autoSetup: true,
 });
 
 export function paths({ env = process.env, homedir = os.homedir() } = {}) {
@@ -24,6 +26,7 @@ export function paths({ env = process.env, homedir = os.homedir() } = {}) {
     overrides: path.join(home, 'knowledge.override.json'),
     worktrees: path.join(home, 'worktrees'),
     runs: path.join(home, 'runs'),
+    setupState: path.join(home, 'setup.json'),
   };
 }
 

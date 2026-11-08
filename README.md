@@ -13,22 +13,58 @@ foreman "check the payment module for security holes and fix what needs fixing"
 
 Nothing is pushed and no pull request is created.
 
-## Requirements
+## Before you start
 
-- Node.js 20 or newer
-- herdr 0.9.5 or newer
-- git
-- at least one coding agent herdr can start (claude, codex, opencode, agy, pi, gemini, ...), signed in
+You need four things on your computer:
+
+1. **herdr 0.9.5 or newer**, the terminal app foreman runs in. Install it from [herdr.dev](https://herdr.dev).
+2. **Node.js 20 or newer**, from [nodejs.org](https://nodejs.org).
+3. **git**, from [git-scm.com](https://git-scm.com). Your project folder must use git.
+4. **At least one coding agent, signed in**: for example [Claude Code](https://claude.com/claude-code) or [Codex](https://developers.openai.com/codex). Others herdr can start (opencode, agy, pi, gemini, ...) work too.
 
 ## Install
 
-### As a herdr plugin
+Open a terminal and type:
 
 ```
 herdr plugin install Kvmyk/herdr-foreman
 ```
 
-herdr shows the manifest and the commands it will run before you confirm. Then bind a key in herdr's `config.toml` (`herdr --help` prints its path):
+herdr shows what the plugin will run and asks you to confirm; answer yes. That is all: foreman adds its keyboard shortcut to herdr by itself.
+
+## Start a task
+
+1. Open a terminal in your project folder and type `herdr`.
+2. Press `Ctrl+B`, let go, then press `F`.
+3. Type what you want done, in plain words, and press Enter. An empty line cancels.
+
+The lead agent opens in a new tab and tells you what it plans to do before anything changes.
+
+## If something does not work
+
+Type this in a terminal; it checks herdr, git and your coding agents, fixes what it can and tells you in plain words what is left to do:
+
+```
+herdr plugin pane open --plugin herdr-foreman --entrypoint setup
+```
+
+(If you installed the `foreman` command, below, `foreman setup` or just `foreman` does the same.)
+
+- **The shortcut does nothing:** if `Ctrl+B, then F` was already taken, foreman picked `Ctrl+B, then Shift+F` (or `Alt+F`); the check above shows which one.
+- **An agent is not signed in:** the check shows the exact line to type to sign in.
+- **To undo the shortcut:** foreman saved your previous herdr settings next to them as `config.toml.foreman-backup`.
+
+## Advanced: install as a command, or set up by hand
+
+As a command, for use in any terminal:
+
+```
+npm install -g github:Kvmyk/herdr-foreman
+```
+
+Then run `foreman "<task>"` in any git repository: outside herdr it starts the herdr server if needed and attaches; inside herdr it opens a new tab. The npm install also adds foreman to herdr and binds the shortcut (npm hides that output; run `foreman` to see the state). You can also clone the repository and run `npm link` in it; a clone is set up only when you run `foreman setup`. The plugin and the command run the same code. If `foreman` is not on your PATH, the leader is told to run its subcommands as `node /path/to/herdr-foreman/bin/foreman.js`.
+
+What setup changes: it appends this block to herdr's `config.toml` (`herdr --help` prints its path), after checking the result with `herdr config check`, and runs `herdr server reload-config`:
 
 ```toml
 [[keys.command]]
@@ -38,17 +74,7 @@ command = "herdr-foreman.start"
 description = "foreman: new task"
 ```
 
-Run `herdr server reload-config`. In any pane inside a git repository, press `prefix+f` (default `ctrl+b`, then `f`), type the task and press Enter; an empty line cancels. The leader opens in a new tab of the same workspace. Without a key binding: `herdr plugin action invoke herdr-foreman.start`.
-
-### As a command
-
-```
-npm install -g github:Kvmyk/herdr-foreman
-```
-
-or clone the repository and run `npm link` in it. Then run `foreman "<task>"` in any git repository: outside herdr it starts the herdr server if needed and attaches; inside herdr it opens a new tab.
-
-The plugin and the command run the same code. If `foreman` is not on your PATH, the leader is told to run its subcommands as `node /path/to/herdr-foreman/bin/foreman.js`.
+It never replaces a key you bound yourself to `herdr-foreman.start`. herdr runs the same quiet setup at every server start, so the shortcut comes back after `herdr config reset-keys`; to stop all automatic setup, put `"autoSetup": false` in `~/.herdr-foreman/config.json` or set `FOREMAN_NO_SETUP=1`. If no lead agent is configured and Claude Code is not ready, setup picks one you have and saves it there as `leader`. Without any key binding: `herdr plugin action invoke herdr-foreman.start`.
 
 ## How a task runs
 
@@ -106,7 +132,7 @@ Everything lives in `~/.herdr-foreman/` (set `FOREMAN_HOME` to move it):
 
 | Path | Contents |
 |---|---|
-| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl`, `excludeKinds` |
+| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl`, `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr shortcut) |
 | `knowledge.override.json` | Optional: your corrections to the knowledge file, deep-merged |
 | `journal.jsonl` | Your results |
 | `worktrees/` | Worker worktrees, outside your repository |
