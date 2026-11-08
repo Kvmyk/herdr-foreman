@@ -79,3 +79,15 @@ test('paneList returns panes', async () => {
   const herdr = createHerdr({ run: fakeRun([[/^herdr pane list/, json({ type: 'pane_list', panes: [{ pane_id: 'w1:p1' }] })]]) });
   assert.deepEqual(await herdr.paneList(), [{ pane_id: 'w1:p1' }]);
 });
+
+test('agentRead with lines reads recent output', async () => {
+  const run = fakeRun([[/^herdr agent read/, { stdout: 'x\n' }]]);
+  await createHerdr({ run }).agentRead('w1', { lines: 40 });
+  assert.deepEqual(run.calls[0].args, ['agent', 'read', 'w1', '--source', 'recent', '--lines', '40']);
+});
+
+test('agentKeys sends keys', async () => {
+  const run = fakeRun([[/^herdr agent send-keys/, json({ type: 'ok' })]]);
+  await createHerdr({ run }).agentKeys('w1', ['down', 'enter']);
+  assert.deepEqual(run.calls[0].args, ['agent', 'send-keys', 'w1', 'down', 'enter']);
+});
