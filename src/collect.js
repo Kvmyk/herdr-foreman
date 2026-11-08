@@ -1,5 +1,5 @@
 // After workers report: check what they changed, collect committed work on
-// foreman/<task> in a separate worktree, land it on the user's branch, clean up.
+// <type>/<name> (foreman/<task> for old runs) in a separate worktree, land it on the user's branch, clean up.
 import path from 'node:path';
 import { worktreeRoot } from './runs.js';
 
@@ -13,7 +13,8 @@ function isInside(child, parent) {
   return c === p || c.startsWith(p + path.sep);
 }
 
-const mergeBranch = (run) => `foreman/${run.task}`;
+// Runs from before named branches have no run.branch and keep foreman/<task>.
+export const mergeBranch = (run) => run.branch ?? `foreman/${run.task}`;
 const mergeWorktree = (run, paths) => path.join(worktreeRoot({ paths, repo: run.repo, task: run.task }), '_merge');
 
 export async function workerStatus({ run, git, exists }) {
@@ -54,7 +55,8 @@ export async function mergeWorkers({ run, git, paths, exists, only = null }) {
       result.skipped.push({ worker: w.name, reason: 'no commits' });
       continue;
     }
-    const res = await git.merge(worktree, w.branch);
+    const label = w.model ? `${w.kind}:${w.model}` : w.kind;
+    const res = await git.merge(worktree, w.branch, `Merge ${w.branch} (${label})`);
     if (!res.ok) {
       result.conflict = { worker: w.name, files: res.files };
       break;
@@ -64,7 +66,7 @@ export async function mergeWorkers({ run, git, paths, exists, only = null }) {
   return result;
 }
 
-export async function land({ run, git }) {
+export async function land({ run, git, title = null }) {
   const branch = mergeBranch(run);
   if (await git.isDirty(run.repo, { untracked: false })) {
     return { ok: false, reason: `uncommitted changes in your repo (${run.repo}); commit or stash them first` };
@@ -72,7 +74,7 @@ export async function land({ run, git }) {
   if (!(await git.branchExists(run.repo, branch))) {
     return { ok: false, reason: `nothing to land: ${branch} does not exist; run foreman merge first` };
   }
-  const res = await git.merge(run.repo, branch);
+  const res = await git.merge(run.repo, branch, title ? `Merge ${branch}: ${title}` : `Merge ${branch}`);
   return res.ok ? { ok: true, branch } : { ok: false, reason: 'merge conflict', files: res.files };
 }
 

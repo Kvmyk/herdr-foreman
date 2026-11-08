@@ -56,7 +56,7 @@ The plugin and the command run the same code. If `foreman` is not on your PATH, 
 2. The leader (default: `claude`) runs `foreman brief --json`: installed agents, whether they are signed in, their models, what is known about each harness and model family, and your own past results per task category.
 3. It shows the plan, then opens workers with `foreman spawn`, each in its own git worktree and pane.
 4. Workers investigate without changing anything and write proposals. The leader merges them into one numbered list; you answer, for example, "1 and 3 yes, 2 no".
-5. Approved items are implemented and committed in the workers' worktrees. `foreman merge` collects them on `foreman/<task>` in a separate worktree; the leader builds, tests and reviews.
+5. Approved items are implemented and committed in the workers' worktrees. `foreman merge` collects them on the run branch `<type>/<name>` (for example `feat/auto-accept-workers`; workers use `wip/<name>/<worker>`) in a separate worktree; the leader builds, tests and reviews.
 6. You choose: merge into your current branch (`foreman land`), leave the branch for later, or send comments back.
 7. `foreman cleanup` closes worker panes and removes worktrees; `foreman journal add` records how each agent did. The leader then asks whether to close its own tab.
 
@@ -70,11 +70,11 @@ If a worker asks for permission, the leader asks you once whether you answer suc
 |---|---|
 | `foreman agents [--json]` | Installed agent kinds: signed in?, models, default model |
 | `foreman brief [--json]` | Inventory, knowledge, models.dev facts and your stats in one JSON |
-| `foreman spawn --task <slug> [--new-tab] [--effort <level>] [--full] <name>=<kind>[:<model>]...` | Open workers in worktrees and panes. `--effort low\|medium\|high\|xhigh\|max` (claude, agy); `--full` keeps MCP servers and skills for claude workers |
+| `foreman spawn --task <slug> [--new-tab] [--effort <level>] [--full] [--auto] [--branch <type>/<name>] <name>=<kind>[:<model>]...` | Open workers in worktrees and panes. `--branch` (required on a task's first spawn) names the run, e.g. `feat/auto-accept-workers`; `--auto` starts workers in their auto-approve mode. `--effort low\|medium\|high\|xhigh\|max` (claude, agy); `--full` keeps MCP servers and skills for claude workers |
 | `foreman wait --task <slug> [--phase investigate\|implement] [--only a,b] [--timeout ms]` | Block until every worker finished (its report written) or one needs attention; returns within 9 minutes |
 | `foreman status --task <slug> [--json]` | Changes, commits and reports per worker |
-| `foreman merge --task <slug> [--only a,b] [--json]` | Collect committed work on `foreman/<slug>` |
-| `foreman land --task <slug>` | Merge `foreman/<slug>` into your current branch (refuses with uncommitted changes) |
+| `foreman merge --task <slug> [--only a,b] [--json]` | Collect committed work on the run branch |
+| `foreman land --task <slug> [--title <summary>]` | Merge the run branch into your current branch as `Merge <type>/<name>: <summary>` (refuses with uncommitted changes) |
 | `foreman cleanup --task <slug> [--delete-branch]` | Close worker panes, remove worktrees and worker branches |
 | `foreman cleanup [--all]` | List runs left behind (open workers, worktrees); `--all` cleans them. Panes are closed only if they still host that worker or work inside its worktree |
 | `foreman close-leader` | Close the calling leader's pane; the leader's last step when you agree |

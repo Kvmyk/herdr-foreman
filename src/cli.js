@@ -23,15 +23,16 @@ Usage:
 Subcommands (used by the leader; add --json for machine-readable output):
   agents                               agents installed here: signed in? which models?
   brief                                everything the leader needs to plan, as JSON
-  spawn --task <slug> [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] <name>=<kind>[:<model>]...
+  spawn --task <slug> [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--branch <type>/<name>] <name>=<kind>[:<model>]...
                                        open workers in their own worktrees and panes
                                        (claude workers start lean unless --full;
                                        --auto starts workers in their auto-approve mode)
   wait --task <slug> [--phase investigate|implement] [--only a,b] [--timeout ms]
                                        block until workers finish or one needs attention
   status --task <slug>                 what each worker changed and reported
-  merge --task <slug> [--only a,b]     collect committed work on foreman/<slug>
-  land --task <slug>                   merge foreman/<slug> into your current branch
+  merge --task <slug> [--only a,b]     collect committed work on the run branch
+  land --task <slug> [--title <summary>]
+                                       merge the run branch into your current branch
   cleanup --task <slug> [--delete-branch]
                                        close worker panes, remove worktrees and worker branches
   cleanup [--all]                      list runs left behind (open workers, worktrees); --all cleans them
@@ -47,18 +48,18 @@ Foreman never pushes and creates no pull request. It arms a push guard (a tripwi
 const COMMANDS = {
   agents: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   brief: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
-  spawn: { flags: { '--task': true, '--new-tab': false, '--effort': true, '--full': false, '--auto': false, '--json': false }, required: ['--task'], positionals: (p) => p.length > 0 && p.every((s) => SPEC_PATTERN.test(s)) },
+  spawn: { flags: { '--task': true, '--new-tab': false, '--effort': true, '--full': false, '--auto': false, '--branch': true, '--json': false }, required: ['--task'], positionals: (p) => p.length > 0 && p.every((s) => SPEC_PATTERN.test(s)) },
   wait: { flags: { '--task': true, '--phase': true, '--only': true, '--timeout': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   status: { flags: { '--task': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   merge: { flags: { '--task': true, '--only': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
-  land: { flags: { '--task': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
+  land: { flags: { '--task': true, '--title': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   cleanup: { flags: { '--task': true, '--all': false, '--delete-branch': false, '--json': false }, positionals: (p) => p.length === 0 },
   'close-leader': { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   journal: { flags: { '--json': false }, positionals: (p) => (p[0] === 'add' && p.length === 2) || (p[0] === 'stats' && p.length === 1) },
   help: { flags: {}, positionals: (p) => p.length === 0 },
 };
 
-const USAGE_CODES = new Set(['USAGE', 'BAD_SPEC', 'TOO_MANY', 'BAD_TASK', 'BAD_EFFORT', 'UNKNOWN_KIND', 'NAME_TAKEN', 'NO_PANE', 'INVALID_ENTRY', 'NO_RUN']);
+const USAGE_CODES = new Set(['USAGE', 'BAD_SPEC', 'TOO_MANY', 'BAD_TASK', 'BAD_EFFORT', 'BAD_BRANCH', 'BRANCH_REQUIRED', 'UNKNOWN_KIND', 'NAME_TAKEN', 'NO_PANE', 'INVALID_ENTRY', 'NO_RUN']);
 
 function parseFlags(args, spec) {
   const flags = {};
@@ -136,18 +137,18 @@ function defaultOps(deps) {
         phase, only, timeoutMs: timeoutMs ?? config().waitTimeoutMs,
       });
     },
-    async spawn({ task, specs, newTab, effort, full, auto }) {
+    async spawn({ task, specs, newTab, effort, full, auto, branch }) {
       const g = git();
       const repo = await g.toplevel(deps.cwd);
       if (!repo) throw fail('USAGE', 'run foreman spawn inside the git repository');
       return spawnWorkers({
-        herdr: herdr(), git: g, paths: deps.paths, config: config(), repo, task, specs, newTab, effort, full, auto, run: deps.run,
+        herdr: herdr(), git: g, paths: deps.paths, config: config(), repo, task, specs, newTab, effort, full, auto, branch, run: deps.run,
         pane: deps.env.HERDR_PANE_ID, writeFile: deps.writeFile, readFile: deps.readFile, appendFile: deps.appendFile, mkdir: deps.mkdir,
       });
     },
     status: async ({ task }) => workerStatus({ run: needRun(task), git: git(), exists: deps.exists }),
     merge: async ({ task, only }) => mergeWorkers({ run: needRun(task), git: git(), paths: deps.paths, exists: deps.exists, only }),
-    land: async ({ task }) => land({ run: needRun(task), git: git() }),
+    land: async ({ task, title }) => land({ run: needRun(task), git: git(), title }),
     async leftovers() {
       const agents = await herdr().agentList().catch(() => []);
       const runs = listRuns({ paths: deps.paths, readdir: deps.readdir, readFile: deps.readFile });
@@ -230,7 +231,7 @@ export async function main(argv, deps) {
         return 0;
       case 'spawn': {
         const res = await ops.spawn({
-          task, specs: r.positionals, newTab: Boolean(r.flags['--new-tab']), effort: r.flags['--effort'] ?? null, full: Boolean(r.flags['--full']), auto: Boolean(r.flags['--auto']),
+          task, specs: r.positionals, newTab: Boolean(r.flags['--new-tab']), effort: r.flags['--effort'] ?? null, full: Boolean(r.flags['--full']), auto: Boolean(r.flags['--auto']), branch: r.flags['--branch'] ?? null,
         });
         print(res, (v) => {
           for (const w of v.workers) stdout.write(`${w.name.padEnd(12)}${w.kind.padEnd(10)}${w.paneId.padEnd(10)}${w.status}${w.error ? ` (${w.error})` : ''}\n`);
@@ -253,7 +254,7 @@ export async function main(argv, deps) {
         return res.conflict || res.refused.length ? 1 : 0;
       }
       case 'land': {
-        const res = await ops.land({ task });
+        const res = await ops.land({ task, title: r.flags['--title'] ?? null });
         print(res, (v) => stdout.write(v.ok ? `merged ${v.branch} into your current branch\n` : `not merged: ${v.reason}${v.files ? ` (${v.files.join(', ')})` : ''}\n`));
         return res.ok ? 0 : 1;
       }

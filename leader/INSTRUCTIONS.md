@@ -44,7 +44,9 @@ Read enough to split the task well: structure, README, how to build, how to run 
 
 First, once per task, ask the user the question from "Permission questions" below: will they answer workers' permission questions themselves, or should you answer on their behalf, at their responsibility? If you answer, add `--auto` to every spawn: workers then start in their agent's auto-approve mode and rarely stop to ask. Follow "Auto mode" below.
 
-Run `foreman spawn --task <slug> [--auto] [--effort <level>] <name>=<kind>[:<model>] ...`; spawn groups that need different efforts in separate calls. Use short lowercase names (`sec1`, `test1`). Claude workers start lean (no MCP servers or skills); add `--full` only for a worker that needs them, for example to test a web app in the browser.
+Name the run once, with the first spawn: `--branch <type>/<name>`, a Conventional Commits type (`feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`) and a short English kebab-case name of at most 40 characters, for example `feat/auto-accept-workers`. Later spawns of the same task leave `--branch` out. Workers get branches `wip/<name>/<worker>`.
+
+Run `foreman spawn --task <slug> --branch <type>/<name> [--auto] [--effort <level>] <name>=<kind>[:<model>] ...`; spawn groups that need different efforts in separate calls. Use short lowercase names (`sec1`, `test1`). Claude workers start lean (no MCP servers or skills); add `--full` only for a worker that needs them, for example to test a web app in the browser.
 
 The JSON lists per worker:
 
@@ -91,13 +93,13 @@ Ask which items to do (the user may answer like "1 and 3 yes, 2 no") and wait. F
 
 Give each approved item to the worker that found it (it has the context) unless another clearly fits better. Send all briefs in one call:
 
-> Implement only these approved items: <items>. Work only in your worktree. Commit on your branch with a clear message; commit nothing outside these items. Run <test command>. Write at most 5 lines to <reportDir>/report.md: what changed and the test result. Reply only DONE when finished.
+> Implement only these approved items: <items>. Work only in your worktree. Commit on your branch with Conventional Commits messages (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, ...), never `wip` commits; commit nothing outside these items. Run <test command>. Write at most 5 lines to <reportDir>/report.md: what changed and the test result. Reply only DONE when finished.
 
 Then run `foreman wait --task <slug> --phase implement`, handled as in step 4.
 
 ## Step 7: collect and check
 
-Run `foreman merge --task <slug> --json`. It collects the workers' commits on `foreman/<slug>` in a separate copy (`worktree` in the output); the user's checkout stays untouched.
+Run `foreman merge --task <slug> --json`. It collects the workers' commits on the run branch `<type>/<name>` in a separate copy (`worktree` in the output); the user's checkout stays untouched.
 
 - `refused` (uncommitted changes): ask that worker to commit, then merge again.
 - `conflict`: resolve it in the merge worktree if trivial; otherwise ask the worker who owns the change. Then merge again; merging again is safe.
@@ -108,8 +110,8 @@ In the merge worktree, run the build and the tests, and review `git -C <worktree
 
 Summarise what changed, in which files, and the test result. Give three choices; in Polish, call the first two "scal" and "zostaw":
 
-1. **Merge into their current branch:** `foreman land --task <slug>`. If it refuses because of uncommitted changes, ask the user to commit or stash them first.
-2. **Leave it:** `foreman/<slug>` stays; it can be merged later with `git merge foreman/<slug>`.
+1. **Merge into their current branch:** `foreman land --task <slug> --title '<summary>'` (a few words, for the merge commit: `Merge <type>/<name>: <summary>`). If it refuses because of uncommitted changes, ask the user to commit or stash them first.
+2. **Leave it:** `<type>/<name>` stays; it can be merged later with `git merge <type>/<name>`.
 3. **Comments:** turn them into fixes for the workers and go back to step 7.
 
 ## Step 9: finish
