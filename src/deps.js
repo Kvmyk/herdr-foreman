@@ -9,6 +9,12 @@ import { paths } from './config.js';
 
 const BIN = fileURLToPath(new URL('../bin/foreman.js', import.meta.url));
 
+// How the leader runs foreman. A Windows path gets forward slashes: node takes
+// them, and they survive bash, cmd, PowerShell and an agent re-quoting them.
+export function foremanCommand(found, bin = BIN) {
+  return found ? 'foreman' : `node "${bin.replace(/\\/g, '/')}"`;
+}
+
 function writeFile(file, data) {
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, data);
@@ -66,6 +72,6 @@ export function realDeps() {
       for await (const chunk of process.stdin) text += chunk;
       return text;
     },
-    foremanCmd: which('foreman') ? 'foreman' : `node "${BIN}"`,
+    foremanCmd: foremanCommand(Boolean(which('foreman'))),
   };
 }
