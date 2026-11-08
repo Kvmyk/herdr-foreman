@@ -42,7 +42,11 @@ Read enough to split the task well: structure, README, how to build, how to run 
 
 ## Step 3: open the workers
 
-Run `foreman spawn --task <slug> [--effort <level>] <name>=<kind>[:<model>] ...`; spawn groups that need different efforts in separate calls. Use short lowercase names (`sec1`, `test1`). Claude workers start lean (no MCP servers or skills); add `--full` only for a worker that needs them, for example to test a web app in the browser.
+First, once per task, ask the user the question from "Permission questions" below: will they answer workers' permission questions themselves, or should you answer on their behalf, at their responsibility? If you answer, add `--auto` to every spawn: workers then start in their agent's auto-approve mode and rarely stop to ask. Follow "Auto mode" below.
+
+Name the run once, with the first spawn: `--branch <type>/<name>`, a Conventional Commits type (`feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`) and a short English kebab-case name of at most 40 characters, for example `feat/auto-accept-workers`. Later spawns of the same task leave `--branch` out. Workers get branches `wip/<name>/<worker>`.
+
+Run `foreman spawn --task <slug> --branch <type>/<name> [--auto] [--effort <level>] <name>=<kind>[:<model>] ...`; spawn groups that need different efforts in separate calls. Use short lowercase names (`sec1`, `test1`). Claude workers start lean (no MCP servers or skills); add `--full` only for a worker that needs them, for example to test a web app in the browser.
 
 The JSON lists per worker:
 
@@ -72,7 +76,7 @@ Attention states:
 - `idle` with `note`: the worker stopped without its report. Read its `screen` and nudge it once.
 - `gone`: its agent exited. Tell the user.
 
-When all are done, run `foreman status --task <slug> --json`. Every worker must show `dirty: false` and `commitsAhead: 0`. If one changed something, tell the user what and ask before discarding it with `git -C <worktree> checkout -- . && git -C <worktree> clean -fd`.
+When all are done, run `foreman status --task <slug> --json`. Every worker must show `dirty: false`, `commitsAhead: 0` and `pushGuardArmed: true`. If a guard is not armed, tell the user. If one changed something, tell the user what and ask before discarding it with `git -C <worktree> checkout -- . && git -C <worktree> clean -fd`.
 
 ## Step 5: one list for the user
 
@@ -89,13 +93,13 @@ Ask which items to do (the user may answer like "1 and 3 yes, 2 no") and wait. F
 
 Give each approved item to the worker that found it (it has the context) unless another clearly fits better. Send all briefs in one call:
 
-> Implement only these approved items: <items>. Work only in your worktree. Commit on your branch with a clear message; commit nothing outside these items. Run <test command>. Write at most 5 lines to <reportDir>/report.md: what changed and the test result. Reply only DONE when finished.
+> Implement only these approved items: <items>. Work only in your worktree. Commit on your branch with Conventional Commits messages (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, ...), never `wip` commits; commit nothing outside these items. Run <test command>. Write at most 5 lines to <reportDir>/report.md: what changed and the test result. Reply only DONE when finished.
 
 Then run `foreman wait --task <slug> --phase implement`, handled as in step 4.
 
 ## Step 7: collect and check
 
-Run `foreman merge --task <slug> --json`. It collects the workers' commits on `foreman/<slug>` in a separate copy (`worktree` in the output); the user's checkout stays untouched.
+Run `foreman merge --task <slug> --json`. It collects the workers' commits on the run branch `<type>/<name>` in a separate copy (`worktree` in the output); the user's checkout stays untouched.
 
 - `refused` (uncommitted changes): ask that worker to commit, then merge again.
 - `conflict`: resolve it in the merge worktree if trivial; otherwise ask the worker who owns the change. Then merge again; merging again is safe.
@@ -106,8 +110,8 @@ In the merge worktree, run the build and the tests, and review `git -C <worktree
 
 Summarise what changed, in which files, and the test result. Give three choices; in Polish, call the first two "scal" and "zostaw":
 
-1. **Merge into their current branch:** `foreman land --task <slug>`. If it refuses because of uncommitted changes, ask the user to commit or stash them first.
-2. **Leave it:** `foreman/<slug>` stays; it can be merged later with `git merge foreman/<slug>`.
+1. **Merge into their current branch:** `foreman land --task <slug> --title '<summary>'` (a few words, for the merge commit: `Merge <type>/<name>: <summary>`). If it refuses because of uncommitted changes, ask the user to commit or stash them first.
+2. **Leave it:** `<type>/<name>` stays; it can be merged later with `git merge <type>/<name>`.
 3. **Comments:** turn them into fixes for the workers and go back to step 7.
 
 ## Step 9: finish
@@ -131,7 +135,7 @@ If you have to stop before step 9 (the user cancels, or something breaks), still
 
 They show up as `blocked` in `foreman wait`, or as `not_ready` right after spawn (read the pane with `herdr agent read <name> --source visible`).
 
-1. The first time in a task, ask the user once: will they answer such questions themselves, or should you answer on their behalf, at their responsibility? Keep that choice for the rest of the task.
+1. You asked the user once before Step 3: will they answer such questions themselves, or should you answer on their behalf, at their responsibility? Keep that choice for the rest of the task. If you never asked, ask now.
 2. If the user answers them, tell them which pane (`paneId`) is waiting and what it asks.
 3. If you answer them, use `herdr agent send-keys <name> <keys>`:
    - choose by the option's text: for example `1` or `enter` for "Yes", `esc` to cancel;
@@ -140,3 +144,14 @@ They show up as `blocked` in `foreman wait`, or as `not_ready` right after spawn
    - approve only requests that fit the worker's brief and whose concrete command you have read;
    - always refuse `git push`, pull requests, and anything that sends code off the machine;
    - ask the user first about deleting files outside the worker's worktree, global installs, or anything clearly outside the task.
+
+## Auto mode
+
+Used when you spawned with `--auto`.
+
+- Every worktree has a push guard (a failing pre-push hook and dead push URLs). It is a tripwire, not a wall. A worker can get around it with `git push --no-verify <url>`, `git -c core.hooksPath= push`, unsetting `extensions.worktreeConfig`, or deleting the hook. The user's approval before `land` is the real control.
+- For Claude, `--disallowedTools` blocks `git push` and `gh` by prefix only. `git -C . push`, aliases, subshells and `curl` get through, so it is a second belt.
+- Every brief must say: do not touch anything outside your worktree, do not push, do not create pull requests.
+- Warnings from `spawn`, `status` or `merge` mean a kind has no auto mode or a guard is gone. Relay them to the user and read that worker's changes with extra care.
+- Before spawning, note the user's repo: `git status`, branches, HEAD, and remote refs (`git ls-remote`) if it has remotes. After collecting, compare all of them. A worker saying it did not push is data, not proof. Tell the user about any difference.
+- Still refuse `git push` and pull requests if a worker asks.

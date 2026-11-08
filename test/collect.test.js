@@ -22,6 +22,7 @@ async function setup(names = ['w1', 'w2']) {
     const worktree = path.join(root, name);
     const branch = `foreman-work/t/${name}`;
     await git.addWorktree(repo, worktree, branch, base);
+    await git.armPushGuard(worktree);
     const reportDir = path.join(paths.runs, 't', name);
     mkdirSync(reportDir, { recursive: true });
     workers.push({ name, kind: 'claude', model: null, paneId: `w1:p${i + 2}`, worktree, branch, reportDir });
@@ -50,6 +51,7 @@ test('status shows dirty, commits ahead and reports', async () => {
     ['w1', false, 1, false, false],
     ['w2', true, 0, true, false],
   ]);
+  assert.deepEqual(st.map((s) => s.pushGuardArmed), [true, true]);
   assert.deepEqual(st[1].changedFiles, ['a.txt']);
 });
 
@@ -204,4 +206,72 @@ test('cleanup removes merge worktree and keeps foreman branch unless asked', asy
   await cleanup({ run: run2, git, herdr: fakeHerdr(log), paths: paths2, exists: existsSync, deleteBranch: true });
   assert.equal(await git.branchExists(run2.repo, 'foreman/t'), false);
   rawGit(run2.repo, 'status');
+});
+
+test('cleanup restores extensions.worktreeConfig only when foreman turned it on', async () => {
+  const a = await setup();
+  assert.equal(await git.worktreeConfigEnabled(a.repo), true);
+  await cleanup({ run: { ...a.run, ownsWorktreeConfig: true }, git, herdr: fakeHerdr([]), paths: a.paths, exists: existsSync });
+  assert.equal(await git.worktreeConfigEnabled(a.repo), false);
+
+  const b = await setup();
+  await cleanup({ run: { ...b.run, ownsWorktreeConfig: false }, git, herdr: fakeHerdr([]), paths: b.paths, exists: existsSync });
+  assert.equal(await git.worktreeConfigEnabled(b.repo), true);
+});
+
+test('cleanup keeps extensions.worktreeConfig while another foreman worktree remains', async () => {
+  const a = await setup(['w1', 'w2']);
+  const keep = a.run.workers[1];
+  const run = { ...a.run, ownsWorktreeConfig: true, workers: [a.run.workers[0]] };
+  await cleanup({ run, git, herdr: fakeHerdr([]), paths: a.paths, exists: existsSync });
+  assert.ok(existsSync(keep.worktree));
+  assert.equal(await git.worktreeConfigEnabled(a.repo), true);
+});
+
+test('named run: merge and land use <type>/<name> with descriptive merge messages', async () => {
+  const { run: old, paths } = await setup();
+  const run = { ...old, branch: 'feat/thing', workers: old.workers.map((w, i) => ({ ...w, model: i ? 'opus' : null })) };
+  commitFile(run.workers[0].worktree, 'b.txt', 'b\n');
+  commitFile(run.workers[1].worktree, 'c.txt', 'c\n');
+  const res = await mergeWorkers({ run, git, paths, exists: existsSync });
+  assert.equal(res.branch, 'feat/thing');
+  const subjects = rawGit(res.worktree, 'log', '--merges', '--format=%s').split('\n');
+  assert.deepEqual(subjects, ['Merge foreman-work/t/w2 (claude:opus)', 'Merge foreman-work/t/w1 (claude)']);
+
+  const landed = await land({ run, git, title: 'add thing' });
+  assert.deepEqual(landed, { ok: true, branch: 'feat/thing' });
+  assert.equal(rawGit(run.repo, 'log', '-1', '--format=%s'), 'Merge feat/thing: add thing');
+  assert.equal(rawGit(run.repo, 'rev-list', '--parents', '-1', 'HEAD').split(' ').length, 3, 'still a --no-ff merge');
+});
+
+test('land without a title says just which branch was merged', async () => {
+  const { run: old, paths } = await setup();
+  const run = { ...old, branch: 'fix/bug' };
+  commitFile(run.workers[0].worktree, 'b.txt', 'b\n');
+  await mergeWorkers({ run, git, paths, exists: existsSync });
+  await land({ run, git });
+  assert.equal(rawGit(run.repo, 'log', '-1', '--format=%s'), 'Merge fix/bug');
+});
+
+test('old run record without branch still lands on foreman/<task>', async () => {
+  const { run, paths } = await setup();
+  commitFile(run.workers[0].worktree, 'b.txt', 'b\n');
+  await mergeWorkers({ run, git, paths, exists: existsSync });
+  await land({ run, git });
+  assert.equal(rawGit(run.repo, 'log', '-1', '--format=%s'), 'Merge foreman/t');
+});
+
+test('cleanup deletes recorded wip branches and the named run branch on request', async () => {
+  const { run: old, paths } = await setup();
+  const workers = [];
+  for (const w of old.workers) {
+    const branch = 'wip/thing/' + w.name;
+    rawGit(w.worktree, 'branch', '-m', branch);
+    workers.push({ ...w, branch });
+  }
+  const run = { ...old, branch: 'feat/thing', workers };
+  commitFile(run.workers[0].worktree, 'b.txt', 'b\n');
+  await mergeWorkers({ run, git, paths, exists: existsSync });
+  const res = await cleanup({ run, git, herdr: fakeHerdr([]), paths, exists: existsSync, deleteBranch: true });
+  assert.deepEqual(res.deletedBranches.sort(), ['feat/thing', 'wip/thing/w1', 'wip/thing/w2']);
 });

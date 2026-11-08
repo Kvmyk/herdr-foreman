@@ -102,12 +102,20 @@ export const PROBES = Object.freeze({
     probe: probeClaude,
     modelArgs: flag('--model'),
     effortArgs: flag('--effort'),
+    // Answers permission prompts itself; pushes and gh (pull requests) stay denied.
+    autoArgs: ['--permission-mode', 'auto', '--disallowedTools', 'Bash(git push:*),Bash(gh:*)'],
+    autoFlag: '--permission-mode',
     leanArgs: { leader: [...CLAUDE_LEAN, `${CLAUDE_TOOLS},AskUserQuestion`], worker: [...CLAUDE_LEAN, CLAUDE_TOOLS] },
     verified: true,
   },
-  agy: { probe: probeAgy, modelArgs: flag('--model'), effortArgs: flag('--effort'), verified: true },
-  opencode: { probe: probeOpencode, modelArgs: flag('--model'), listsModels: true, verified: true },
-  pi: { probe: probePi, modelArgs: flag('--model'), listsModels: true, verified: true },
+  // agy takes its effort from the model id; with --model, --effort makes it ignore the model.
+  agy: {
+    probe: probeAgy, modelArgs: flag('--model'), effortArgs: flag('--effort'), effortFromModel: true,
+    autoArgs: ['--mode', 'auto'], autoFlag: '--mode', verified: true,
+  },
+  opencode: { probe: probeOpencode, modelArgs: flag('--model'), listsModels: true, autoArgs: ['--auto'], autoFlag: '--auto', verified: true },
+  // pi never asks for permission.
+  pi: { probe: probePi, modelArgs: flag('--model'), listsModels: true, autoArgs: [], verified: true },
   gemini: { probe: probeGemini, modelArgs: flag('-m'), verified: true },
   codex: { probe: probeCodex, modelArgs: flag('-m'), verified: false },
 });

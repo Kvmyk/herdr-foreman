@@ -7,7 +7,7 @@ import { DEFAULT_CONFIG } from '../src/config.js';
 const paths = { runs: path.resolve('/s/runs'), worktrees: path.resolve('/s/worktrees') };
 const repo = path.resolve('/code/shop');
 
-function fakes({ live = [], dirty = false, notReady = [], existingRun = null } = {}) {
+function fakes({ takenBranches = [], live = [], dirty = false, notReady = [], existingRun = null } = {}) {
   const log = [];
   let pane = 1;
   const files = {};
@@ -27,6 +27,10 @@ function fakes({ live = [], dirty = false, notReady = [], existingRun = null } =
     commonDir: async () => path.join(repo, '.git'),
     isDirty: async () => dirty,
     addWorktree: async (r, wt, branch, base) => { log.push(['worktree', { wt, branch, base }]); },
+    validBranchName: async (r, n) => !n.includes('..') && !n.includes(' '),
+    branchExists: async (r, b) => takenBranches.includes(b),
+    worktreeConfigEnabled: async () => false,
+    armPushGuard: async (wt) => { log.push(['guard', wt]); },
     removeWorktree: async (r, wt) => { log.push(['rmworktree', wt]); },
     deleteBranch: async (r, b) => { log.push(['rmbranch', b]); },
   };
@@ -43,7 +47,7 @@ function fakes({ live = [], dirty = false, notReady = [], existingRun = null } =
 }
 
 const call = (f, over = {}) => spawnWorkers({
-  herdr: f.herdr, git: f.git, paths, config: DEFAULT_CONFIG, repo, task: 'fix-login', pane: 'w1:p1', ...f.io, ...over,
+  herdr: f.herdr, git: f.git, paths, config: DEFAULT_CONFIG, repo, task: 'fix-login', pane: 'w1:p1', branch: 'feat/fix-login', ...f.io, ...over,
 });
 
 test('parseSpec keeps colon in model', () => {
@@ -79,7 +83,7 @@ test('three workers: splits and cwd per worktree', async () => {
   assert.equal(splits[0].pane, 'w1:p1');
   const root = workers[0].worktree.slice(0, -'w1'.length);
   assert.ok(root.startsWith(paths.worktrees));
-  assert.deepEqual(workers.map((w) => w.branch), ['foreman-work/fix-login/w1', 'foreman-work/fix-login/w2', 'foreman-work/fix-login/w3']);
+  assert.deepEqual(workers.map((w) => w.branch), ['wip/fix-login/w1', 'wip/fix-login/w2', 'wip/fix-login/w3']);
   assert.deepEqual(workers.map((w) => w.status), ['ready', 'ready', 'ready']);
 });
 
@@ -192,4 +196,89 @@ test('rejects an unknown effort level before creating anything', async () => {
   const f = fakes();
   await assert.rejects(call(f, { specs: ['w1=claude'], effort: 'turbo' }), (e) => e.code === 'BAD_EFFORT');
   assert.equal(f.log.length, 0);
+});
+
+test('every worktree gets a push guard, with or without --auto', async () => {
+  const f = fakes();
+  await call(f, { specs: ['w1=claude', 'w2=pi'] });
+  assert.equal(f.log.filter(([k]) => k === 'guard').length, 2);
+});
+
+test('a failing push guard rolls back the worktree', async () => {
+  const f = fakes();
+  f.git.armPushGuard = async () => { throw new Error('config failed'); };
+  await assert.rejects(call(f, { specs: ['w1=claude'] }), /config failed/);
+  assert.ok(f.log.some(([k]) => k === 'rmworktree'));
+  assert.ok(!f.log.some(([k]) => k === 'start'));
+});
+
+test('--auto passes each kind its auto-approve args and records auto', async () => {
+  const f = fakes();
+  const { warnings } = await call(f, { specs: ['c=claude', 'a=agy', 'o=opencode', 'p=pi', 'x=codex'], auto: true });
+  const args = Object.fromEntries(f.log.filter(([k]) => k === 'start').map(([, o]) => [o.name, o.args]));
+  assert.deepEqual(args.c.slice(0, 4), ['--permission-mode', 'auto', '--disallowedTools', 'Bash(git push:*),Bash(gh:*)']);
+  assert.deepEqual(args.a, ['--mode', 'auto']);
+  assert.deepEqual(args.o, ['--auto']);
+  assert.deepEqual(args.p, []);
+  assert.deepEqual(args.x, []);
+  assert.ok(warnings.some((w) => /codex/.test(w) && /auto/.test(w)));
+  assert.ok(!warnings.some((w) => /\bpi\b/.test(w)));
+  assert.deepEqual(JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]).workers.map((w) => w.auto), [true, true, true, true, false]);
+});
+
+test('without --auto no auto args are passed', async () => {
+  const f = fakes();
+  await call(f, { specs: ['a=agy'] });
+  assert.deepEqual(f.log.find(([k]) => k === 'start')[1].args, []);
+});
+
+test('agy gets no --effort together with --model, only a warning', async () => {
+  const f = fakes();
+  const { warnings } = await call(f, { specs: ['a=agy:claude-opus-4-6-thinking', 'b=agy'], effort: 'high' });
+  const starts = f.log.filter(([k]) => k === 'start').map(([, o]) => [o.name, o.args]);
+  assert.deepEqual(starts, [['a', ['--model', 'claude-opus-4-6-thinking']], ['b', ['--effort', 'high']]]);
+  assert.ok(warnings.some((w) => /^a:/.test(w) && /effort/.test(w)));
+});
+
+test('--auto warns when the agent help does not mention its flag', async () => {
+  const f = fakes();
+  const asked = [];
+  const run = async (cmd, a) => { asked.push([cmd, a]); return { code: 0, stdout: cmd === 'agy' ? '--mode' : 'nothing', stderr: '' }; };
+  const { warnings } = await call(f, { specs: ['a=agy', 'a2=agy', 'c=claude'], auto: true, run });
+  assert.deepEqual(asked, [['agy', ['--help']], ['claude', ['--help']]]);
+  assert.ok(warnings.some((w) => /claude --help/.test(w)));
+  assert.ok(!warnings.some((w) => /agy --help/.test(w)));
+});
+
+test('first spawn needs a valid, unused --branch and records it', async () => {
+  await assert.rejects(call(fakes(), { specs: ['w1=claude'], branch: null }), (e) => e.code === 'BRANCH_REQUIRED');
+  for (const bad of ['fix-login', 'wibble/x', 'feat/Bad', 'feat/' + 'a'.repeat(41), 'feat/a/b', 'feat/x..y']) {
+    await assert.rejects(call(fakes(), { specs: ['w1=claude'], branch: bad }), (e) => e.code === 'BAD_BRANCH', bad);
+  }
+  const f = fakes({ takenBranches: ['feat/fix-login'] });
+  await assert.rejects(call(f, { specs: ['w1=claude'] }), (e) => e.code === 'BAD_BRANCH' && /exists/.test(e.message));
+  assert.equal(f.log.length, 0);
+
+  const ok = fakes();
+  const { workers } = await call(ok, { specs: ['w1=claude'], branch: 'refactor/split-spawn' });
+  assert.equal(workers[0].branch, 'wip/split-spawn/w1');
+  const rec = JSON.parse(ok.files[path.join(paths.runs, 'fix-login.json')]);
+  assert.equal(rec.branch, 'refactor/split-spawn');
+});
+
+test('later spawns reuse the recorded branch and reject a different one', async () => {
+  const existingRun = { task: 'fix-login', repo, base: 'old999', branch: 'feat/fix-login', createdAt: 'x', workers: [{ name: 'w1', kind: 'claude' }] };
+  const f = fakes({ existingRun });
+  const { workers } = await call(f, { specs: ['w2=claude'], branch: null });
+  assert.equal(workers[0].branch, 'wip/fix-login/w2');
+  await call(fakes({ existingRun }), { specs: ['w2=claude'], branch: 'feat/fix-login' });
+  await assert.rejects(call(fakes({ existingRun }), { specs: ['w2=claude'], branch: 'fix/other' }), (e) => e.code === 'BAD_BRANCH');
+});
+
+test('an old run record without branch keeps the old worker branch names', async () => {
+  const existingRun = { task: 'fix-login', repo, base: 'old999', createdAt: 'x', workers: [{ name: 'w1', kind: 'claude' }] };
+  const f = fakes({ existingRun });
+  const { workers } = await call(f, { specs: ['w2=claude'], branch: null });
+  assert.equal(workers[0].branch, 'foreman-work/fix-login/w2');
+  assert.equal(JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]).branch, undefined);
 });

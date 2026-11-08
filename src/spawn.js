@@ -8,6 +8,8 @@ import { fail } from './errors.js';
 
 export const SPEC_PATTERN = /^([a-z][a-z0-9_-]{0,31})=([a-z][a-z0-9-]*)(?::(.+))?$/;
 const TASK = /^[a-z0-9][a-z0-9-]{0,39}$/;
+export const BRANCH_TYPES = Object.freeze(['feat', 'fix', 'docs', 'refactor', 'test', 'perf', 'chore']);
+const BRANCH = new RegExp('^(' + BRANCH_TYPES.join('|') + ')/([a-z0-9][a-z0-9-]{0,39})$');
 
 export function parseSpec(s) {
   const m = SPEC_PATTERN.exec(s);
@@ -15,12 +17,23 @@ export function parseSpec(s) {
   return { name: m[1], kind: m[2], model: m[3] ?? null };
 }
 
-async function validate({ herdr, config, task, specs, existing, pane, newTab, effort }) {
+async function validate({ herdr, git, repo, config, task, specs, existing, pane, newTab, effort, branch }) {
   if (specs.length < 1 || specs.length > config.maxWorkers) {
     throw fail('TOO_MANY', `between 1 and ${config.maxWorkers} workers per spawn (got ${specs.length})`);
   }
   if (!TASK.test(task)) throw fail('BAD_TASK', `bad task slug "${task}"; use lowercase letters, digits and -`);
   if (effort && !EFFORT_LEVELS.includes(effort)) throw fail('BAD_EFFORT', `effort must be one of ${EFFORT_LEVELS.join(', ')}`);
+  // Runs recorded before named branches keep their old branch names.
+  if (existing && !existing.branch) {
+    branch = null;
+  } else if (existing) {
+    if (branch && branch !== existing.branch) throw fail('BAD_BRANCH', `this task already uses branch ${existing.branch}; do not pass a different --branch`);
+  } else {
+    if (!branch) throw fail('BRANCH_REQUIRED', `the first spawn of a task needs --branch <type>/<name> (type: ${BRANCH_TYPES.join(', ')})`);
+    if (!BRANCH.test(branch)) throw fail('BAD_BRANCH', `bad branch "${branch}"; use <type>/<name> with type one of ${BRANCH_TYPES.join(', ')} and name in lowercase letters, digits and - (at most 40 characters)`);
+    if (!(await git.validBranchName(repo, branch))) throw fail('BAD_BRANCH', `git does not accept the branch name "${branch}"`);
+    if (await git.branchExists(repo, branch)) throw fail('BAD_BRANCH', `branch ${branch} already exists; choose another name`);
+  }
   const parsed = specs.map(parseSpec);
   const unknown = parsed.find((w) => !HERDR_KINDS.includes(w.kind));
   if (unknown) throw fail('UNKNOWN_KIND', `herdr cannot start agent kind "${unknown.kind}"`);
@@ -33,7 +46,7 @@ async function validate({ herdr, config, task, specs, existing, pane, newTab, ef
     taken.add(w.name);
   }
   if (!newTab && !pane) throw fail('NO_PANE', 'no pane to open workers next to; run inside herdr or pass --new-tab');
-  return parsed;
+  return { parsed, branch };
 }
 
 async function openPanes({ herdr, pane, newTab, task, workers }) {
@@ -91,10 +104,12 @@ async function excludeReports({ git, repo, readFile, appendFile, mkdir }) {
 }
 
 export async function spawnWorkers({
-  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, writeFile, readFile, appendFile, mkdir,
+  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, run = null, writeFile, readFile, appendFile, mkdir,
 }) {
   const existing = loadRun(task, { paths, readFile });
-  const parsed = await validate({ herdr, config, task, specs, existing, pane, newTab, effort });
+  const checked = await validate({ herdr, git, repo, config, task, specs, existing, pane, newTab, effort, branch });
+  const parsed = checked.parsed;
+  const runBranch = existing ? existing.branch : checked.branch;
   const warnings = [];
 
   const base = existing?.base ?? await git.head(repo);
@@ -105,15 +120,19 @@ export async function spawnWorkers({
   const workers = parsed.map((w) => ({
     ...w,
     worktree: path.join(root, w.name),
-    branch: `foreman-work/${task}/${w.name}`,
+    // wip/<name>/<worker>: <type>/<name> is itself a branch, so workers cannot live below it.
+    branch: runBranch ? `wip/${runBranch.split('/')[1]}/${w.name}` : `foreman-work/${task}/${w.name}`,
     reportDir: path.join(root, w.name, '.foreman'),
   }));
 
+  // Remember whether foreman turns on extensions.worktreeConfig, so cleanup can undo it.
+  const ownsWorktreeConfig = existing?.ownsWorktreeConfig ?? !(await git.worktreeConfigEnabled(repo));
   const made = [];
   try {
     for (const w of workers) {
       await git.addWorktree(repo, w.worktree, w.branch, base);
       made.push(w);
+      await git.armPushGuard(w.worktree);
       mkdir(w.reportDir, { recursive: true });
     }
     const panes = await openPanes({ herdr, pane, newTab, task, workers });
@@ -126,15 +145,37 @@ export async function spawnWorkers({
     throw err;
   }
 
+  // The first auto spawn of a kind checks that the installed agent still knows its flag.
+  const helpChecked = new Set();
+  if (auto && run) {
+    for (const kind of new Set(workers.map((w) => w.kind))) {
+      const flagName = PROBES[kind]?.autoFlag;
+      if (!flagName || helpChecked.has(kind)) continue;
+      helpChecked.add(kind);
+      const help = await run(kind, ['--help'], { timeoutMs: 15000 }).catch(() => null);
+      if (help && !`${help.stdout}
+${help.stderr}`.includes(flagName)) {
+        warnings.push(`"${kind} --help" does not mention ${flagName}; auto mode may not work for ${kind}`);
+      }
+    }
+  }
+
   const results = await Promise.all(workers.map((w) => {
     const probe = PROBES[w.kind];
+    w.auto = false;
     const args = [];
     if (w.model && probe) args.push(...probe.modelArgs(w.model));
     else if (w.model) warnings.push(`no model flag known for ${w.kind}; ${w.name} starts with its default model`);
-    if (effort && probe?.effortArgs) args.push(...probe.effortArgs(effort));
+    if (effort && probe?.effortFromModel && w.model) warnings.push(`${w.name}: ${w.kind} takes effort from the model id; --effort not passed with --model ${w.model}`);
+    else if (effort && probe?.effortArgs) args.push(...probe.effortArgs(effort));
     else if (effort) warnings.push(`no effort setting known for ${w.kind}; ${w.name} uses its default effort`);
     // Lean start: fewer tool definitions re-sent on every turn. --full keeps MCP servers
     // and skills, e.g. for a worker that tests a web app in the browser.
+    if (auto && probe?.autoArgs) {
+      args.push(...probe.autoArgs);
+      w.auto = true;
+    }
+    else if (auto) warnings.push(`no auto-approve mode known for ${w.kind}; ${w.name} may still ask for permission`);
     if (config.lean !== false && !full && probe?.leanArgs) args.push(...probe.leanArgs.worker);
     return herdr.agentStart({ name: w.name, kind: w.kind, pane: w.paneId, timeoutMs: config.startTimeoutMs, args });
   }));
@@ -147,10 +188,12 @@ export async function spawnWorkers({
     task,
     repo,
     base,
+    ...(runBranch ? { branch: runBranch } : {}),
     createdAt: existing?.createdAt ?? new Date().toISOString(),
+    ownsWorktreeConfig,
     workers: [
       ...(existing?.workers ?? []),
-      ...workers.map(({ name, kind, model, paneId, worktree, branch, reportDir }) => ({ name, kind, model, paneId, worktree, branch, reportDir })),
+      ...workers.map(({ name, kind, model, auto = false, paneId, worktree, branch, reportDir }) => ({ name, kind, model, auto, paneId, worktree, branch, reportDir })),
     ],
   };
   saveRun(record, { paths, writeFile, mkdir });
