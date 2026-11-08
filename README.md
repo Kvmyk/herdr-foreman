@@ -143,7 +143,7 @@ Choosing is based on three layers:
 Every turn an agent takes re-sends its whole conversation, so foreman cuts turns and per-turn context rather than thinking (details and measurements in `docs/research/2026-11-07-tokeny.md`):
 
 - **`foreman wait`:** the leader blocks once instead of polling workers; it gets a worker's screen only when that worker asks something.
-- **Lean starts:** claude leaders and workers start without MCP servers, skills and unused tools. That measured about 23k instead of 44k tokens of context per turn. Use `--full` for a worker that needs them, or set `"lean": false`.
+- **Lean starts:** claude leaders and workers start without MCP servers and unused tools; built-in slash commands such as `/usage` keep working. That measured about 23k instead of 44k tokens of context per turn. Use `--full` for a worker that needs them, or set `"lean": false`.
 - **Effort per worker:** `--effort low` for mechanical parts, higher only where reasoning pays.
 - **Compact data:** `foreman brief` carries only what planning needs (about 9k characters instead of 33k), and `--json` output has no whitespace.
 - **Leader instructions:** batched commands, targeted briefs (files and test command) and short reports.

@@ -206,7 +206,8 @@ test('claude workers start lean by default; --full keeps everything', async () =
   await call(f, { specs: ['w1=claude:sonnet'] });
   const args = f.log.find(([k]) => k === 'start')[1].args;
   assert.deepEqual(args.slice(0, 2), ['--model', 'sonnet']);
-  assert.ok(args.includes('--strict-mcp-config') && args.includes('--disable-slash-commands'));
+  assert.ok(args.includes('--strict-mcp-config'));
+  assert.ok(!args.includes('--disable-slash-commands'));
   const g = fakes();
   await call(g, { specs: ['w1=claude'], full: true });
   assert.deepEqual(g.log.find(([k]) => k === 'start')[1].args, []);
