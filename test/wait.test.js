@@ -99,3 +99,10 @@ test('screenTail drops blank and rule lines and keeps the end', () => {
   assert.equal(tail, 'line 25\nline 26\nline 27\nline 28\nline 29');
   assert.equal(screenTail('x\n\n─────\ny', 15), 'x\ny');
 });
+
+test('an agent that reports an error needs attention, with its screen', async () => {
+  const w = world({ script: [{ w1: 'working', w2: 'error' }] });
+  const res = await waitForWorkers({ run, ...w, phase: 'investigate' });
+  assert.equal(res.result, 'attention');
+  assert.deepEqual(res.workers.w2, { state: 'error', screen: 'w2 screen' });
+});

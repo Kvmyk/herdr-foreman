@@ -1,4 +1,5 @@
-// `foreman "<task>"`: open a place for the leader in herdr, start it, hand it the task.
+// `foreman "<task>"`: open a place for the leader in herdr or the Herdr app,
+// start it, hand it the task.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
@@ -61,14 +62,18 @@ export async function startForeman({
   }
 
   const slug = uniqueSlug(slugify(task), (s) => exists(path.join(paths.runs, `${s}.json`)));
-  const inside = env.HERDR_ENV === '1';
+  // In the Herdr app the leader gets a new tab next to the caller's, or a new
+  // space when foreman was started outside the app (for example by a mod).
+  const app = herdr.kind === 'app';
+  const inside = app ? Boolean(env.HC_TERMINAL_ID) : env.HERDR_ENV === '1';
 
-  let paneId;
+  let place;
   if (inside) {
-    ({ paneId } = await herdr.tabCreate({ workspaceId: env.HERDR_WORKSPACE_ID, cwd: repo, label: 'foreman', focus: true }));
+    const workspaceId = app ? (await herdr.here(env.HC_TERMINAL_ID))?.space : env.HERDR_WORKSPACE_ID;
+    place = { workspaceId, ...(await herdr.tabCreate({ workspaceId, cwd: repo, label: 'foreman', focus: true })) };
   } else {
-    if (!(await waitForServer({ herdr, spawnDetached, sleep }))) return failed('herdr did not start in time. Open herdr once, then try again.');
-    ({ paneId } = await herdr.workspaceCreate({ cwd: repo, label: 'foreman', focus: true }));
+    if (!app && !(await waitForServer({ herdr, spawnDetached, sleep }))) return failed('herdr did not start in time. Open herdr once, then try again.');
+    place = await herdr.workspaceCreate({ cwd: repo, label: 'foreman', focus: true });
   }
 
   const live = new Set((await herdr.agentList()).map((a) => a.name).filter(Boolean));
@@ -84,18 +89,26 @@ export async function startForeman({
   const prompt = buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile });
   const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];
   const args = [...lean, ...(config.leaderArgs ?? [])];
-  const started = await herdr.agentStart({ name: leader, kind: config.leader, pane: paneId, timeoutMs: config.startTimeoutMs, args });
+  const started = await herdr.agentStart({
+    name: leader, kind: config.leader, pane: place.paneId, cwd: repo, space: place.workspaceId, tab: place.tabId,
+    label: 'foreman', focus: true, timeoutMs: config.startTimeoutMs, args,
+  });
+  const paneId = started.pane ?? place.paneId;
+  if (!paneId) return failed(`The leader could not start: ${started.message}`);
   let message;
   if (started.ok) {
     await herdr.agentPrompt(leader, prompt);
     message = `Leader "${leader}" (${config.leader}) started in pane ${paneId} for task "${slug}".`;
   } else {
-    message = `The leader is waiting for an answer in pane ${paneId} (${started.message}). Answer it there, then run: herdr agent prompt ${leader} "${prompt.replace(/"/g, '\\"')}"`;
+    const backendFlag = app && !inside ? ' --backend app' : '';
+    message = `The leader is waiting for an answer in pane ${paneId} (${started.message}). Answer it there, then run: ${foremanCmd} prompt --task ${slug}${backendFlag} ${leader} "${prompt.replace(/"/g, '\\"')}"`;
   }
 
   report(message);
   const dirty = files.filter((f) => f.dirty).map((f) => f.path);
   if (dirty.length) report(`Note: ${dirty.join(', ')} ${dirty.length > 1 ? 'have' : 'has'} changes you have not committed. Workers start from your last commit, so they will not see those changes.`);
-  if (!inside) attach();
+  // The Herdr app is a window, not a terminal to attach to: open it if it is closed.
+  if (!inside && !app) attach();
+  if (!inside && app && !(await herdr.appRunning())) spawnDetached(herdr.appBin, []);
   return { ok: true, slug, leader, paneId, message };
 }

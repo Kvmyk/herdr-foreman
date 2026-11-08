@@ -313,3 +313,45 @@ test('an old run record without branch keeps the old worker branch names', async
   assert.equal(workers[0].branch, 'foreman-work/fix-login/w2');
   assert.equal(JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]).branch, undefined);
 });
+
+// The Herdr app: workers are terminals in the leader's tab, laid out by the app.
+function appHerdr(f, { labels = { space: 'spA', tab: 'tbA' } } = {}) {
+  let t = 10;
+  f.herdr = {
+    kind: 'app',
+    agentList: async () => [],
+    here: async (pane) => { f.log.push(['here', pane]); return labels; },
+    tabCreate: async (o) => { f.log.push(['tab', o]); return { workspaceId: o.workspaceId ?? 'spNew', tabId: 'tbNew', paneId: null }; },
+    paneSplit: async () => { throw new Error('the app has no splits'); },
+    agentStart: async (o) => { f.log.push(['start', o]); return { ok: true, pane: `t${++t}` }; },
+  };
+  return f;
+}
+
+test('in the Herdr app workers start in the leader\'s tab, each in its worktree', async () => {
+  const f = appHerdr(fakes());
+  const { workers } = await call(f, { specs: ['w1=claude', 'w2=agy'], pane: 't3' });
+  assert.deepEqual(f.log.find(([k]) => k === 'here')[1], 't3');
+  const starts = f.log.filter(([k]) => k === 'start').map(([, o]) => o);
+  assert.deepEqual(starts.map((o) => [o.space, o.tab, o.cwd]), workers.map((w) => ['spA', 'tbA', w.worktree]));
+  assert.deepEqual(workers.map((w) => w.paneId), ['t11', 't12']);
+  assert.equal(f.log.some(([k]) => k === 'tab'), false);
+  const saved = JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]);
+  assert.equal(saved.backend, 'app');
+  assert.deepEqual(saved.workers.map((w) => w.paneId), ['t11', 't12']);
+  assert.equal('place' in workers[0], false);
+});
+
+test('in the Herdr app --new-tab puts workers in a fresh, named tab of the same space', async () => {
+  const f = appHerdr(fakes());
+  await call(f, { specs: ['w1=claude'], pane: 't3', newTab: true });
+  assert.equal(f.log.find(([k]) => k === 'tab')[1].workspaceId, 'spA');
+  const start = f.log.find(([k]) => k === 'start')[1];
+  assert.deepEqual([start.space, start.tab, start.label], ['spA', 'tbNew', 'foreman:fix-login']);
+});
+
+test('a herdr run does not take workers spawned from the Herdr app', async () => {
+  const existingRun = { task: 'fix-login', repo, base: 'abc123', branch: 'feat/fix-login', workers: [] };
+  const f = appHerdr(fakes({ existingRun }));
+  await assert.rejects(call(f, { specs: ['w1=claude'], pane: 't3' }), (e) => e.code === 'USAGE' && /herdr/.test(e.message));
+});
