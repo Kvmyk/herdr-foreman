@@ -1,6 +1,6 @@
 {
   "updated": "2026-11-07",
-  "note": "Built from docs/research/2026-11-07-dobor-agentow.md. Scores go stale within weeks; the user's own journal outweighs this file once a category has trusted stats.",
+  "note": "Built from docs/research/2026-11-07-agent-selection.md. Scores go stale within weeks; the user's own journal outweighs this file once a category has trusted stats.",
   "categories": ["analysis", "security-audit", "testing", "bugfix", "feature", "refactor", "test-writing", "docs"],
   "rules": [
     "Judge harness + model + access together; the agent kind alone says little.",

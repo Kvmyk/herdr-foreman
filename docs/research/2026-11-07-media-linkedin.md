@@ -1,38 +1,38 @@
-# Wideo na LinkedIn, GIF w README i estetyka narzędzi deweloperskich
+# LinkedIn video, GIFs in the README and the look of developer tools
 
-Stan na 2026-11-07. Wytyczne techniczne i projektowe do redesignu materiałów (wideo demo, GIF, logo, banner) Kvmyk/herdr-foreman.
+As of 2026-11-07. Technical and design guidelines for redesigning the materials (demo video, GIF, logo, banner) of Kvmyk/herdr-foreman.
 
-## 1. LinkedIn: wideo natywne i GIF-y
+## 1. LinkedIn: native video and GIFs
 
-- **Format i kodek:** kontener MP4, wideo H.264, dźwięk AAC lub MPEG-4, zalecane 30 kl./s [1].
-- **Proporcje i rozdzielczość:** 4:5 (od 360×450 do 1080×1350 px) i 1:1 (od 360×360 do 1080×1080 / 1920×1920 px) są optymalne w feedzie mobilnym (zajmują znacznie więcej ekranu niż 16:9). 16:9 (od 640×360 do 1920×1080 px) sprawdza się na desktopie, 9:16 (od 360×640 do 1080×1920 px) w pełnoekranowym feedzie pionowym [1].
-- **Długość i rozmiar:** technicznie od 3 s do 30 min (reklamy do 500 MB, organicznie do 5 GB) [1], ale optymalny czas pod kątem uwagi to 30–60 s.
-- **Autoodtwarzanie i napisy:** domyślnie wideo startuje w feedzie wyciszone. Pierwsze 2–3 sekundy wymagają mocnego wizualnego haczyka (hook). Zamiast liczyć na włączenie napisów z pliku SRT przez widza, kluczowe komunikaty i transkrypcję należy wtopić na stałe w klatki (open captions), a plik SRT dodać dla indeksowania [1].
-- **Okładka (thumbnail):** plik JPG lub PNG do 2 MB, proporcje i rozdzielczość identyczne z plikiem wideo [1].
-- **GIF w postach:** animowane GIF-y działają tylko jako pojedyncze, samodzielne grafiki w poście. W postach z wieloma grafikami i na profilu zamieniają się w statyczny obraz; na LinkedIn należy publikować natywne wideo MP4 [1].
+- **Format and codec:** MP4 container, H.264 video, AAC or MPEG-4 audio, 30 fps recommended [1].
+- **Aspect ratio and resolution:** 4:5 (from 360×450 to 1080×1350 px) and 1:1 (from 360×360 to 1080×1080 / 1920×1920 px) are optimal in the mobile feed (they take up much more screen than 16:9). 16:9 (from 640×360 to 1920×1080 px) works on desktop, 9:16 (from 360×640 to 1080×1920 px) in the full-screen vertical feed [1].
+- **Length and size:** technically from 3 s to 30 min (ads up to 500 MB, organic up to 5 GB) [1], but the optimal length for attention is 30–60 s.
+- **Autoplay and captions:** by default the video starts muted in the feed. The first 2–3 seconds need a strong visual hook. Instead of relying on the viewer turning on captions from an SRT file, key messages and the transcript should be burned into the frames (open captions), and an SRT file added for indexing [1].
+- **Thumbnail:** JPG or PNG file up to 2 MB, with proportions and resolution identical to the video file [1].
+- **GIFs in posts:** animated GIFs work only as single, standalone images in a post. In posts with multiple images and on the profile they turn into a static image; on LinkedIn, publish native MP4 video [1].
 
-## 2. Praktyka GIF w README GitHub
+## 2. GIF practice for GitHub READMEs
 
-- **Ograniczenia i rozmiar:** GitHub narzuca limit 10 MB na obraz/GIF w markdownie [2]. W praktyce README powinien ładować się natychmiast – optymalna waga GIF-a to poniżej 3–5 MB.
-- **Parametry:** szerokość 800–820 px (dopasowana do kolumny czytania), 12–15 kl./s (wystarcza do płynnego terminala, 2× mniejszy plik niż 30 fps).
-- **Optymalizacja dwuprzebiegowa ffmpeg:** filtry `palettegen` (z `stats_mode=diff`) oraz `paletteuse` (z ditheringiem bayer) budują dedykowaną paletę 256 kolorów, eliminując artefakty i redukując wagę [3].
-- **Narzędzia:** zamiast rysować fałszywe klatki w Pillow, używa się deklaratywnego Charm VHS (skrypty `.tape` kompilowane do powtarzalnego GIF/MP4) [4] lub asciinema (lekki, tekstowy zrzut sesji terminala) [5].
+- **Limits and size:** GitHub enforces a 10 MB limit per image/GIF in markdown [2]. In practice the README should load instantly; the optimal GIF weight is below 3–5 MB.
+- **Parameters:** width 800–820 px (fits the reading column), 12–15 fps (enough for smooth terminal output, a file half the size of 30 fps).
+- **Two-pass ffmpeg optimization:** the `palettegen` filter (with `stats_mode=diff`) and `paletteuse` (with bayer dithering) build a dedicated 256-color palette, removing artifacts and reducing weight [3].
+- **Tools:** instead of drawing fake frames in Pillow, use the declarative Charm VHS (`.tape` scripts compiled to a repeatable GIF/MP4) [4] or asciinema (a lightweight, text-based terminal session recording) [5].
 
-## 3. Objawy „AI slop” i tanich szablonów vs. co robią projektanci
+## 3. Signs of "AI slop" and cheap templates vs. what designers do
 
-- **Logo i ikony:**
-  - *Objawy AI:* dosłowne ilustracje (kaski budowlane, koła zębate, mózgi), jaskrawe gradienty żółć-pomarańcz / cyjan-fiolet, świecące kulki, gwiazdki (sparkles ✨).
-  - *Dobre praktyki:* surowa geometria wektorowa, czytelność w 16×16 px w jednym kolorze (monochrom), oszczędna siatka i dopracowana typografia (np. Linear, Raycast, Zed) [6].
-- **Wideo i ruch (motion):**
-  - *Objawy AI:* sztuczne terminale generowane skryptem z nienaturalnym easingiem, przesadne cienie, rozmycia szkła bez kontekstu, pływające karty.
-  - *Dobre praktyki:* autentyczny zapis terminala z prawdziwym renderingiem ANSI (VHS) lub czysty zrzut ekranu z powiększeniem na kursor (Screen Studio) [4][7]. Szybki rytm, cięcia bez zbędnych animacji wejścia.
-- **Dźwięk i muzyka:**
-  - *Objawy AI:* generyczny korporacyjny podkład syntezatorowy 120 BPM w akordach Am–F–C–G (efekt muzyki ze stocka / generatora AI).
-  - *Dobre praktyki:* brak muzyki lub minimalistyczny ambient/dron w tle, uzupełniony o foley mechanicznej klawiatury (kliknięcia switchy, uderzenie Enter) i subtelne efekty dźwiękowe interfejsu.
+- **Logo and icons:**
+  - *Signs of AI:* literal illustrations (hard hats, cogwheels, brains), garish yellow-orange / cyan-purple gradients, glowing orbs, sparkles (✨).
+  - *Good practice:* raw vector geometry, legibility at 16×16 px in one color (monochrome), a restrained grid and refined typography (e.g. Linear, Raycast, Zed) [6].
+- **Video and motion:**
+  - *Signs of AI:* artificial terminals generated by a script with unnatural easing, excessive shadows, glass blur without context, floating cards.
+  - *Good practice:* an authentic terminal recording with real ANSI rendering (VHS), or a clean screen capture zoomed in on the cursor (Screen Studio) [4][7]. A fast rhythm, cuts without unnecessary entrance animations.
+- **Sound and music:**
+  - *Signs of AI:* a generic corporate synth bed at 120 BPM in Am–F–C–G chords (the effect of stock or AI-generated music).
+  - *Good practice:* no music, or minimal ambient/drone in the background, complemented by mechanical keyboard foley (switch clicks, the Enter keypress) and subtle interface sound effects.
 
-## Źródła
+## Sources
 
-Wszystkie adresy sprawdzone 2026-11-07 (odrzucono 4 niedziałające źródła z błędami 404/403):
+All addresses checked 2026-11-07 (4 non-working sources with 404/403 errors discarded):
 1. LinkedIn Video Ad Specs: https://business.linkedin.com/advertise/ads/sponsored-content/video-ads/specs
 2. GitHub Attaching Files: https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/attaching-files
 3. FFmpeg Filters (palettegen, paletteuse): https://ffmpeg.org/ffmpeg-filters.html
