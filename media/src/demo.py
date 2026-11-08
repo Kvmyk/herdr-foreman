@@ -15,10 +15,13 @@ The run shown follows foreman's real flow and command names; the repository,
 findings and commit ids are made up.
 
 All events below are on one story clock. Each cut maps video time to story
-time piecewise (the LinkedIn cut shortens the two waits), and captions, the
-SRT and the key clicks in music.py are placed on the cut's video clock.
+time piecewise (the LinkedIn cut shortens the two waits, the brief and the
+wrap-up but never the typing), and captions, the SRT and the key clicks in
+music.py are placed on the cut's video clock.
 """
+import math
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -60,14 +63,16 @@ CUTS = {
     # Window, pane layout, terminal font and caption placement per format.
     # 'map' pairs (story time, video time); the main scene ends at the last
     # pair and a 2 s outro follows.
+    # 'ask' is the size of the foreman prompt overlay.
     'wide': dict(W=1920, H=1080, window=(100, 40, 1820, 870), layout='side',
-                 mono=24, line_h=34, cap_size=36, cap_y=930, lockup=0.9,
-                 map=[(2.6, 0.0), (32.6, 30.0)]),
+                 mono=24, line_h=34, cap_size=36, cap_y=930, lockup=0.9, ask=(1100, 420),
+                 map=[(-0.4, 0.0), (32.6, 33.0)]),
     # 4:5 feed video: caption on top, clear of the player controls at the
-    # bottom; lead pane full width on top, workers stacked below it.
+    # bottom; lead pane full width on top, workers stacked below it. The
+    # prompt and the approval keep real time so the typing is never sped up.
     'linkedin': dict(W=1080, H=1350, window=(24, 160, 1056, 1318), layout='stack',
-                     mono=25, line_h=35, cap_size=40, cap_y=92, lockup=0.84,
-                     map=[(2.6, 0.0), (11.3, 8.7), (15.5, 11.9), (20.2, 16.6), (24.4, 19.8), (31.6, 27.0)]),
+                     mono=25, line_h=35, cap_size=40, cap_y=92, lockup=0.84, ask=(960, 434),
+                     map=[(-0.4, 0.0), (4.4, 4.8), (11.3, 10.8), (15.5, 13.4), (20.2, 18.1), (24.4, 20.7), (31.6, 27.0)]),
 }
 FPS, OUTRO, TITLE_H = 30, 2.0, 46
 
@@ -102,17 +107,62 @@ def L(t, *spans):
     return {'t': t, 'spans': list(spans)}
 
 
-def TYPED(t, prefix, text, cps, color=FG):
-    return {'t': t, 'spans': [prefix], 'type': text, 'cps': cps, 'color': color}
+def rhythm(text, seed, total, think=None):
+    """Key offsets for a person typing text: uneven gaps, a longer one after a
+    space or a comma and a short think before the word think, scaled so the
+    last key lands at total."""
+    rnd = random.Random(seed)
+    pause = text.index(think) if think else -1
+    at, keys = 0.0, [0.0]
+    for i in range(1, len(text)):
+        at += rnd.uniform(0.06, 0.12)
+        if text[i - 1] == ' ':
+            at += rnd.uniform(0.08, 0.16)
+        if text[i - 1] == ',':
+            at += 0.12
+        if i == pause:
+            at += 0.25
+        keys.append(at)
+    return [o * total / at for o in keys] if at else keys
+
+
+def TYPED(t, prefix, text, color=FG, cps=None, lead=0.25, bold=False, **feel):
+    """A line whose text is typed after the prefix: by the user (rhythm, key
+    clicks, Enter) or, with cps, by an agent (even pace, silent)."""
+    if cps:
+        keys = [i / cps for i in range(len(text))]
+        enter = len(text) / cps + 0.4
+    else:
+        keys = rhythm(text, **feel)
+        enter = keys[-1] + 0.15
+    return {'t': t, 'spans': [prefix], 'type': text, 'color': color, 'bold': bold,
+            'start': t + lead, 'keys': keys, 'enter': enter, 'user': not cps}
 
 
 TASK = 'fix-payment-security-holes'
-ENTER = 3.2                         # the opening command is already typed; Enter here
+HOTKEYS = [(-0.25, 'ctrl+b'), (-0.12, 'f')]     # prefix+f opens the foreman prompt
+ASK_IN, ASK_OUT = -0.1, 3.9                     # the prompt overlay opens and closes
 
+# The focused shell pane behind the prompt.
 SHELL = [
     L(-9, ('~/shop ', BLUE), ('main', VIOLET)),
-    dict(L(-9, ('> ', GREEN), ('foreman "fix payment security holes"', PAPER)), cursor_until=ENTER),
-    L(3.5, (f'Leader "lead" (claude) started in pane w1:p1 for task "{TASK}".', DIM)),
+    L(-9, ('> ', GREEN), ('git status', FG)),
+    L(-9, ('nothing to commit, working tree clean', DIM)),
+    L(-9, ('', FG)),
+    L(-9, ('~/shop ', BLUE), ('main', VIOLET)),
+    dict(L(-9, ('> ', GREEN)), idle_until=ASK_IN),
+]
+
+# The prompt, worded as plugin/ask.js prints it; its "foreman" heading is the pane title.
+TASK_LINE = TYPED(ASK_IN, ('Task: ', AMBER), 'fix payment security holes', PAPER, lead=0.35,
+                  seed=7, total=2.8, think='security')
+ENTER = TASK_LINE['start'] + TASK_LINE['enter']
+ASK = [
+    L(-9, ('Repository: ~/shop', DIM)),
+    L(-9, ('Describe the task; an empty line cancels.', MUTED)),
+    L(-9, ('', FG)),
+    TASK_LINE,
+    L(3.5, (f'Leader "lead" (claude) started in pane w1:p2 for task "{TASK}".', DIM)),
 ]
 
 LEAD = [
@@ -123,7 +173,7 @@ LEAD = [
     L(6.3, ('       sec1   ', BLUE), ('security-audit  ', FG), ('claude:opus   ', VIOLET), ('high', FG)),
     L(6.6, ('       test1  ', BLUE), ('testing         ', FG), ('codex         ', VIOLET), ('medium', FG)),
     L(6.9, ('       deps1  ', BLUE), ('security-audit  ', FG), ('opencode      ', VIOLET), ('low', FG)),
-    TYPED(7.5, ('$ ', DIM), f'foreman spawn --task {TASK} …', 34),
+    TYPED(7.5, ('$ ', DIM), f'foreman spawn --task {TASK} …', cps=34),
     L(9.3, ('3 workers · 3 git worktrees · 3 panes', GREEN)),
     L(10.8, ('$ ', DIM), ('herdr agent prompt ×3', FG), ('  investigate only, change nothing', DIM)),
     L(11.3, ('$ ', DIM), (f'foreman wait --task {TASK}', FG)),
@@ -134,8 +184,8 @@ LEAD = [
     L(16.5, ('2 ', PAPER), ('[high] ', RED), ('webhook.ts: signature never checked    ', FG), ('sec1', DIM)),
     L(16.8, ('3 ', PAPER), ('[med]  ', AMBER), ('refund paths have no tests             ', FG), ('test1', DIM)),
     L(17.1, ('4 ', PAPER), ('[low]  ', BLUE), ('payment-sdk 2.1: advisory -> 2.4       ', FG), ('deps1', DIM)),
-    L(17.6, ('Which items should I do?', PAPER)),
-    TYPED(18.0, ('› ', AMBER), '1, 2 and 3 yes, 4 no', 15, PAPER),
+    L(17.35, ('Which items should I do?', PAPER)),
+    TYPED(17.45, ('› ', AMBER), '1, 2 and 3 yes, 4 no', PAPER, bold=True, seed=3, total=2.05),
     L(20.2, ('$ ', DIM), ('foreman wait --phase implement', FG)),
     L(24.4, ('$ ', DIM), (f'foreman merge --task {TASK}', FG)),
     L(24.9, ('merged ', GREEN), ('sec1 test1', FG), (f' → foreman/{TASK}', DIM)),
@@ -144,13 +194,13 @@ LEAD = [
     L(26.4, ('', FG)),
     L(26.5, ('3 changes in 4 files, tests pass. What now?', PAPER)),
     L(26.9, ('1 ', AMBER), ('merge into main   ', FG), ('2 ', AMBER), ('leave the branch   ', FG), ('3 ', AMBER), ('comments', FG)),
-    TYPED(27.6, ('› ', AMBER), '1', 6, PAPER),
+    TYPED(27.6, ('› ', AMBER), '1', PAPER, bold=True, seed=5, total=0),
     L(28.4, ('$ ', DIM), (f'foreman land --task {TASK}', FG)),
     L(28.9, ('main updated · nothing pushed, no pull request', GREEN)),
     L(29.6, ('$ ', DIM), (f'foreman cleanup --task {TASK}', FG)),
     L(30.2, ('3 panes closed · worktrees removed · journal updated', GREEN)),
 ]
-LEAD_STATES = [(4.5, 'working'), (17.7, 'idle'), (19.6, 'working'), (27.0, 'idle'), (27.9, 'working'), (30.4, 'idle')]
+LEAD_STATES = [(4.5, 'working'), (17.45, 'idle'), (20.0, 'working'), (27.0, 'idle'), (27.9, 'working'), (30.4, 'idle')]
 
 WORKERS = [
     {'name': 'sec1', 'agent': 'claude:opus',
@@ -190,7 +240,7 @@ WORKERS = [
 # (story start, story end, 16:9 text, 4:5 text); the 4:5 lines are shorter so
 # they fit one line at the larger size.
 CAPTIONS = [
-    (2.6, 4.3, 'Describe the task in plain words.', 'Describe the task in plain words.'),
+    (-0.4, 4.3, 'Describe the task in plain words.', 'Describe the task in plain words.'),
     (4.6, 9.7, 'The leader checks your agents and splits the work.', 'The leader splits the work.'),
     (10.0, 15.6, 'Each worker investigates in its own worktree. Nothing changes yet.', 'Workers investigate. Nothing changes yet.'),
     (16.0, 20.0, 'You approve what gets done.', 'You approve what gets done.'),
@@ -210,14 +260,19 @@ def captions(cut):
 
 
 def typing_events(cut):
-    """(video time, char) for the key clicks in music.py; '\\n' is Enter."""
-    events = [(ENTER, '\n')]
-    for line in SHELL + LEAD:
-        if 'type' in line:
-            start = line['t'] + 0.25
-            events += [(start + i / line['cps'], ch) for i, ch in enumerate(line['type'])]
-            events.append((start + len(line['type']) / line['cps'] + 0.05, '\n'))
-    return sorted((to_video(cut, t), ch) for t, ch in events if 0 <= to_video(cut, t) < main_end(cut))
+    """(video time, key) for the key clicks in music.py, the user's keys only;
+    '\\n' is Enter. Each lands on the first frame that shows its character."""
+    events = list(HOTKEYS)
+    for line in ASK + LEAD:
+        if line.get('user'):
+            events += [(line['start'] + o, ch) for o, ch in zip(line['keys'], line['type'])]
+            events.append((line['start'] + line['enter'], '\n'))
+    out = []
+    for t, ch in events:
+        v = to_video(cut, t)
+        if 0 <= v < main_end(cut):
+            out.append((math.ceil(v * FPS - 1e-4) / FPS, ch))
+    return sorted(out)
 
 
 # ---------------------------------------------------------------- helpers
@@ -257,6 +312,7 @@ class Fonts:
         self.mono = load('CascadiaMono.ttf', c['mono'])
         self.mono_b = load('CascadiaMono.ttf', c['mono'], 'Bold')
         self.mono_big = load('CascadiaMono.ttf', round(c['mono'] * 1.45))
+        self.mono_big_b = load('CascadiaMono.ttf', round(c['mono'] * 1.45), 'Bold')
         self.caption = load('Barlow-SemiBold.ttf', c['cap_size'])
         self.small = load('Barlow-Regular.ttf', round(c['mono'] * 1.2))
         self.win_title = load('Barlow-Regular.ttf', 22)
@@ -265,16 +321,21 @@ class Fonts:
 
 # ---------------------------------------------------------------- drawing
 
+def blink(t, since):
+    return (t - since) % 1.06 < 0.53
+
+
 def spans_at(line, t, bg):
-    """Spans of a line at time t, faded in from bg, plus whether to draw a cursor."""
+    """Spans of a line at time t, faded in from bg, plus whether to draw a cursor:
+    blinking while it waits for a key, solid while typing, gone after Enter.
+    A span may carry a third item, True, for bold."""
     k = clamp((t - line['t']) / 0.18)
     spans = [(text, mix(bg, color, k)) for text, color in line['spans']]
-    cursor = t < line.get('cursor_until', -1)
+    cursor = t < line.get('idle_until', -99) and blink(t, line['t'])
     if 'type' in line:
-        start = line['t'] + 0.25
-        n = int(clamp((t - start) * line['cps'], 0, len(line['type'])))
-        spans.append((line['type'][:n], mix(bg, line['color'], k)))
-        cursor = t < start + len(line['type']) / line['cps'] + 0.4
+        n = sum(1 for o in line['keys'] if line['start'] + o <= t + 1e-6)
+        spans.append((line['type'][:n], mix(bg, line['color'], k), line['bold']))
+        cursor = blink(t, line['t']) if t < line['start'] else t < line['start'] + line['enter']
     return spans, cursor
 
 
@@ -282,7 +343,7 @@ def wrap(spans, font, width):
     """Word-wrap spans into rows no wider than width, like a terminal that
     breaks at spaces; a word longer than a row is split."""
     rows, row, x = [], [], 0.0
-    for text, color in spans:
+    for text, color, *bold in spans:
         for tok in re.findall(r'\S+\s*|\s+', text):
             w = font.getlength(tok.rstrip())
             if x > 0 and x + w > width:
@@ -293,15 +354,15 @@ def wrap(spans, font, width):
                     continue
             while font.getlength(tok.rstrip()) > width:
                 n = max(1, int(width // font.getlength('M')))
-                rows.append(row + [(tok[:n], color)])
+                rows.append(row + [(tok[:n], color, *bold)])
                 row, tok = [], tok[n:]
-            row.append((tok, color))
+            row.append((tok, color, *bold))
             x += font.getlength(tok)
     rows.append(row)
     return rows
 
 
-def text_block(w, h, lines, t, bg, font, lh):
+def text_block(w, h, lines, t, bg, font, lh, font_b=None):
     """Render the visible lines into a w x h image, wrapped and scrolled to the bottom."""
     img = Image.new('RGB', (w, h), bg)
     d = ImageDraw.Draw(img)
@@ -316,15 +377,16 @@ def text_block(w, h, lines, t, bg, font, lh):
             rows += [(row, False) for row in r[:-1]] + [(r[-1], cursor)]
     for i, (row, cursor) in enumerate(rows[-max(1, h // lh):]):
         x, y = 0, i * lh
-        for text, color in row:
-            d.text((x, y), text, font=font, fill=color)
+        for text, color, *bold in row:
+            d.text((x, y), text, font=font_b if bold and bold[0] else font, fill=color)
             x += font.getlength(text)
         if cursor:
             d.rectangle((x + 2, y + lh * 0.09, x + char_w - 1, y + lh * 0.8), fill=FG)
     return img
 
 
-def draw_pane(img, box, title, state, lines, t, fonts, focus=False, alpha=1.0):
+def draw_pane(img, box, title, state, lines, t, fonts, focus=False, alpha=1.0, big=False):
+    """A herdr pane; big uses the larger terminal font, as in the prompt overlay."""
     x0, y0, x1, y1 = (round(v) for v in box)
     w, h = x1 - x0, y1 - y0
     if w < 40 or h < 60 or alpha <= 0:
@@ -344,11 +406,15 @@ def draw_pane(img, box, title, state, lines, t, fonts, focus=False, alpha=1.0):
         cx, cy = w - 34 - lw, 24
         d.ellipse((cx - 7, cy - 7, cx + 7, cy + 7), fill=mix(PANE, color, alpha))
     d.line((2, TITLE_H, w - 3, TITLE_H), fill=mix(PANE, PANE_BORDER, alpha), width=1)
-    inner = text_block(max(1, w - 36), max(1, h - TITLE_H - 18), lines, t, PANE, fonts.mono, fonts.line_h)
+    font, font_b, lh = ((fonts.mono_big, fonts.mono_big_b, round(fonts.line_h * 1.45)) if big
+                        else (fonts.mono, fonts.mono_b, fonts.line_h))
+    inner = text_block(max(1, w - 36), max(1, h - TITLE_H - 18), lines, t, PANE, font, lh, font_b)
     if alpha < 1:
         inner = Image.blend(Image.new('RGB', inner.size, PANE), inner, alpha)
     pane.paste(inner, (18, TITLE_H + 12))
-    img.paste(pane, (x0, y0))
+    mask = Image.new('L', (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h - 1), 12, fill=255)
+    img.paste(pane, (x0, y0), mask)
 
 
 def draw_window(img, c, title, fonts):
@@ -379,17 +445,44 @@ def pane_boxes(c, s):
     return (cx0, cy0, cx1, lead_y1), workers
 
 
+def draw_keys(img, pane, t, fonts):
+    """Keycaps for prefix+f in the pane's bottom-right corner, lit while pressed."""
+    d = ImageDraw.Draw(img)
+    x, y = pane[2] - 24, pane[3] - 24
+    for when, key in reversed(HOTKEYS):
+        down = when <= t < when + 0.14
+        kw = fonts.small.getlength(key) + 28
+        h = fonts.small.size + 18
+        d.rounded_rectangle((x - kw, y - h, x, y), 8, outline=AMBER if down else PANE_FOCUS, width=2)
+        d.text((x - kw / 2, y - h / 2), key, font=fonts.small, fill=PAPER if down else MUTED, anchor='mm')
+        x -= kw + 12
+
+
+def scene_ask(t, c, fonts):
+    """herdr before the leader: the focused shell pane in ~/shop, prefix+f and
+    the foreman prompt over the pane, which dims the pane behind it."""
+    img = Image.new('RGB', (c['W'], c['H']), INK)
+    draw_window(img, c, 'herdr · shop', fonts)
+    pane, _ = pane_boxes(c, 0)
+    k = ease((t - ASK_IN) / 0.15) - ease((t - ASK_OUT) / 0.15)
+    draw_pane(img, pane, [('shell', PAPER), (' · ~/shop', DIM)], None, SHELL, t, fonts, focus=k < 0.5)
+    if k > 0:
+        X0, Y0, X1, Y1 = c['window']
+        win = img.crop((X0, Y0, X1 + 1, Y1 + 1))
+        img.paste(Image.blend(win, Image.new('RGB', win.size, INK), 0.5 * k), (X0, Y0))
+        w, h = c['ask']
+        x0, y0 = (pane[0] + pane[2] - w) / 2, (pane[1] + pane[3] - h) / 2 + (1 - k) * 6
+        draw_pane(img, (x0, y0, x0 + w, y0 + h), [('foreman', PAPER)], None, ASK, t, fonts,
+                  focus=True, alpha=k, big=True)
+    draw_keys(img, pane, t, fonts)
+    return img
+
+
 def scene_main(t, c, fonts):
     """The terminal at story time t."""
-    X0, Y0, X1, Y1 = c['window']
-    img = Image.new('RGB', (c['W'], c['H']), INK)
     if t < 4.4:
-        draw_window(img, c, 'pwsh · ~/shop', fonts)
-        # zoomed in, so the command reads on the first frame
-        block = text_block(X1 - X0 - 72, Y1 - Y0 - TITLE_H - 48, SHELL, t, WIN, fonts.mono_big,
-                           round(fonts.line_h * 1.45))
-        img.paste(block, (X0 + 36, Y0 + TITLE_H + 30))
-        return img
+        return scene_ask(t, c, fonts)
+    img = Image.new('RGB', (c['W'], c['H']), INK)
     draw_window(img, c, 'herdr · foreman', fonts)
     s = split_at(t)
     lead, workers = pane_boxes(c, s)
