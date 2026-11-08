@@ -84,13 +84,13 @@ def load(name, size):
 
 
 # Banner, at 1280 x 640; drawn at 2x and scaled down.
-W, H, BS = 1280, 640, 2
-MARK_W = 270                        # width of the mark's ink (dome and brim) in the banner
+W, H, BS = 1280, 400, 2
+MARK_W = 240                        # width of the mark's ink (dome and brim) in the banner
 WORD, WORD_SIZE, TRACK = 'foreman', 150, -0.02
-TAGLINE, TAG_SIZE = 'One task. A crew of coding agents.', 40
-MONO, MONO_SIZE = 'herdr plugin', 24
-GAP_X = 56                          # mark to wordmark
-TAG_DY, MONO_DY = 66, 124           # tagline and mono baselines below the wordmark baseline
+TAGLINE, TAG_SIZE = 'One task. A crew of coding agents.', 56
+MONO, MONO_SIZE = 'herdr plugin', 34
+GAP_X = 48                          # mark to wordmark
+TAG_DY, MONO_DY = 82, 144           # tagline and mono baselines below the wordmark baseline
 OPTICAL = 1 / 3                     # share of the way from box centring to ink-centroid centring
 
 
