@@ -12,7 +12,7 @@ import os
 import sys
 import tempfile
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MEDIA = os.path.join(HERE, '..')
@@ -22,9 +22,9 @@ FONT_DIRS = [os.path.join(HERE, 'fonts'),
 
 INK, PAPER, AMBER = (17, 17, 19), (244, 241, 234), (255, 176, 0)
 THEMES = {
-    # background, brim and wordmark, tagline, mono line, mono accent
-    'dark': (INK, PAPER, (190, 186, 178), (140, 138, 132), AMBER),
-    'light': (PAPER, INK, (85, 82, 76), (120, 117, 110), (176, 112, 0)),
+    # background, brim and wordmark, tagline, mono line
+    'dark': (INK, PAPER, (190, 186, 178), AMBER),
+    'light': (PAPER, INK, (85, 82, 76), (176, 112, 0)),
 }
 
 # The mark, on a 512 x 512 grid: a half-disc dome cut by two gaps into three
@@ -88,9 +88,10 @@ W, H, BS = 1280, 640, 2
 MARK_W = 270                        # width of the mark's ink (dome and brim) in the banner
 WORD, WORD_SIZE, TRACK = 'foreman', 150, -0.02
 TAGLINE, TAG_SIZE = 'One task. A crew of coding agents.', 40
-MONO_PARTS, MONO_SIZE, MONO_SEP = ['herdr plugin', 'panes', 'git worktrees', 'you approve'], 24, '  /  '
+MONO, MONO_SIZE = 'herdr plugin', 24
 GAP_X = 56                          # mark to wordmark
 TAG_DY, MONO_DY = 66, 124           # tagline and mono baselines below the wordmark baseline
+OPTICAL = 1 / 3                     # share of the way from box centring to ink-centroid centring
 
 
 def tracked(d, x, y, text, font, fill, track):
@@ -123,32 +124,42 @@ def draw_lockup(img, x, base, s, fg):
 
 
 def banner(theme):
-    bg, fg, tag_c, mono_c, accent = THEMES[theme]
+    bg, fg, tag_c, mono_c = THEMES[theme]
     s = BS
     tag = load('Barlow-Regular.ttf', TAG_SIZE * s)
     mono = load('CascadiaMono.ttf', MONO_SIZE * s)
-    mono_text = MONO_SEP.join(MONO_PARTS)
 
     lock_w, top = lockup_metrics(s)
-    text_w = max(lock_w - (MARK_W + GAP_X) * s, tag.getlength(TAGLINE), mono.getlength(mono_text))
+    text_w = max(lock_w - (MARK_W + GAP_X) * s, tag.getlength(TAGLINE), mono.getlength(MONO))
     left = (W * s - ((MARK_W + GAP_X) * s + text_w)) / 2
 
     # Centre the block from the top of the mark or wordmark to the bottom of the mono line.
     bottom = MONO_DY * s + mono.getbbox('gp', anchor='ls')[3]
     base = (H * s - (top + bottom)) / 2 + top
 
-    img = Image.new('RGB', (W * s, H * s), bg)
-    tx = draw_lockup(img, left, base, s, fg)
-    d = ImageDraw.Draw(img)
-    d.text((tx, base + TAG_DY * s), TAGLINE, font=tag, fill=tag_c, anchor='ls')
-    x = tx
-    for i, part in enumerate(MONO_PARTS):
-        if i:
-            d.text((x, base + MONO_DY * s), MONO_SEP, font=mono, fill=mono_c, anchor='ls')
-            x += mono.getlength(MONO_SEP)
-        d.text((x, base + MONO_DY * s), part, font=mono, fill=accent if i == 0 else mono_c, anchor='ls')
-        x += mono.getlength(part)
+    def draw(x, y):
+        img = Image.new('RGB', (W * s, H * s), bg)
+        tx = draw_lockup(img, x, y, s, fg)
+        d = ImageDraw.Draw(img)
+        d.text((tx, y + TAG_DY * s), TAGLINE, font=tag, fill=tag_c, anchor='ls')
+        d.text((tx, y + MONO_DY * s), MONO, font=mono, fill=mono_c, anchor='ls')
+        return img
+
+    # The solid mark is heavy and the short mono line leaves the lower right
+    # empty, so a centred box looks pushed up and left; move part of the way
+    # towards centring the ink itself.
+    cx, cy = ink_centroid(draw(left, base), bg)
+    img = draw(left + OPTICAL * (W * s / 2 - cx), base + OPTICAL * (H * s / 2 - cy))
     return img.resize((W, H), Image.LANCZOS)
+
+
+def ink_centroid(img, bg):
+    # Any ink counts the same, so both themes get the same layout.
+    ink = ImageChops.difference(img, Image.new('RGB', img.size, bg)).convert('L').point(lambda v: 255 if v > 40 else 0)
+    cols = list(ink.resize((img.width, 1), Image.BOX).getdata())
+    rows = list(ink.resize((1, img.height), Image.BOX).getdata())
+    return (sum(i * v for i, v in enumerate(cols)) / sum(cols),
+            sum(i * v for i, v in enumerate(rows)) / sum(rows))
 
 
 def contact_sheet(path):
