@@ -4,6 +4,12 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-08
+
+### Removed
+
+- The README no longer links to the demo video; the demo GIF stays.
+
 ## [0.4.0] - 2026-11-08
 
 ### Added
@@ -56,7 +62,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Kvmyk/herdr-foreman/releases/tag/v0.2.0

@@ -1,6 +1,6 @@
 id = "herdr-foreman"
 name = "foreman"
-version = "0.4.0"
+version = "0.4.1"
 min_herdr_version = "0.9.5"
 description = "Describe a task; a lead agent splits it across your coding agents in panes and git worktrees"
 platforms = ["linux", "macos", "windows"]
