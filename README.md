@@ -185,6 +185,8 @@ Tests use only Node's built-in test runner; git tests create throwaway repositor
 
 To try the plugin from a working copy, run `herdr plugin link .` in it (and `herdr plugin unlink herdr-foreman` to undo).
 
+Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
 ## Media
 
 The logo (`media/logo.svg`), the banners, the demo videos and their music are original and covered by the same license. `media/src/` holds the scripts that make them: `brand.py` draws the logo and both banners with Pillow, using the Barlow font vendored in `media/src/fonts/` under the SIL Open Font License; `music.py` synthesises an ambient pad and key-click foley with numpy; `demo.py` draws the frames with Pillow and encodes them with ffmpeg, both for `media/demo.mp4` (16:9) and for the 29-second 4:5 LinkedIn cut `media/demo-linkedin.mp4` with its captions as `media/demo-linkedin.srt` and its 1080x1350 cover `media/demo-linkedin-cover.png`; and `gif.py` turns the 16:9 cut into `media/demo.gif` with ffmpeg. The run in the videos follows foreman's real flow and command names; its repository, findings and commit ids are made up.
