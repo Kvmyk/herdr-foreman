@@ -70,7 +70,7 @@ npm install -g github:Kvmyk/herdr-foreman
 
 Then run `foreman "<task>"` in any git repository: outside herdr it starts the herdr server if needed and attaches; inside herdr it opens a new tab. The npm install also adds foreman to herdr and binds the shortcut (npm hides that output; run `foreman` to see the state). You can also clone the repository and run `npm link` in it; a clone is set up only when you run `foreman setup`. The plugin and the command run the same code. If `foreman` is not on your PATH, the leader is told to run its subcommands as `node /path/to/herdr-foreman/bin/foreman.js`.
 
-What setup changes: it appends this block to herdr's `config.toml` (`herdr --help` prints its path), after checking the result with `herdr config check`, and runs `herdr server reload-config`:
+What setup changes: it appends this block to herdr's `config.toml` (`herdr --help` prints its path; on Windows it is usually `%APPDATA%\herdr\config.toml`), after checking the result with `herdr config check`, and runs `herdr server reload-config`:
 
 ```toml
 [[keys.command]]
@@ -82,9 +82,24 @@ description = "foreman: new task"
 
 It never replaces a key you bound yourself to `herdr-foreman.start`. herdr runs the same quiet setup at every server start, so the shortcut comes back after `herdr config reset-keys`; to stop all automatic setup, put `"autoSetup": false` in `~/.herdr-foreman/config.json` or set `FOREMAN_NO_SETUP=1`. If no lead agent is configured and Claude Code is not ready, setup picks one you have and saves it there as `leader`. Without any key binding: `herdr plugin action invoke herdr-foreman.start`.
 
+## Windows and PowerShell
+
+foreman works in PowerShell like any other command; a few things are different from the examples above.
+
+- **Finding the command:** `npm install -g github:Kvmyk/herdr-foreman` puts `foreman` in `%APPDATA%\npm`. Open a new PowerShell window after installing Node.js and foreman, so it sees the new PATH. `Get-Command foreman` should find it.
+- **"running scripts is disabled on this system":** PowerShell blocks npm's `foreman.ps1`. Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or type `foreman.cmd` instead of `foreman`.
+- **Quote the task with single quotes:** `foreman 'fix the $price rounding in @src/cart.js'`. Inside double quotes PowerShell replaces `$price` with a variable and treats a backtick as an escape.
+- **Long tasks:** use `foreman -f task.md`. In Windows PowerShell 5.1, `Get-Content task.md | foreman` turns letters such as ą, é or ß into `?`; if you want to pipe, first run `$OutputEncoding = [Text.UTF8Encoding]::new()`. PowerShell 7.4 and newer pipe correctly.
+- **Tasks with `&`, `|`, `<`, `>`, `^` or `%`:** through `foreman.cmd` they go through cmd.exe, which can cut the task short. Put such a task in a file and use `-f`.
+- **An editor for the task:** the herdr prompt opens Notepad. For VS Code, set `$env:EDITOR = 'code --wait'` (without `--wait` the editor returns at once and foreman tells you so).
+- **From a clone, without npm:** `node C:\path\to\herdr-foreman\bin\foreman.js 'your task'`.
+- **Where things are:** herdr's settings in `%APPDATA%\herdr\config.toml`, the Herdr app folder in `%USERPROFILE%\.config\herdr-app`, foreman's own files in `%USERPROFILE%\.herdr-foreman`. To look at herdr's settings: `notepad $env:APPDATA\herdr\config.toml`.
+
+With herdr in the terminal, type `herdr` and press `Ctrl+B`, then `F`, as above; `foreman '<task>'` typed outside herdr starts it for you. In the Herdr desktop app the prompt (`Ctrl+Shift+Y`) starts node directly, so PowerShell quoting does not matter there.
+
 ## Herdr app (desktop)
 
-If the Herdr desktop app is installed (its folder is `~/.config/herdr-app`, or `$HERDR_APP_HOME`), setup also adds foreman to it. You do not need the terminal version of herdr for this: install the command with `npm install -g github:Kvmyk/herdr-foreman`, or type `foreman setup` in a clone.
+If the Herdr desktop app is installed (its folder is `~/.config/herdr-app`, on Windows `%USERPROFILE%\.config\herdr-app`, or `$HERDR_APP_HOME`), setup also adds foreman to it. You do not need the terminal version of herdr for this: install the command with `npm install -g github:Kvmyk/herdr-foreman`, or type `foreman setup` in a clone.
 
 In the app, open a terminal in your project folder and press **Ctrl+Shift+Y**. A prompt opens; type your task and press Enter (or Start). foreman opens the leader in a new tab of the same space. Esc or an empty task cancels.
 

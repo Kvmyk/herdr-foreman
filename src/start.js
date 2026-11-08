@@ -27,6 +27,15 @@ const samePath = (a, b) => {
 
 const failed = (message) => ({ ok: false, message });
 
+// One argument the user can paste into their shell. On Windows that is
+// PowerShell: single quotes keep $ and backticks literal, ' is doubled.
+// Windows PowerShell 5.1 drops double quotes inside native arguments, so they
+// become single quotes there.
+export function shellQuote(text, platform = process.platform) {
+  if (platform === 'win32') return `'${text.replace(/"/g, "'").replace(/'/g, "''")}'`;
+  return `"${text.replace(/"/g, '\\"')}"`;
+}
+
 async function waitForServer({ herdr, spawnDetached, sleep }) {
   if (await herdr.serverRunning()) return true;
   spawnDetached('herdr', ['server']);
@@ -39,7 +48,7 @@ async function waitForServer({ herdr, spawnDetached, sleep }) {
 
 export async function startForeman({
   task, cwd, env, herdr, git, which, config, paths, homedir, exists, spawnDetached, attach, sleep, writeFile, mkdir,
-  foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {},
+  foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {}, platform = process.platform,
 }) {
   if (!task?.trim()) return failed(`Tell me what you want done, for example:
   foreman "${EXAMPLE}"`);
@@ -101,7 +110,7 @@ export async function startForeman({
     message = `Leader "${leader}" (${config.leader}) started in pane ${paneId} for task "${slug}".`;
   } else {
     const backendFlag = app && !inside ? ' --backend app' : '';
-    message = `The leader is waiting for an answer in pane ${paneId} (${started.message}). Answer it there, then run: ${foremanCmd} prompt --task ${slug}${backendFlag} ${leader} "${prompt.replace(/"/g, '\\"')}"`;
+    message = `The leader is waiting for an answer in pane ${paneId} (${started.message}). Answer it there, then run: ${foremanCmd} prompt --task ${slug}${backendFlag} ${leader} ${shellQuote(prompt, platform)}`;
   }
 
   report(message);
