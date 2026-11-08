@@ -27,6 +27,8 @@ function fakes({ live = [], dirty = false, notReady = [], existingRun = null } =
     commonDir: async () => path.join(repo, '.git'),
     isDirty: async () => dirty,
     addWorktree: async (r, wt, branch, base) => { log.push(['worktree', { wt, branch, base }]); },
+    worktreeConfigEnabled: async () => false,
+    armPushGuard: async (wt) => { log.push(['guard', wt]); },
     removeWorktree: async (r, wt) => { log.push(['rmworktree', wt]); },
     deleteBranch: async (r, b) => { log.push(['rmbranch', b]); },
   };
@@ -192,4 +194,56 @@ test('rejects an unknown effort level before creating anything', async () => {
   const f = fakes();
   await assert.rejects(call(f, { specs: ['w1=claude'], effort: 'turbo' }), (e) => e.code === 'BAD_EFFORT');
   assert.equal(f.log.length, 0);
+});
+
+test('every worktree gets a push guard, with or without --auto', async () => {
+  const f = fakes();
+  await call(f, { specs: ['w1=claude', 'w2=pi'] });
+  assert.equal(f.log.filter(([k]) => k === 'guard').length, 2);
+});
+
+test('a failing push guard rolls back the worktree', async () => {
+  const f = fakes();
+  f.git.armPushGuard = async () => { throw new Error('config failed'); };
+  await assert.rejects(call(f, { specs: ['w1=claude'] }), /config failed/);
+  assert.ok(f.log.some(([k]) => k === 'rmworktree'));
+  assert.ok(!f.log.some(([k]) => k === 'start'));
+});
+
+test('--auto passes each kind its auto-approve args and records auto', async () => {
+  const f = fakes();
+  const { warnings } = await call(f, { specs: ['c=claude', 'a=agy', 'o=opencode', 'p=pi', 'x=codex'], auto: true });
+  const args = Object.fromEntries(f.log.filter(([k]) => k === 'start').map(([, o]) => [o.name, o.args]));
+  assert.deepEqual(args.c.slice(0, 4), ['--permission-mode', 'auto', '--disallowedTools', 'Bash(git push:*),Bash(gh:*)']);
+  assert.deepEqual(args.a, ['--mode', 'auto']);
+  assert.deepEqual(args.o, ['--auto']);
+  assert.deepEqual(args.p, []);
+  assert.deepEqual(args.x, []);
+  assert.ok(warnings.some((w) => /codex/.test(w) && /auto/.test(w)));
+  assert.ok(!warnings.some((w) => /\bpi\b/.test(w)));
+  assert.deepEqual(JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]).workers.map((w) => w.auto), [true, true, true, true, false]);
+});
+
+test('without --auto no auto args are passed', async () => {
+  const f = fakes();
+  await call(f, { specs: ['a=agy'] });
+  assert.deepEqual(f.log.find(([k]) => k === 'start')[1].args, []);
+});
+
+test('agy gets no --effort together with --model, only a warning', async () => {
+  const f = fakes();
+  const { warnings } = await call(f, { specs: ['a=agy:claude-opus-4-6-thinking', 'b=agy'], effort: 'high' });
+  const starts = f.log.filter(([k]) => k === 'start').map(([, o]) => [o.name, o.args]);
+  assert.deepEqual(starts, [['a', ['--model', 'claude-opus-4-6-thinking']], ['b', ['--effort', 'high']]]);
+  assert.ok(warnings.some((w) => /^a:/.test(w) && /effort/.test(w)));
+});
+
+test('--auto warns when the agent help does not mention its flag', async () => {
+  const f = fakes();
+  const asked = [];
+  const run = async (cmd, a) => { asked.push([cmd, a]); return { code: 0, stdout: cmd === 'agy' ? '--mode' : 'nothing', stderr: '' }; };
+  const { warnings } = await call(f, { specs: ['a=agy', 'a2=agy', 'c=claude'], auto: true, run });
+  assert.deepEqual(asked, [['agy', ['--help']], ['claude', ['--help']]]);
+  assert.ok(warnings.some((w) => /claude --help/.test(w)));
+  assert.ok(!warnings.some((w) => /agy --help/.test(w)));
 });

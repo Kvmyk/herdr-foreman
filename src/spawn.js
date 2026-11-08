@@ -91,7 +91,7 @@ async function excludeReports({ git, repo, readFile, appendFile, mkdir }) {
 }
 
 export async function spawnWorkers({
-  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, writeFile, readFile, appendFile, mkdir,
+  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, run = null, writeFile, readFile, appendFile, mkdir,
 }) {
   const existing = loadRun(task, { paths, readFile });
   const parsed = await validate({ herdr, config, task, specs, existing, pane, newTab, effort });
@@ -109,11 +109,14 @@ export async function spawnWorkers({
     reportDir: path.join(root, w.name, '.foreman'),
   }));
 
+  // Remember whether foreman turns on extensions.worktreeConfig, so cleanup can undo it.
+  const ownsWorktreeConfig = existing?.ownsWorktreeConfig ?? !(await git.worktreeConfigEnabled(repo));
   const made = [];
   try {
     for (const w of workers) {
       await git.addWorktree(repo, w.worktree, w.branch, base);
       made.push(w);
+      await git.armPushGuard(w.worktree);
       mkdir(w.reportDir, { recursive: true });
     }
     const panes = await openPanes({ herdr, pane, newTab, task, workers });
@@ -126,15 +129,37 @@ export async function spawnWorkers({
     throw err;
   }
 
+  // The first auto spawn of a kind checks that the installed agent still knows its flag.
+  const checked = new Set();
+  if (auto && run) {
+    for (const kind of new Set(workers.map((w) => w.kind))) {
+      const flagName = PROBES[kind]?.autoFlag;
+      if (!flagName || checked.has(kind)) continue;
+      checked.add(kind);
+      const help = await run(kind, ['--help'], { timeoutMs: 15000 }).catch(() => null);
+      if (help && !`${help.stdout}
+${help.stderr}`.includes(flagName)) {
+        warnings.push(`"${kind} --help" does not mention ${flagName}; auto mode may not work for ${kind}`);
+      }
+    }
+  }
+
   const results = await Promise.all(workers.map((w) => {
     const probe = PROBES[w.kind];
+    w.auto = false;
     const args = [];
     if (w.model && probe) args.push(...probe.modelArgs(w.model));
     else if (w.model) warnings.push(`no model flag known for ${w.kind}; ${w.name} starts with its default model`);
-    if (effort && probe?.effortArgs) args.push(...probe.effortArgs(effort));
+    if (effort && probe?.effortFromModel && w.model) warnings.push(`${w.name}: ${w.kind} takes effort from the model id; --effort not passed with --model ${w.model}`);
+    else if (effort && probe?.effortArgs) args.push(...probe.effortArgs(effort));
     else if (effort) warnings.push(`no effort setting known for ${w.kind}; ${w.name} uses its default effort`);
     // Lean start: fewer tool definitions re-sent on every turn. --full keeps MCP servers
     // and skills, e.g. for a worker that tests a web app in the browser.
+    if (auto && probe?.autoArgs) {
+      args.push(...probe.autoArgs);
+      w.auto = true;
+    }
+    else if (auto) warnings.push(`no auto-approve mode known for ${w.kind}; ${w.name} may still ask for permission`);
     if (config.lean !== false && !full && probe?.leanArgs) args.push(...probe.leanArgs.worker);
     return herdr.agentStart({ name: w.name, kind: w.kind, pane: w.paneId, timeoutMs: config.startTimeoutMs, args });
   }));
@@ -148,9 +173,10 @@ export async function spawnWorkers({
     repo,
     base,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
+    ownsWorktreeConfig,
     workers: [
       ...(existing?.workers ?? []),
-      ...workers.map(({ name, kind, model, paneId, worktree, branch, reportDir }) => ({ name, kind, model, paneId, worktree, branch, reportDir })),
+      ...workers.map(({ name, kind, model, auto = false, paneId, worktree, branch, reportDir }) => ({ name, kind, model, auto, paneId, worktree, branch, reportDir })),
     ],
   };
   saveRun(record, { paths, writeFile, mkdir });

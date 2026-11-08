@@ -127,7 +127,13 @@ test('wait rejects an unknown phase', async () => {
 });
 
 test('spawn passes effort and full', async () => {
-  const h = harness({ spawn: async (o) => { h.calls.push(['spawn', o.effort, o.full, o.specs]); return { workers: [], warnings: [] }; } });
+  const h = harness({ spawn: async (o) => { h.calls.push(['spawn', o.effort, o.full, o.specs, o.auto]); return { workers: [], warnings: [] }; } });
   assert.equal(await main(['spawn', '--task', 't', '--effort', 'low', '--full', 'w1=claude', '--json'], h.deps), 0);
-  assert.deepEqual(h.calls, [['spawn', 'low', true, ['w1=claude']]]);
+  assert.deepEqual(h.calls, [['spawn', 'low', true, ['w1=claude'], false]]);
+});
+
+test('spawn --auto is passed through', async () => {
+  const h = harness({ spawn: async (o) => { h.calls.push(['spawn', o.auto]); return { workers: [], warnings: [] }; } });
+  assert.equal(await main(['spawn', '--task', 't', '--auto', 'w1=claude', '--json'], h.deps), 0);
+  assert.deepEqual(h.calls, [['spawn', true]]);
 });

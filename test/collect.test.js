@@ -22,6 +22,7 @@ async function setup(names = ['w1', 'w2']) {
     const worktree = path.join(root, name);
     const branch = `foreman-work/t/${name}`;
     await git.addWorktree(repo, worktree, branch, base);
+    await git.armPushGuard(worktree);
     const reportDir = path.join(paths.runs, 't', name);
     mkdirSync(reportDir, { recursive: true });
     workers.push({ name, kind: 'claude', model: null, paneId: `w1:p${i + 2}`, worktree, branch, reportDir });
@@ -50,6 +51,7 @@ test('status shows dirty, commits ahead and reports', async () => {
     ['w1', false, 1, false, false],
     ['w2', true, 0, true, false],
   ]);
+  assert.deepEqual(st.map((s) => s.pushGuardArmed), [true, true]);
   assert.deepEqual(st[1].changedFiles, ['a.txt']);
 });
 
@@ -204,4 +206,24 @@ test('cleanup removes merge worktree and keeps foreman branch unless asked', asy
   await cleanup({ run: run2, git, herdr: fakeHerdr(log), paths: paths2, exists: existsSync, deleteBranch: true });
   assert.equal(await git.branchExists(run2.repo, 'foreman/t'), false);
   rawGit(run2.repo, 'status');
+});
+
+test('cleanup restores extensions.worktreeConfig only when foreman turned it on', async () => {
+  const a = await setup();
+  assert.equal(await git.worktreeConfigEnabled(a.repo), true);
+  await cleanup({ run: { ...a.run, ownsWorktreeConfig: true }, git, herdr: fakeHerdr([]), paths: a.paths, exists: existsSync });
+  assert.equal(await git.worktreeConfigEnabled(a.repo), false);
+
+  const b = await setup();
+  await cleanup({ run: { ...b.run, ownsWorktreeConfig: false }, git, herdr: fakeHerdr([]), paths: b.paths, exists: existsSync });
+  assert.equal(await git.worktreeConfigEnabled(b.repo), true);
+});
+
+test('cleanup keeps extensions.worktreeConfig while another foreman worktree remains', async () => {
+  const a = await setup(['w1', 'w2']);
+  const keep = a.run.workers[1];
+  const run = { ...a.run, ownsWorktreeConfig: true, workers: [a.run.workers[0]] };
+  await cleanup({ run, git, herdr: fakeHerdr([]), paths: a.paths, exists: existsSync });
+  assert.ok(existsSync(keep.worktree));
+  assert.equal(await git.worktreeConfigEnabled(a.repo), true);
 });

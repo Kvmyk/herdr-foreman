@@ -22,13 +22,14 @@ export async function workerStatus({ run, git, exists }) {
       proposals: exists(path.join(w.reportDir, 'proposals.md')),
       report: exists(path.join(w.reportDir, 'report.md')),
     };
-    if (!exists(w.worktree)) return { name: w.name, missing: true, dirty: false, changedFiles: [], commitsAhead: 0, ...reports };
+    if (!exists(w.worktree)) return { name: w.name, missing: true, dirty: false, changedFiles: [], commitsAhead: 0, pushGuardArmed: false, ...reports };
     const changedFiles = await git.changedFiles(w.worktree);
     return {
       name: w.name,
       dirty: changedFiles.length > 0,
       changedFiles,
       commitsAhead: await git.commitsAhead(w.worktree, run.base),
+      pushGuardArmed: await git.pushGuardArmed(w.worktree),
       ...reports,
     };
   }));
@@ -42,8 +43,9 @@ export async function mergeWorkers({ run, git, paths, exists, only = null }) {
     await git.addWorktree(run.repo, worktree, branch, hasBranch ? null : run.base);
   }
 
-  const result = { branch, worktree, base: run.base, merged: [], skipped: [], refused: [], conflict: null };
+  const result = { branch, worktree, base: run.base, merged: [], skipped: [], refused: [], conflict: null, warnings: [] };
   for (const w of run.workers.filter((x) => !only || only.includes(x.name))) {
+    if (exists(w.worktree) && !(await git.pushGuardArmed(w.worktree))) result.warnings.push(`push guard is not armed in ${w.name}'s worktree; check it did not push`);
     if (await git.isDirty(w.worktree)) {
       result.refused.push({ worker: w.name, reason: 'uncommitted changes' });
       continue;
@@ -142,6 +144,13 @@ export async function cleanup({ run, git, herdr, paths, exists, deleteBranch = f
     const err = await removeWorktree({ git, repo: run.repo, wt, exists, sleep, removeDir });
     if (err) out.errors.push(`remove worktree ${wt}: ${err.message}`);
     else out.removedWorktrees.push(wt);
+  }
+
+  // Undo extensions.worktreeConfig if foreman turned it on and no foreman worktree is left.
+  if (run.ownsWorktreeConfig && await git.worktreeConfigEnabled(run.repo)) {
+    await attempt('unset extensions.worktreeConfig', async () => {
+      if ((await git.foremanWorktreeCount(run.repo)) === 0) await git.disableWorktreeConfig(run.repo);
+    });
   }
 
   const branches = [...run.workers.map((w) => w.branch), ...(deleteBranch ? [mergeBranch(run)] : [])];
