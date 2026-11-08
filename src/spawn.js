@@ -1,5 +1,7 @@
 // Opens workers: one git worktree and one herdr pane per worker, agents
 // started in parallel. Panes sit next to the leader in columns of up to three.
+// In the Herdr app each worker is a terminal in the leader's tab (or a new
+// one), and the app lays them out.
 import path from 'node:path';
 import { HERDR_KINDS, PROBES, EFFORT_LEVELS } from './inventory/kinds.js';
 import { planLayout, columnRatios, rowRatios } from './layout.js';
@@ -47,8 +49,16 @@ async function validate({ herdr, git, repo, config, task, specs, existing, pane,
     if (taken.has(w.name)) throw fail('NAME_TAKEN', `agent name "${w.name}" is already in use`);
     taken.add(w.name);
   }
-  if (!newTab && !pane) throw fail('NO_PANE', 'no pane to open workers next to; run inside herdr or pass --new-tab');
+  if (!newTab && !pane) throw fail('NO_PANE', 'no pane to open workers next to; run inside herdr or the Herdr app, or pass --new-tab');
   return { parsed, branch };
+}
+
+// The Herdr app: the space and tab the workers' terminals will show up in.
+async function appPlace({ herdr, pane, newTab, task, workers }) {
+  const here = pane ? await herdr.here(pane) : null;
+  if (!newTab && here?.tab) return { space: here.space, tab: here.tab, label: null };
+  const { workspaceId, tabId } = await herdr.tabCreate({ workspaceId: here?.space, cwd: workers[0].worktree, label: `foreman:${task}`, focus: false });
+  return { space: workspaceId, tab: tabId, label: `foreman:${task}` };
 }
 
 async function openPanes({ herdr, pane, newTab, task, workers }) {
@@ -109,6 +119,11 @@ export async function spawnWorkers({
   herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, includeUncommitted = false, run = null, writeFile, readFile, appendFile, mkdir,
 }) {
   const existing = loadRun(task, { paths, readFile });
+  const backend = herdr.kind ?? 'herdr';
+  if (existing && (existing.backend ?? 'herdr') !== backend) {
+    const where = existing.backend === 'app' ? 'the Herdr app' : 'herdr';
+    throw fail('USAGE', `task "${task}" runs its workers in ${where}; run foreman spawn from there`);
+  }
   const checked = await validate({ herdr, git, repo, config, task, specs, existing, pane, newTab, effort, branch });
   const parsed = checked.parsed;
   const runBranch = existing ? existing.branch : checked.branch;
@@ -151,8 +166,13 @@ export async function spawnWorkers({
       await git.armPushGuard(w.worktree);
       mkdir(w.reportDir, { recursive: true });
     }
-    const panes = await openPanes({ herdr, pane, newTab, task, workers });
-    workers.forEach((w, i) => { w.paneId = panes[i]; });
+    if (backend === 'app') {
+      const place = await appPlace({ herdr, pane, newTab, task, workers });
+      workers.forEach((w) => { w.place = place; w.paneId = null; });
+    } else {
+      const panes = await openPanes({ herdr, pane, newTab, task, workers });
+      workers.forEach((w, i) => { w.paneId = panes[i]; });
+    }
   } catch (err) {
     for (const w of made) {
       await git.removeWorktree(repo, w.worktree).catch(() => {});
@@ -193,9 +213,14 @@ ${help.stderr}`.includes(flagName)) {
     }
     else if (auto) warnings.push(`no auto-approve mode known for ${w.kind}; ${w.name} may still ask for permission`);
     if (config.lean !== false && !full && probe?.leanArgs) args.push(...probe.leanArgs.worker);
-    return herdr.agentStart({ name: w.name, kind: w.kind, pane: w.paneId, timeoutMs: config.startTimeoutMs, args });
+    return herdr.agentStart({
+      name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
+      timeoutMs: config.startTimeoutMs, args,
+    });
   }));
   workers.forEach((w, i) => {
+    w.paneId = results[i].pane ?? w.paneId;
+    delete w.place;
     w.status = results[i].ok ? 'ready' : 'not_ready';
     w.error = results[i].ok ? null : `${results[i].code}: ${results[i].message}`;
   });
@@ -206,6 +231,7 @@ ${help.stderr}`.includes(flagName)) {
     base,
     ...(snapshot ? { snapshot } : {}),
     ...(runBranch ? { branch: runBranch } : {}),
+    ...(backend === 'app' ? { backend } : {}),
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     ownsWorktreeConfig,
     workers: [

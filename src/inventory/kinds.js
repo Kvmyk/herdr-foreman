@@ -119,3 +119,15 @@ export const PROBES = Object.freeze({
   gemini: { probe: probeGemini, modelArgs: flag('-m'), verified: true },
   codex: { probe: probeCodex, modelArgs: flag('-m'), verified: false },
 });
+
+// In the Herdr app, hc runs the agent's own program (named like its kind) in a
+// terminal; some need a flag to keep their work inside that terminal. Status
+// there comes from the agent's OSC 7501 reports; kinds that send none look idle.
+const APP_ARGS = Object.freeze({
+  // hc --skill: without it codex runs its commands outside hc.
+  codex: ['--no-daemon'],
+});
+
+export function appArgv(kind, args = []) {
+  return [kind, ...(APP_ARGS[kind] ?? []), ...args];
+}
