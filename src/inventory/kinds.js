@@ -105,7 +105,7 @@ export const PROBES = Object.freeze({
     // Answers permission prompts itself; pushes and gh (pull requests) stay denied.
     autoArgs: ['--permission-mode', 'auto', '--disallowedTools', 'Bash(git push:*),Bash(gh:*)'],
     autoFlag: '--permission-mode',
-    leanArgs: { leader: [...CLAUDE_LEAN, `${CLAUDE_TOOLS},AskUserQuestion`], worker: [...CLAUDE_LEAN, CLAUDE_TOOLS] },
+    leanArgs: { leader: [...CLAUDE_LEAN, `${CLAUDE_TOOLS},WebFetch,WebSearch,AskUserQuestion`], worker: [...CLAUDE_LEAN, CLAUDE_TOOLS] },
     verified: true,
   },
   // agy takes its effort from the model id; with --model, --effort makes it ignore the model.

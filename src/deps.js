@@ -55,6 +55,13 @@ export function realDeps() {
     attach() {
       spawnSync(which('herdr') ?? 'herdr', [], { stdio: 'inherit' });
     },
+    // The task piped in on standard input; null when stdin is a terminal.
+    async readStdin() {
+      if (process.stdin.isTTY !== false) return null;
+      let text = '';
+      for await (const chunk of process.stdin) text += chunk;
+      return text;
+    },
     foremanCmd: which('foreman') ? 'foreman' : `node "${BIN}"`,
   };
 }

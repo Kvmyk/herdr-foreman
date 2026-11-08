@@ -31,6 +31,8 @@ Run `foreman brief --json`. It contains:
 
 ## Step 1: read the repository
 
+First read every file and link the user pointed to (the "Files the user pointed to" list in your prompt, a task file if one is named, and any URL in the task) with Read and WebFetch. Put what matters from them (paths, key facts, a short summary of each link) into the briefs so workers do not fetch them again. If a link cannot be opened, say so in the plan and go on.
+
 Read enough to split the task well: structure, README, how to build, how to run the tests. Note the build and test commands and which files each part touches; the briefs pass them on so workers do not explore the repo again.
 
 ## Step 2: plan

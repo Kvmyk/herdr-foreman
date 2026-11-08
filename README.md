@@ -13,6 +13,12 @@ foreman "check the payment module for security holes and fix what needs fixing"
 
 Nothing is pushed and no pull request is created.
 
+### Describing the task
+
+- Write it in your own words. Point at files with `@` and the file name (`@src/login.js`); links to issues or docs work too. foreman checks that the files exist and warns you when one has changes you have not committed.
+- A longer task can be written in a file (`foreman -f task.md`) or piped in (`cat task.md | foreman`).
+- In the herdr prompt you can paste several lines and finish with an empty line (or Ctrl+D), or type `e` to write the task in an editor (`$VISUAL` or `$EDITOR`; Notepad on Windows).
+
 ## Requirements
 
 - Node.js 20 or newer
