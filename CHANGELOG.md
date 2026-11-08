@@ -4,6 +4,10 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- Claude leaders and workers started by foreman can use your own skills (`~/.claude/skills` and plugin skills); the lean start still leaves out MCP servers. Other agents already load their own skills.
+
 ## [0.3.0] - 2026-11-08
 
 ### Added

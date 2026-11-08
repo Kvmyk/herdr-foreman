@@ -90,11 +90,12 @@ async function probeCodex({ run, timeoutMs }) {
 
 const flag = (name) => (value) => [name, value];
 
-// Claude Code starts with ~26k tokens of context per turn; without MCP servers,
-// skills and unused tools it is ~14k (measured 2026-11-07). Every turn re-sends it.
+// Claude Code starts with ~26k tokens of context per turn; without MCP servers
+// and unused tools it is ~14k (measured 2026-11-07). Every turn re-sends it.
+// Skill stays in, so the user's own skills (~/.claude/skills, plugins) work in every pane.
 // --disable-slash-commands is left out on purpose: it also disables built-in commands such as /usage.
 const CLAUDE_LEAN = ['--strict-mcp-config', '--tools'];
-const CLAUDE_TOOLS = 'Bash,Read,Glob,Grep,Edit,Write';
+const CLAUDE_TOOLS = 'Bash,Read,Glob,Grep,Edit,Write,Skill';
 
 export const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
 

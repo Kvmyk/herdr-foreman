@@ -146,6 +146,9 @@ test('lean and effort args per kind', () => {
   assert.ok(PROBES.claude.leanArgs.leader.join(' ').includes('WebFetch,WebSearch'));
   assert.ok(!PROBES.claude.leanArgs.worker.join(' ').includes('WebFetch'));
   assert.ok(!PROBES.claude.leanArgs.worker.join(' ').includes('AskUserQuestion'));
+  // The user's skills stay available to lean leaders and workers.
+  assert.ok(PROBES.claude.leanArgs.worker.at(-1).split(',').includes('Skill'));
+  assert.ok(PROBES.claude.leanArgs.leader.at(-1).split(',').includes('Skill'));
   assert.deepEqual(PROBES.claude.effortArgs('low'), ['--effort', 'low']);
   assert.deepEqual(PROBES.agy.effortArgs('high'), ['--effort', 'high']);
   assert.equal(PROBES.opencode.effortArgs, undefined);

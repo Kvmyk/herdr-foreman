@@ -205,8 +205,8 @@ ${help.stderr}`.includes(flagName)) {
     if (effort && probe?.effortFromModel && w.model) warnings.push(`${w.name}: ${w.kind} takes effort from the model id; --effort not passed with --model ${w.model}`);
     else if (effort && probe?.effortArgs) args.push(...probe.effortArgs(effort));
     else if (effort) warnings.push(`no effort setting known for ${w.kind}; ${w.name} uses its default effort`);
-    // Lean start: fewer tool definitions re-sent on every turn. --full keeps MCP servers
-    // and skills, e.g. for a worker that tests a web app in the browser.
+    // Lean start: fewer tool definitions re-sent on every turn; the user's skills stay.
+    // --full keeps MCP servers and all tools, e.g. for a worker that tests a web app in the browser.
     if (auto && probe?.autoArgs) {
       args.push(...probe.autoArgs);
       w.auto = true;

@@ -51,7 +51,7 @@ Second, also once per task before the first spawn: when the brief shows `repoDir
 
 Name the run once, with the first spawn: `--branch <type>/<name>`, a Conventional Commits type (`feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`) and a short English kebab-case name of at most 40 characters, for example `feat/auto-accept-workers`. Later spawns of the same task leave `--branch` out. Workers get branches `wip/<name>/<worker>`.
 
-Run `foreman spawn --task <slug> --branch <type>/<name> [--auto] [--effort <level>] <name>=<kind>[:<model>] ...`; spawn groups that need different efforts in separate calls. Use short lowercase names (`sec1`, `test1`). Claude workers start lean (no MCP servers or skills); add `--full` only for a worker that needs them, for example to test a web app in the browser.
+Run `foreman spawn --task <slug> --branch <type>/<name> [--auto] [--effort <level>] <name>=<kind>[:<model>] ...`; spawn groups that need different efforts in separate calls. Use short lowercase names (`sec1`, `test1`). Claude workers start lean (no MCP servers, but with the user's skills); add `--full` only for a worker that needs them, for example to test a web app in the browser.
 
 The JSON lists per worker:
 
