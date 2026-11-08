@@ -60,3 +60,13 @@ test('no usable editor gives null so the overlay falls back to typing', () => {
 test('@mentions: paths and quoted paths, not emails', () => {
   assert.deepEqual(parseMentions('see @src/a.js, @"my notes.md" and mail me@site.com. Also @docs/.'), ['src/a.js', 'my notes.md', 'docs/']);
 });
+
+test('install and server start run the quiet setup, which never fails the install', () => {
+  const manifest = readFileSync(new URL('../herdr-plugin.toml', import.meta.url), 'utf8');
+  assert.match(manifest, /\[\[build\]\]\ncommand = \["node", "plugin\/setup\.js", "--quiet"\]/);
+  assert.match(manifest, /\[\[startup\]\]\ncommand = \["node", "plugin\/setup\.js", "--quiet"\]/);
+  assert.match(manifest, /id = "setup"[\s\S]*command = \["node", "plugin\/setup\.js"\]/);
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const f of ['plugin', 'herdr-plugin.toml']) assert.ok(pkg.files.includes(f), `${f} ships with npm`);
+  assert.equal(pkg.scripts.postinstall, 'node bin/foreman.js setup --postinstall');
+});
