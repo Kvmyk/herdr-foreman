@@ -22,8 +22,8 @@ Main use: **developing and maintaining software**. Typical tasks (from the autho
 4. Each worker examines its part **without changing anything** and returns a short list to the leader: what is wrong, where, and what it wants to change. For new features, it is a description of how it would build its part.
 5. The leader removes duplicates and shows the user one numbered list with the weight and the author:
    ```
-   1. [wysokie] api/auth.ts: token bez daty ważności -> dodać exp i sprawdzanie   (claude1)
-   2. [średnie] /login bez limitu prób -> rate limit                             (gemini1)
+   1. [high] api/auth.ts: token never expires -> add exp and check it   (claude1)
+   2. [medium] /login has no rate limit -> add one                      (gemini1)
    ```
    The user answers, for example, "1 and 3 yes, 2 no". **Only the leader gives orders to workers.**
 6. The leader orders the approved changes, by default to the worker that found the problem (it has the context). Each worker that changes code works in a separate git worktree on a local branch.
