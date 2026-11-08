@@ -1,7 +1,6 @@
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/banner.png"><source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/banner-light.png"><img src="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/banner-light.png" alt="foreman: one task, a crew of coding agents" width="100%"></picture></p>
 
-<p align="center"><img src="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/demo.gif" alt="foreman splits a task across claude, codex and opencode in herdr panes" width="100%"><br>
-<a href="https://github.com/Kvmyk/herdr-foreman/blob/assets/demo.mp4">Watch with sound (35 s, MP4)</a></p>
+<p align="center"><img src="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/demo.gif" alt="foreman splits a task across claude, codex and opencode in herdr panes" width="100%"></p>
 
 # herdr-foreman
 
@@ -192,7 +191,7 @@ Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Media
 
-The logo, the banners, the demo videos and their music are original and covered by the same license. The images and the video in this README live on the [`assets`](https://github.com/Kvmyk/herdr-foreman/tree/assets) branch. The run in the videos follows foreman's real flow and command names; its repository, findings and commit ids are made up.
+The logo, the banners, the demo videos and their music are original and covered by the same license. The images in this README live on the [`assets`](https://github.com/Kvmyk/herdr-foreman/tree/assets) branch. The run in the videos follows foreman's real flow and command names; its repository, findings and commit ids are made up.
 
 ## License
 
