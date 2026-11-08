@@ -1,6 +1,7 @@
 // Setting foreman up so nobody has to: add foreman to herdr, bind the
 // shortcut in herdr's config.toml, pick a lead agent that is installed, and
 // say in plain words what works and what to do next.
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CONFIG } from './config.js';
@@ -12,6 +13,11 @@ export const ACTION = `${PLUGIN_ID}.start`;
 export const KEY_CHOICES = Object.freeze(['prefix+f', 'prefix+shift+f', 'prefix+alt+f']);
 export const MIN_HERDR = '0.9.5';
 export const MIN_NODE = 20;
+// The Herdr desktop app: a mod opened by one key; the first of these keys.json leaves free wins.
+export const APP_MOD = 'foreman';
+export const APP_ACTION = `mod.open:${APP_MOD}`;
+export const APP_KEY_CHOICES = Object.freeze(['ctrl-shift-y', 'ctrl-alt-shift-f', 'ctrl-shift-f10']);
+const APP_MARKER = /^\/\/ foreman-managed (\S+) ([0-9a-f]{64})\r?\n/;
 export const PACKAGE_ROOT = fileURLToPath(new URL('..', import.meta.url));
 // Agents known to follow the leader's instructions well, best first.
 const LEADER_ORDER = ['claude', 'codex', 'opencode', 'gemini', 'agy', 'pi'];
@@ -159,6 +165,137 @@ export async function bindKey(d) {
   return { status: 'failed', file, reason: `the keys ${KEY_CHOICES.join(', ')} are all taken` };
 }
 
+// ---- Herdr desktop app: a mod with the task prompt and one key in keys.json ----
+
+export function appHome({ env, homedir }) {
+  return env.HERDR_APP_HOME || path.join(homedir, '.config', 'herdr-app');
+}
+
+const sha = (text) => createHash('sha256').update(text).digest('hex');
+const forward = (p) => p.replace(/\\/g, '/');
+
+// The mod's files with this machine's node and foreman paths filled in; main.js
+// starts with a marker holding the version and a hash of the rest.
+export function renderAppMod(d, version) {
+  const root = d.root ?? PACKAGE_ROOT;
+  const template = d.readFile(path.join(root, 'app', APP_MOD, 'main.js'));
+  const body = template
+    .replace('"__NODE__"', () => JSON.stringify(forward(d.nodePath ?? process.execPath)))
+    .replace('"__BIN__"', () => JSON.stringify(forward(path.join(root, 'bin', 'foreman.js'))));
+  return {
+    main: `// foreman-managed ${version} ${sha(body)}\n${body}`,
+    modJson: d.readFile(path.join(root, 'app', APP_MOD, 'mod.json')),
+  };
+}
+
+async function appCheck(d, main, modJson) {
+  const dir = path.join(d.tmpdir, 'foreman-app-mod-check', APP_MOD);
+  const files = [path.join(dir, 'main.js'), path.join(dir, 'mod.json')];
+  try {
+    d.writeFile(files[0], main);
+    d.writeFile(files[1], modJson);
+    const res = await d.run('herdr-app', ['check', dir], { env: d.env, cwd: d.tmpdir, timeoutMs: 30000 });
+    if (res.code === 0) return null;
+    const last = `${res.stdout}\n${res.stderr}`.trim().split(/\r?\n/).filter(Boolean).pop();
+    return `herdr-app check failed: ${last ?? `exit ${res.code}`}`;
+  } catch (err) {
+    return err.code === 'ENOENT' ? 'the herdr-app command is not on PATH' : `herdr-app check failed: ${err.message}`;
+  } finally {
+    for (const f of files) {
+      try {
+        d.removeFile(f);
+      } catch {
+        // already gone
+      }
+    }
+  }
+}
+
+// Add or update mods/foreman in the Herdr app. Only a file foreman wrote and
+// the user did not touch is ever replaced; a candidate is checked by herdr-app first.
+export async function installAppMod(d, version) {
+  const dir = path.join(appHome(d), 'mods', APP_MOD);
+  const mainFile = path.join(dir, 'main.js');
+  let want;
+  try {
+    want = renderAppMod(d, version);
+  } catch (err) {
+    return { status: 'failed', dir, reason: `cannot read foreman's app files: ${err.message}` };
+  }
+  let have = null;
+  try {
+    have = d.readFile(mainFile);
+  } catch (err) {
+    if (err.code !== 'ENOENT') return { status: 'failed', dir, reason: `cannot read ${mainFile}: ${err.message}` };
+  }
+  if (have === want.main) return { status: 'already', dir };
+  if (have !== null) {
+    const marker = have.match(APP_MARKER);
+    if (!marker || sha(have.slice(marker[0].length)) !== marker[2]) {
+      return { status: 'skipped', dir, reason: `${mainFile} was not written by foreman or was changed, so it is left alone` };
+    }
+  } else if (d.exists(dir)) {
+    return { status: 'skipped', dir, reason: `${dir} exists and is not foreman's, so it is left alone` };
+  }
+  const problem = await appCheck(d, want.main, want.modJson);
+  if (problem) return { status: 'failed', dir, reason: problem };
+  d.writeFile(path.join(dir, 'mod.json'), want.modJson);
+  d.writeFile(mainFile, want.main);
+  return { status: have === null ? 'added' : 'updated', dir };
+}
+
+// Bind a key to the prompt in keys.json unless some key already opens it. An
+// edited keys.json is the person's whole key set, so a missing or unreadable
+// one is never created or replaced.
+export async function bindAppKey(d) {
+  const home = appHome(d);
+  const file = path.join(home, 'keys.json');
+  let text;
+  try {
+    text = d.readFile(file);
+  } catch (err) {
+    const reason = err.code === 'ENOENT' ? `${file} does not exist yet; open the Herdr app once, then type "foreman setup"` : `cannot read ${file}: ${err.message}`;
+    return { status: 'skipped', file, reason };
+  }
+  let keys;
+  try {
+    keys = JSON.parse(text);
+    if (!keys || typeof keys !== 'object' || Array.isArray(keys)) throw new Error('not an object');
+  } catch {
+    return { status: 'skipped', file, reason: `${file} is not valid JSON, so it is left alone` };
+  }
+  const global = keys.global && typeof keys.global === 'object' ? keys.global : {};
+  const opens = (a) => a === APP_ACTION || (a?.command === 'mod.open' && a.args?.name === APP_MOD);
+  const ours = Object.keys(global).find((k) => opens(global[k]));
+  if (ours) return { status: 'already', file, key: ours };
+  const taken = new Set(Object.values(keys).flatMap((s) => (s && typeof s === 'object' ? Object.keys(s) : [])).map((k) => k.toLowerCase()));
+  const key = APP_KEY_CHOICES.find((k) => !taken.has(k));
+  if (!key) return { status: 'failed', file, reason: `the keys ${APP_KEY_CHOICES.join(', ')} are all taken` };
+  const backup = `${file}.foreman-backup`;
+  const errorFile = path.join(home, 'keys.error');
+  const hadError = d.exists(errorFile);
+  d.writeFile(backup, text);
+  d.writeFile(file, `${JSON.stringify({ ...keys, global: { ...global, [key]: APP_ACTION } }, null, 2)}\n`);
+  // The running app re-reads keys.json within a second and says why it refused it.
+  await (d.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(1500);
+  if (!hadError && d.exists(errorFile)) {
+    d.writeFile(file, text);
+    return { status: 'failed', file, reason: `the Herdr app did not accept the key (see ${errorFile}); your keys are back as they were` };
+  }
+  return { status: 'added', file, key, backup };
+}
+
+// Everything for the desktop app; nothing is written when the app has no home folder yet.
+export async function setupApp(d, version) {
+  const home = appHome(d);
+  if (!d.exists(home)) return { status: 'absent', home };
+  const mod = await installAppMod(d, version);
+  const key = ['added', 'updated', 'already'].includes(mod.status) ? await bindAppKey(d) : { status: 'skipped' };
+  return { status: 'found', home, mod, key };
+}
+
+export const humanAppKey = (key) => chord(key.replace(/-/g, '+'));
+
 // Apply config.toml to a running server; false when no server runs (herdr
 // reads the file when it starts).
 export async function reloadConfig({ run, env }) {
@@ -251,6 +388,23 @@ export async function runSetup(d, { quiet = false, postinstall = false } = {}) {
     r.key = { status: 'failed', reason: 'herdr is not installed' };
   }
 
+  let version = '0';
+  try {
+    version = JSON.parse(d.readFile(path.join(root, 'package.json'))).version ?? version;
+  } catch {
+    // an unversioned copy still installs
+  }
+  try {
+    r.app = await setupApp({ ...d, root }, version);
+  } catch (err) {
+    r.app = { status: 'found', mod: { status: 'failed', reason: err.message }, key: { status: 'skipped' } };
+  }
+  if (r.app.status === 'found') {
+    const { mod, key } = r.app;
+    if (mod.status === 'added' || mod.status === 'updated') r.changes.push(`${mod.status} its task prompt in the Herdr app`);
+    if (key.status === 'added') r.changes.push(`added the shortcut ${humanAppKey(key.key)} to the Herdr app`);
+  }
+
   if (!quiet) {
     const gitVersion = await firstLine(d.run, 'git', ['--version'], { env });
     const name = gitVersion ? await firstLine(d.run, 'git', ['config', 'user.name'], { env, cwd: d.cwd }) : null;
@@ -273,12 +427,19 @@ export async function runSetup(d, { quiet = false, postinstall = false } = {}) {
     r.changes.push(`chose ${choice.leader} as the lead agent`);
   }
 
-  if (['added', 'already'].includes(r.key.status)) {
-    d.writeFile(d.paths.setupState, `${JSON.stringify({ key: r.key.key, file: r.key.file, at: new Date().toISOString() })}\n`);
+  const appOk = r.app.status === 'found' && ['added', 'updated', 'already'].includes(r.app.mod.status) && ['added', 'already'].includes(r.app.key.status);
+  const herdrOk = r.herdr.ok && r.plugin === 'enabled' && ['added', 'already'].includes(r.key.status);
+  if (['added', 'already'].includes(r.key.status) || appOk) {
+    const state = { at: new Date().toISOString() };
+    if (['added', 'already'].includes(r.key.status)) Object.assign(state, { key: r.key.key, file: r.key.file });
+    if (appOk) state.app = { key: r.app.key.key, mod: version };
+    d.writeFile(d.paths.setupState, `${JSON.stringify(state)}\n`);
   }
 
   const leaderReady = r.agents.some((a) => a.kind === r.leader && a.status === 'ready');
-  r.ok = r.node.ok && r.herdr.ok && r.plugin === 'enabled' && ['added', 'already'].includes(r.key.status)
+  // herdr itself is optional for someone who only uses the Herdr app, and the app for someone who only uses herdr.
+  const where = r.herdr.version ? herdrOk && (r.app.status === 'absent' || appOk) : appOk;
+  r.ok = r.node.ok && where
     && Boolean(r.git?.version) && Boolean(r.git?.name) && r.git?.hasEmail && leaderReady;
   return r;
 }
@@ -300,6 +461,9 @@ export function formatSetup(r) {
 
   if (r.quiet) {
     for (const c of r.changes) out.push(`foreman ${c}.`);
+    if (r.app?.status === 'found') {
+      for (const x of [r.app.mod, r.app.key]) if (x.status === 'failed') out.push(`foreman could not set up the Herdr app: ${x.reason}. Type "foreman setup" for help.`);
+    }
     if (r.key.status === 'failed' && r.herdr?.version) out.push(`foreman could not add its shortcut to herdr: ${r.key.reason}. Type "foreman setup" for help.`);
     return out.join('\n');
   }
@@ -308,7 +472,9 @@ export function formatSetup(r) {
   if (r.node.ok) ok(`Node.js ${r.node.version}`);
   else todo(`Node.js ${r.node.version} is too old. Install version ${MIN_NODE} or newer from https://nodejs.org`);
 
-  if (!r.herdr.version) todo('herdr is not installed. Install it from https://herdr.dev, then type "foreman setup" again');
+  const hasApp = r.app?.status === 'found';
+  if (!r.herdr.version && hasApp) ok('herdr (the terminal version) is not installed, which is fine for the Herdr app');
+  else if (!r.herdr.version) todo('herdr is not installed. Install it from https://herdr.dev, then type "foreman setup" again');
   else if (!r.herdr.ok) todo(`herdr ${r.herdr.version} is too old. Type "herdr update" to get version ${MIN_HERDR} or newer`);
   else ok(`herdr ${r.herdr.version}`);
 
@@ -316,7 +482,9 @@ export function formatSetup(r) {
   else if (!r.git.name || !r.git.hasEmail) todo('git does not know your name yet; foreman needs it to save the work. Type: git config --global user.name "Your Name" and git config --global user.email "you@example.com"');
   else ok(`git ${r.git.version}, saving work as ${r.git.name}`);
 
-  if (r.plugin === 'enabled') ok(`foreman is added to herdr${r.linked ? ' (just now)' : ''}`);
+  if (!r.herdr.version && hasApp) {
+    // nothing to add to herdr
+  } else if (r.plugin === 'enabled') ok(`foreman is added to herdr${r.linked ? ' (just now)' : ''}`);
   else if (r.plugin === 'disabled') todo(`foreman is turned off in herdr. Type: herdr plugin enable ${PLUGIN_ID}`);
   else if (r.plugin === 'missing') todo(`foreman is not added to herdr yet, so the shortcut will not work. Type: herdr plugin install Kvmyk/herdr-foreman${r.pluginError ? ` (${r.pluginError})` : ''}`);
   else if (r.herdr.version) todo('herdr did not say whether foreman is added; type "herdr plugin list" to check');
@@ -328,6 +496,16 @@ export function formatSetup(r) {
     if (!k.reloaded) out.push('       It works the next time herdr starts.');
   } else if (r.herdr.version) todo(`foreman could not add its shortcut: ${k.reason}`);
 
+  if (hasApp) {
+    const { mod, key } = r.app;
+    if (mod.status === 'failed') todo(`foreman could not add its task prompt to the Herdr app: ${mod.reason}`);
+    else if (mod.status === 'skipped') todo(`Herdr app: ${mod.reason}`);
+    else ok(`Herdr app: task prompt ${mod.status === 'already' ? 'is installed' : `${mod.status} (${mod.dir})`}`);
+    if (key.status === 'already') ok(`Herdr app shortcut: ${humanAppKey(key.key)}`);
+    else if (key.status === 'added') ok(`Herdr app shortcut: ${humanAppKey(key.key)} (just added to ${key.file}; your old keys are saved as ${key.backup})`);
+    else if (key.status !== 'skipped') todo(`foreman could not add its shortcut to the Herdr app: ${key.reason}`);
+  }
+
   if (!r.agents.length) todo('No coding agent found. Install one, for example Claude Code (https://claude.com/claude-code) or Codex (https://developers.openai.com/codex), and sign in');
   for (const a of r.agents) (a.status === 'ready' ? ok : todo)(describeAgent(a));
   const leaderReady = r.agents.some((a) => a.kind === r.leader && a.status === 'ready');
@@ -335,7 +513,15 @@ export function formatSetup(r) {
   else if (r.leader) todo(`The lead agent ${r.leader} is not ready (see above). To use another one, put {"leader": "<agent>"} in ${r.configFile}`);
 
   out.push('');
-  if (r.ok) {
+  const appKey = hasApp && ['added', 'already'].includes(r.app.key.status) ? humanAppKey(r.app.key.key) : null;
+  if (r.ok && !['added', 'already'].includes(k.status)) {
+    out.push(
+      'What to do next:',
+      '  1. In the Herdr app, open a terminal in your project folder.',
+      `  2. Press ${appKey}.`,
+      '  3. Type what you want done and press Enter or Start.',
+    );
+  } else if (r.ok) {
     const key = humanKey(k.key, k.prefix);
     out.push(
       'What to do next:',
@@ -343,6 +529,7 @@ export function formatSetup(r) {
       `  2. Press ${key.replace(', then ', ', let go, then press ')}.`,
       '  3. Type what you want done and press Enter. An empty line cancels.',
     );
+    if (appKey) out.push(`  In the Herdr app, open a terminal in your project folder and press ${appKey} instead.`);
   } else {
     out.push('Fix the lines marked [!!], then type "foreman setup" again.');
   }

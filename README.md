@@ -82,6 +82,22 @@ description = "foreman: new task"
 
 It never replaces a key you bound yourself to `herdr-foreman.start`. herdr runs the same quiet setup at every server start, so the shortcut comes back after `herdr config reset-keys`; to stop all automatic setup, put `"autoSetup": false` in `~/.herdr-foreman/config.json` or set `FOREMAN_NO_SETUP=1`. If no lead agent is configured and Claude Code is not ready, setup picks one you have and saves it there as `leader`. Without any key binding: `herdr plugin action invoke herdr-foreman.start`.
 
+## Herdr app (desktop)
+
+If the Herdr desktop app is installed (its folder is `~/.config/herdr-app`, or `$HERDR_APP_HOME`), setup also adds foreman to it. You do not need the terminal version of herdr for this: install the command with `npm install -g github:Kvmyk/herdr-foreman`, or type `foreman setup` in a clone.
+
+In the app, open a terminal in your project folder and press **Ctrl+Shift+Y**. A prompt opens; type your task and press Enter (or Start). foreman opens the leader in a new tab of the same space. Esc or an empty task cancels.
+
+What setup changes, checked first and never forced:
+
+- `mods/foreman/` in the app folder: the prompt. Its `main.js` starts with a `foreman-managed` line holding the version and a hash. The mod is checked with `herdr-app check` before it is written. A newer foreman updates it; a file you edited, or a `mods/foreman` that is not foreman's, is left alone and setup says so.
+- one line in `keys.json`, `"ctrl-shift-y": "mod.open:foreman"` (the first of `ctrl-shift-y`, `ctrl-alt-shift-f`, `ctrl-shift-f10` that you have not bound). Your old keys are saved as `keys.json.foreman-backup`, and if the app rejects the new file (`keys.error`) your keys are put back. A missing or invalid `keys.json` is never created or replaced; open the app once and type `foreman setup` again.
+- the + menu is not changed: the app replaces its own menus at every start. To use another key, change the line in `keys.json`.
+
+Setup reruns quietly after an npm install and whenever herdr starts. `"autoSetup": false` in `~/.herdr-foreman/config.json` (or `FOREMAN_NO_SETUP=1`) stops that; `foreman setup` still works. To remove foreman from the app, delete `mods/foreman` and that line.
+
+The prompt starts foreman as `node <foreman>/bin/foreman.js --backend app -- "<task>"` in a terminal tab of the app, in the folder of the focused terminal.
+
 ## How a task runs
 
 1. `foreman "<task>"` in a git repository. Outside herdr it starts the herdr server if needed, opens a workspace and attaches; inside herdr it opens a new tab.
@@ -138,7 +154,7 @@ Everything lives in `~/.herdr-foreman/` (set `FOREMAN_HOME` to move it):
 
 | Path | Contents |
 |---|---|
-| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl`, `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr shortcut) |
+| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl`, `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr and Herdr app shortcuts) |
 | `knowledge.override.json` | Optional: your corrections to the knowledge file, deep-merged |
 | `journal.jsonl` | Your results |
 | `worktrees/` | Worker worktrees, outside your repository |

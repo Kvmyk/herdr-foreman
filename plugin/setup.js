@@ -1,6 +1,6 @@
 // herdr runs this at install ([[build]], --quiet), at every server start
 // ([[startup]], --quiet) and as the "setup" pane (no flag): add the shortcut,
-// pick a lead agent, and in the pane say in plain words what to do next.
+// pick a lead agent, set up the Herdr desktop app if it is installed, and in the pane say in plain words what to do next.
 import { createInterface } from 'node:readline/promises';
 import { main } from '../src/cli.js';
 import { realDeps } from '../src/deps.js';
