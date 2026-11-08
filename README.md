@@ -133,13 +133,16 @@ If a worker asks for permission, the leader asks you once whether you answer suc
 |---|---|
 | `foreman agents [--json]` | Installed agent kinds: signed in?, models, default model |
 | `foreman brief [--json]` | Inventory, knowledge, models.dev facts and your stats in one JSON |
-| `foreman spawn --task <slug> [--new-tab] [--effort <level>] [--full] [--auto] [--branch <type>/<name>] <name>=<kind>[:<model>]...` | Open workers in worktrees and panes. `--branch` (required on a task's first spawn) names the run, e.g. `feat/auto-accept-workers`; `--auto` starts workers in their auto-approve mode. `--effort low\|medium\|high\|xhigh\|max` (claude, agy); `--full` keeps MCP servers and all tools for claude workers |
+| `foreman spawn --task <slug> [--new-tab] [--effort <level>] [--full] [--auto] [--branch <type>/<name>] [--include-uncommitted] <name>=<kind>[:<model>]...` | Open workers in worktrees and panes. `--branch` (required on a task's first spawn) names the run, e.g. `feat/auto-accept-workers`; `--auto` starts workers in their auto-approve mode; `--include-uncommitted` starts workers from a copy that also holds your uncommitted changes. `--effort low\|medium\|high\|xhigh\|max` (claude, agy); `--full` keeps MCP servers and all tools for claude workers |
 | `foreman wait --task <slug> [--phase investigate\|implement] [--only a,b] [--timeout ms]` | Block until every worker finished (its report written) or one needs attention; returns within 9 minutes |
 | `foreman status --task <slug> [--json]` | Changes, commits and reports per worker |
 | `foreman merge --task <slug> [--only a,b] [--json]` | Collect committed work on the run branch |
 | `foreman land --task <slug> [--title <summary>]` | Merge the run branch into your current branch as `Merge <type>/<name>: <summary>` (refuses with uncommitted changes) |
 | `foreman cleanup --task <slug> [--delete-branch]` | Close worker panes, remove worktrees and worker branches |
 | `foreman cleanup [--all]` | List runs left behind (open workers, worktrees); `--all` cleans them. Panes are closed only if they still host that worker or work inside its worktree |
+| `foreman prompt --task <slug> <name> "<text>"` | Send an agent a message |
+| `foreman read --task <slug> <name> [--lines n]` | Print what an agent's pane shows (`n` lines of history too) |
+| `foreman keys --task <slug> <name> <key>...` | Press keys in an agent's pane: `enter`, `esc`, `up`, `down`, `1`, ... `prompt`, `read` and `keys` also take `--backend app\|herdr` |
 | `foreman close-leader` | Close the calling leader's pane; the leader's last step when you agree |
 | `foreman journal add <file.json>` / `foreman journal stats` | Record and view results per category and agent |
 
