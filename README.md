@@ -36,9 +36,15 @@ herdr shows what the plugin will run and asks you to confirm; answer yes. That i
 
 1. Open a terminal in your project folder and type `herdr`.
 2. Press `Ctrl+B`, let go, then press `F`.
-3. Type what you want done, in plain words, and press Enter. An empty line cancels.
+3. Type what you want done, in plain words. You can paste several lines; finish with an empty line. An empty first line cancels.
 
 The lead agent opens in a new tab and tells you what it plans to do before anything changes.
+
+### Describing the task
+
+- Write it in your own words. Point at files with `@` and the file name (`@src/login.js`); links to issues or docs work too. foreman checks that the files exist and warns you when one has changes you have not committed.
+- A longer task can be written in a file (`foreman -f task.md`) or piped in (`cat task.md | foreman`).
+- In the herdr prompt you can paste several lines and finish with an empty line (or Ctrl+D), or type `e` to write the task in an editor (`$VISUAL` or `$EDITOR`; Notepad on Windows).
 
 ## If something does not work
 

@@ -10,6 +10,8 @@ export const SPEC_PATTERN = /^([a-z][a-z0-9_-]{0,31})=([a-z][a-z0-9-]*)(?::(.+))
 const TASK = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const BRANCH_TYPES = Object.freeze(['feat', 'fix', 'docs', 'refactor', 'test', 'perf', 'chore']);
 const BRANCH = new RegExp('^(' + BRANCH_TYPES.join('|') + ')/([a-z0-9][a-z0-9-]{0,39})$');
+// The commit that copies the user's uncommitted work into the run base.
+const snapshotMessage = (task) => `chore: save the changes you had not committed yet (foreman "${task}")`;
 
 export function parseSpec(s) {
   const m = SPEC_PATTERN.exec(s);
@@ -104,7 +106,7 @@ async function excludeReports({ git, repo, readFile, appendFile, mkdir }) {
 }
 
 export async function spawnWorkers({
-  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, run = null, writeFile, readFile, appendFile, mkdir,
+  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, includeUncommitted = false, run = null, writeFile, readFile, appendFile, mkdir,
 }) {
   const existing = loadRun(task, { paths, readFile });
   const checked = await validate({ herdr, git, repo, config, task, specs, existing, pane, newTab, effort, branch });
@@ -112,8 +114,22 @@ export async function spawnWorkers({
   const runBranch = existing ? existing.branch : checked.branch;
   const warnings = [];
 
-  const base = existing?.base ?? await git.head(repo);
-  if (await git.isDirty(repo)) warnings.push(`uncommitted changes in ${repo} are not visible to workers`);
+  // Uncommitted work: on the first spawn the user can have it copied into a
+  // snapshot commit the workers start from (--include-uncommitted); otherwise
+  // the workers never see it, so say so. A dirty repo on a later spawn keeps
+  // warning: only the first snapshot is taken.
+  let snapshot = existing?.snapshot ?? null;
+  let base = existing?.base ?? null;
+  const dirty = await git.isDirty(repo);
+  if (dirty) {
+    if (!existing?.base && includeUncommitted) {
+      snapshot = await git.createSnapshot(repo, snapshotMessage(task));
+      base = snapshot;
+    } else {
+      warnings.push(`uncommitted changes in ${repo} are not copied to the workers; spawn again with --include-uncommitted to include them`);
+    }
+  }
+  base ??= await git.head(repo);
   await excludeReports({ git, repo, readFile, appendFile, mkdir });
 
   const root = worktreeRoot({ paths, repo, task });
@@ -188,6 +204,7 @@ ${help.stderr}`.includes(flagName)) {
     task,
     repo,
     base,
+    ...(snapshot ? { snapshot } : {}),
     ...(runBranch ? { branch: runBranch } : {}),
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     ownsWorktreeConfig,
@@ -197,5 +214,5 @@ ${help.stderr}`.includes(flagName)) {
     ],
   };
   saveRun(record, { paths, writeFile, mkdir });
-  return { workers, warnings };
+  return { workers, warnings, snapshot };
 }

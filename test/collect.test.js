@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { run as runProcess } from '../src/run.js';
@@ -129,6 +129,48 @@ test('land without merge branch explains', async () => {
   const res = await land({ run, git });
   assert.equal(res.ok, false);
   assert.match(res.reason, /foreman merge/);
+});
+
+test('land saves snapshot changes that still match and merges cleanly', async () => {
+  const repo = makeRepo({ 'a.txt': 'one\n' });
+  writeFileSync(path.join(repo, 'a.txt'), 'edited\n');
+  const snapshot = await git.createSnapshot(repo, 'chore: snapshot');
+  const home = mkdtempSync(path.join(tmpdir(), 'foreman-home-'));
+  const paths = { runs: path.join(home, 'runs'), worktrees: path.join(home, 'worktrees') };
+  const worktree = path.join(paths.worktrees, 't', 'w1');
+  await git.addWorktree(repo, worktree, 'foreman-work/t/w1', snapshot);
+  await git.armPushGuard(worktree);
+  const reportDir = path.join(paths.runs, 't', 'w1');
+  mkdirSync(reportDir, { recursive: true });
+  commitFile(worktree, 'b.txt', 'b\n');
+  const run = {
+    task: 't', repo, base: snapshot, snapshot, createdAt: 'x',
+    workers: [{ name: 'w1', kind: 'claude', model: null, paneId: 'w1:p2', worktree, branch: 'foreman-work/t/w1', reportDir }],
+  };
+  assert.deepEqual((await mergeWorkers({ run, git, paths, exists: existsSync })).merged, ['w1']);
+
+  // The user's copy of the changes is still uncommitted and still matches.
+  assert.equal(await git.isDirty(repo, { untracked: false }), true);
+  const res = await land({ run, git, title: 'bring it home' });
+  assert.deepEqual(res, { ok: true, branch: 'foreman/t' });
+  assert.deepEqual(rawGit(repo, 'log', '-2', '--format=%s'), 'Merge foreman/t: bring it home\nchore: include the changes you had not committed yet');
+  assert.equal(readFileSync(path.join(repo, 'a.txt'), 'utf8'), 'edited\n', 'the unsaved work survived');
+  assert.ok(existsSync(path.join(repo, 'b.txt')));
+  assert.equal(await git.isDirty(repo, { untracked: false }), false);
+});
+
+test('land with a snapshot refuses in plain words when the user changed a file since', async () => {
+  const repo = makeRepo({ 'a.txt': 'one\n', 'b.txt': 'two\n' });
+  writeFileSync(path.join(repo, 'a.txt'), 'edited\n');
+  const snapshot = await git.createSnapshot(repo, 'chore: snapshot');
+  const head = await git.head(repo);
+  const run = { task: 't', repo, base: snapshot, snapshot, createdAt: 'x', workers: [] };
+  writeFileSync(path.join(repo, 'b.txt'), 'changed later\n');
+  const res = await land({ run, git });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /b\.txt/);
+  assert.match(res.reason, /commit or stash/);
+  assert.equal(await git.head(repo), head, 'nothing was committed');
 });
 
 test('cleanup closes panes before removing worktrees', async () => {

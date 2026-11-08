@@ -29,7 +29,7 @@ const isEmpty = (v) => v === null || v === undefined || v === ''
   || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length);
 const nonEmpty = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => !isEmpty(v)));
 
-export function buildBrief({ agents, knowledge, modelsDev, stats, config, warnings = [], limit = 25 }) {
+export function buildBrief({ agents, knowledge, modelsDev, stats, config, warnings = [], repoDirty = null, limit = 25 }) {
   const families = new Set();
   const modelFacts = {};
   const ready = [];
@@ -74,6 +74,8 @@ export function buildBrief({ agents, knowledge, modelsDev, stats, config, warnin
     modelFacts,
     stats,
     maxWorkers: config.maxWorkers,
+    // Only when true: the leader asks the user about unsaved changes before spawning.
+    repoDirty: repoDirty === true ? true : null,
     knowledgeUpdated: knowledge.updated,
     warnings,
   });

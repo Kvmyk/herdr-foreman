@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, existsSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, mkdtempSync, mkdirSync, rmSync, unlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -43,6 +43,62 @@ test('isDirty and changedFiles detect changes', async () => {
   writeFileSync(path.join(repo, 'new.txt'), 'x\n');
   assert.equal(await g.isDirty(repo), true);
   assert.deepEqual((await g.changedFiles(repo)).sort(), ['a.txt', 'new.txt']);
+});
+
+test('createSnapshot copies modified, staged, deleted and untracked files without touching index or worktree', async () => {
+  const repo = makeRepo({ 'a.txt': 'one\n', 'gone.txt': 'gone\n' });
+  rawGit(repo, 'config', 'core.autocrlf', 'false');
+  const head = await g.head(repo);
+  writeFileSync(path.join(repo, 'a.txt'), 'edited\n');            // modified
+  unlinkSync(path.join(repo, 'gone.txt'));                        // deleted
+  writeFileSync(path.join(repo, 'staged.txt'), 'staged\n');       // staged
+  rawGit(repo, 'add', 'staged.txt');
+  writeFileSync(path.join(repo, 'new.txt'), 'untracked\n');       // untracked
+
+  const snap = await g.createSnapshot(repo, 'chore: snapshot');
+  assert.match(snap, /^[0-9a-f]{40}$/);
+
+  // The snapshot holds every kind of change.
+  const show = (f) => rawGit(repo, 'show', `${snap}:${f}`);
+  assert.equal(show('a.txt'), 'edited');
+  assert.equal(show('staged.txt'), 'staged');
+  assert.equal(show('new.txt'), 'untracked');
+  assert.equal(await g.fileMatchesTree(repo, snap, 'gone.txt'), true); // absent on both sides
+  let missing = false;
+  try { show('gone.txt'); } catch { missing = true; }
+  assert.equal(missing, true);
+  assert.equal(rawGit(repo, 'rev-parse', `${snap}^`), head);
+
+  // The user's index, working tree and HEAD are untouched.
+  assert.equal(await g.head(repo), head);
+  const entries = rawGit(repo, 'status', '--porcelain', '-z').split('\0').filter(Boolean);
+  // The first entry may lose its leading column to trim; a.txt is not staged here.
+  assert.ok(entries.some((e) => e.startsWith('M a.txt')), 'a.txt is still modified, not committed');
+  assert.ok(entries.includes('A  staged.txt'), 'staged.txt is still staged');
+  assert.ok(entries.includes(' D gone.txt'), 'gone.txt is still deleted');
+  assert.ok(entries.includes('?? new.txt'), 'new.txt is still untracked');
+  assert.equal(readFileSync(path.join(repo, 'a.txt'), 'utf8'), 'edited\n');
+  assert.equal(existsSync(path.join(repo, 'gone.txt')), false);
+});
+
+test('a worktree can start from a snapshot; fileMatchesTree and commitTracked support land', async () => {
+  const repo = makeRepo({ 'a.txt': 'one\n' });
+  rawGit(repo, 'config', 'core.autocrlf', 'false');
+  writeFileSync(path.join(repo, 'a.txt'), 'edited\n');
+  const snap = await g.createSnapshot(repo, 'chore: snapshot');
+
+  const wt = path.join(mkdtempSync(path.join(tmpdir(), 'foreman-wt-')), 'w1');
+  await g.addWorktree(repo, wt, 'foreman-work/t/w1', snap);
+  assert.equal(readFileSync(path.join(wt, 'a.txt'), 'utf8'), 'edited\n');
+
+  // fileMatchesTree and commitTracked, used by land:
+  assert.equal(await g.fileMatchesTree(repo, snap, 'a.txt'), true);
+  writeFileSync(path.join(repo, 'a.txt'), 'user changed\n');
+  assert.equal(await g.fileMatchesTree(repo, snap, 'a.txt'), false);
+  const commit = await g.commitTracked(repo, 'chore: save unsaved work');
+  assert.equal(rawGit(repo, 'show', 'HEAD:a.txt'), 'user changed');
+  assert.equal(await g.fileMatchesTree(repo, commit, 'a.txt'), true);
+  assert.equal(await g.isDirty(repo, { untracked: false }), false);
 });
 
 test('merge conflict reports files and aborts', async () => {

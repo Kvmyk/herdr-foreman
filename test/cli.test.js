@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { main } from '../src/cli.js';
+import { main, route } from '../src/cli.js';
 
 function harness(ops = {}, extra = {}) {
   let out = '';
@@ -178,6 +178,20 @@ test('spawn --auto is passed through', async () => {
   assert.deepEqual(h.calls, [['spawn', true, 'feat/x']]);
 });
 
+test('spawn --include-uncommitted is passed through and mentioned when a snapshot was made', async () => {
+  const h = harness({
+    spawn: async (o) => { h.calls.push(['spawn', o.includeUncommitted]); return { workers: [], warnings: [], snapshot: 'snap111' }; },
+  });
+  assert.equal(await main(['spawn', '--task', 't', '--include-uncommitted', 'w1=claude', '--json'], h.deps), 0);
+  assert.deepEqual(h.calls, [['spawn', true]]);
+  assert.equal(JSON.parse(h.out()).snapshot, 'snap111');
+
+  const h2 = harness({ spawn: async (o) => { h2.calls.push(['spawn', o.includeUncommitted]); return { workers: [], warnings: [], snapshot: 'snap111' }; } });
+  await main(['spawn', '--task', 't', 'w1=claude'], h2.deps);
+  assert.deepEqual(h2.calls, [['spawn', false]]);
+  assert.match(h2.out(), /workers start from a copy that includes your uncommitted changes/);
+});
+
 test('land passes --title', async () => {
   const h = harness({ land: async (o) => { h.calls.push(['land', o.task, o.title]); return { ok: true, branch: 'feat/x' }; } });
   assert.equal(await main(['land', '--task', 't', '--title', 'add x', '--json'], h.deps), 0);
@@ -188,4 +202,29 @@ test('land passes --title', async () => {
 test('spawn without --branch is a usage error when foreman says so', async () => {
   const h = harness({ spawn: async () => { throw Object.assign(new Error('needs --branch'), { code: 'BRANCH_REQUIRED' }); } });
   assert.equal(await main(['spawn', '--task', 't', 'w1=claude'], h.deps), 2);
+});
+
+test('-f reads the task from a file', async () => {
+  const h = harness({}, { deps: { readFile: (f) => (f === 'task.md' ? 'line one\nline two\n' : '') } });
+  assert.equal(await main(['-f', 'task.md'], h.deps), 0);
+  assert.deepEqual(h.calls, [['start', 'line one\nline two']]);
+});
+
+test('-f with a missing or empty file explains in plain words', async () => {
+  const missing = harness({}, { deps: { readFile: () => { throw new Error('ENOENT'); } } });
+  assert.equal(await main(['-f', 'x.md'], missing.deps), 2);
+  assert.match(missing.err(), /could not read the file x\.md/);
+  const empty = harness({}, { deps: { readFile: () => '  \n' } });
+  assert.equal(await main(['--file', 'x.md'], empty.deps), 2);
+  assert.match(empty.err(), /is empty/);
+  assert.equal(route(['-f']).kind, 'usage');
+});
+
+test('a task piped in on stdin starts; a terminal still shows status', async () => {
+  const piped = harness({}, { deps: { readStdin: async () => 'fix the thing\nplease\n' } });
+  assert.equal(await main([], piped.deps), 0);
+  assert.deepEqual(piped.calls, [['start', 'fix the thing\nplease']]);
+  const tty = harness({ setup: async () => setupResult() }, { deps: { readStdin: async () => null } });
+  assert.equal(await main([], tty.deps), 0);
+  assert.deepEqual(tty.calls, []);
 });

@@ -26,6 +26,7 @@ function fakes({ takenBranches = [], live = [], dirty = false, notReady = [], ex
     head: async () => 'abc123',
     commonDir: async () => path.join(repo, '.git'),
     isDirty: async () => dirty,
+    createSnapshot: async (r, msg) => { log.push(['snapshot', msg]); return 'snap111'; },
     addWorktree: async (r, wt, branch, base) => { log.push(['worktree', { wt, branch, base }]); },
     validBranchName: async (r, n) => !n.includes('..') && !n.includes(' '),
     branchExists: async (r, b) => takenBranches.includes(b),
@@ -131,6 +132,26 @@ test('warns on dirty repo', async () => {
   assert.ok(warnings.some((w) => /uncommitted changes/.test(w)));
 });
 
+test('--include-uncommitted snapshots the dirty repo and starts workers from it', async () => {
+  const f = fakes({ dirty: true });
+  const { warnings, snapshot } = await call(f, { specs: ['w1=claude'], includeUncommitted: true });
+  assert.ok(f.log.some(([k]) => k === 'snapshot'));
+  assert.equal(snapshot, 'snap111');
+  assert.ok(!warnings.some((w) => /uncommitted changes/.test(w)));
+  assert.equal(f.log.find(([k]) => k === 'worktree')[1].base, 'snap111');
+  const saved = JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]);
+  assert.equal(saved.base, 'snap111');
+  assert.equal(saved.snapshot, 'snap111');
+});
+
+test('a clean repo with --include-uncommitted takes no snapshot', async () => {
+  const f = fakes();
+  const { snapshot } = await call(f, { specs: ['w1=claude'], includeUncommitted: true });
+  assert.equal(snapshot, null);
+  assert.ok(!f.log.some(([k]) => k === 'snapshot'));
+  assert.equal(f.log.find(([k]) => k === 'worktree')[1].base, 'abc123');
+});
+
 test('saves run record with base sha', async () => {
   const f = fakes();
   await call(f, { specs: ['w1=claude'] });
@@ -160,6 +181,16 @@ test('adding workers to an existing run keeps its base', async () => {
   assert.equal(saved.base, 'old999');
   assert.deepEqual(saved.workers.map((w) => w.name), ['w1', 'w2']);
   assert.equal(f.log.find(([k]) => k === 'worktree')[1].base, 'old999');
+});
+
+test('an existing run keeps its snapshot base even when dirty again', async () => {
+  const existingRun = { task: 'fix-login', repo, base: 'snap111', snapshot: 'snap111', createdAt: 'x', workers: [{ name: 'w1', kind: 'claude' }] };
+  const f = fakes({ existingRun, dirty: true });
+  const { warnings, snapshot } = await call(f, { specs: ['w2=claude'], includeUncommitted: true });
+  assert.ok(!f.log.some(([k]) => k === 'snapshot'), 'only the first spawn snapshots');
+  assert.equal(snapshot, 'snap111');
+  assert.ok(warnings.some((w) => /uncommitted changes/.test(w)));
+  assert.equal(f.log.find(([k]) => k === 'worktree')[1].base, 'snap111');
 });
 
 test('pane failure rolls back created worktrees', async () => {

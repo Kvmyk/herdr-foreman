@@ -68,8 +68,34 @@ export async function mergeWorkers({ run, git, paths, exists, only = null }) {
 
 export async function land({ run, git, title = null }) {
   const branch = mergeBranch(run);
+  // A dirty checkout again: if the run captured a snapshot of the user's
+  // uncommitted work and the working tree still matches it, saving those
+  // changes as a commit now merges cleanly (the run branch already carries
+  // the same content). If they differ, the user has changed them since.
   if (await git.isDirty(run.repo, { untracked: false })) {
-    return { ok: false, reason: `uncommitted changes in your repo (${run.repo}); commit or stash them first` };
+    if (!run.snapshot) {
+      return { ok: false, reason: `uncommitted changes in your repo (${run.repo}); commit or stash them first` };
+    }
+    let mismatched = [];
+    try {
+      const files = await git.modifiedTracked(run.repo);
+      for (const f of files) {
+        if (!(await git.fileMatchesTree(run.repo, run.snapshot, f))) mismatched.push(f);
+      }
+    } catch (err) {
+      return { ok: false, reason: `cannot compare your changes with the start copy: ${err.message}` };
+    }
+    if (mismatched.length) {
+      return {
+        ok: false,
+        reason: `you have changed ${mismatched.join(', ')} since the workers started; commit or stash it first`,
+      };
+    }
+    try {
+      await git.commitTracked(run.repo, 'chore: include the changes you had not committed yet');
+    } catch (err) {
+      return { ok: false, reason: `cannot save your uncommitted changes: ${err.message}` };
+    }
   }
   if (!(await git.branchExists(run.repo, branch))) {
     return { ok: false, reason: `nothing to land: ${branch} does not exist; run foreman merge first` };

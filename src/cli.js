@@ -14,11 +14,15 @@ import { workerStatus, mergeWorkers, land, cleanup, findLeftovers } from './coll
 import { startForeman } from './start.js';
 import { runSetup, formatSetup } from './setup.js';
 import { fail } from './errors.js';
+import { EXAMPLE } from './task.js';
 
 const HELP = `foreman: describe a task; a lead agent splits it across your coding agents in herdr.
 
 Usage:
   foreman "<task>"                     start a leader for the task in this git repository
+                                       point at files with @name, e.g. @src/login.js; links work too
+  foreman -f task.md                   same, with the task written in a file
+  ... | foreman                        same, with the task piped in on standard input
   foreman -- <task words...>           same, when the task starts with a subcommand name
   foreman setup                        check herdr, git and your agents, add the herdr shortcut,
                                        and say what to do next (also: foreman doctor, or just foreman)
@@ -26,10 +30,12 @@ Usage:
 Subcommands (used by the leader; add --json for machine-readable output):
   agents                               agents installed here: signed in? which models?
   brief                                everything the leader needs to plan, as JSON
-  spawn --task <slug> [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--branch <type>/<name>] <name>=<kind>[:<model>]...
+  spawn --task <slug> [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--branch <type>/<name>] [--include-uncommitted] <name>=<kind>[:<model>]...
                                        open workers in their own worktrees and panes
                                        (claude workers start lean unless --full;
-                                       --auto starts workers in their auto-approve mode)
+                                       --auto starts workers in their auto-approve mode;
+                                       --include-uncommitted starts workers from a copy
+                                       that also holds the changes not committed yet)
   wait --task <slug> [--phase investigate|implement] [--only a,b] [--timeout ms]
                                        block until workers finish or one needs attention
   status --task <slug>                 what each worker changed and reported
@@ -51,7 +57,7 @@ Foreman never pushes and creates no pull request. It arms a push guard (a tripwi
 const COMMANDS = {
   agents: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   brief: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
-  spawn: { flags: { '--task': true, '--new-tab': false, '--effort': true, '--full': false, '--auto': false, '--branch': true, '--json': false }, required: ['--task'], positionals: (p) => p.length > 0 && p.every((s) => SPEC_PATTERN.test(s)) },
+  spawn: { flags: { '--task': true, '--new-tab': false, '--effort': true, '--full': false, '--auto': false, '--include-uncommitted': false, '--branch': true, '--json': false }, required: ['--task'], positionals: (p) => p.length > 0 && p.every((s) => SPEC_PATTERN.test(s)) },
   wait: { flags: { '--task': true, '--phase': true, '--only': true, '--timeout': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   status: { flags: { '--task': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   merge: { flags: { '--task': true, '--only': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
@@ -95,6 +101,10 @@ function parseFlags(args, spec) {
 export function route(argv) {
   if (argv.length === 0) return { kind: 'help', code: 2 };
   if (argv[0] === '--') return { kind: 'start', task: argv.slice(1).join(' ') };
+  if (['-f', '--file'].includes(argv[0])) {
+    return argv.length === 2 ? { kind: 'start', file: argv[1] } : { kind: 'usage', message: `foreman ${argv[0]} needs one file name, e.g. foreman -f task.md` };
+  }
+  if (argv[0].startsWith('--file=') && argv.length === 1) return { kind: 'start', file: argv[0].slice(7) };
   if (['--help', '-h'].includes(argv[0]) && argv.length === 1) return { kind: 'help', code: 0 };
   const name = argv[0];
   const spec = COMMANDS[name];
@@ -140,6 +150,9 @@ function defaultOps(deps) {
     },
     async brief() {
       const cfg = config();
+      const g = git();
+      const repo = await g.toplevel(deps.cwd);
+      const repoDirty = repo ? await g.isDirty(repo) : null;
       const [agents, know] = await Promise.all([
         inv(),
         loadKnowledge({ paths: deps.paths, fetchImpl: deps.fetchImpl, readFile: deps.readFile, writeFile: deps.writeFile, now: deps.now(), knowledgeUrl: cfg.knowledgeUrl }),
@@ -151,6 +164,7 @@ function defaultOps(deps) {
         stats: computeStats(readEntries({ path: deps.paths.journal, readFile: deps.readFile })),
         config: cfg,
         warnings: know.warnings,
+        repoDirty,
       });
     },
     async wait({ task, phase, only, timeoutMs }) {
@@ -159,12 +173,12 @@ function defaultOps(deps) {
         phase, only, timeoutMs: timeoutMs ?? config().waitTimeoutMs,
       });
     },
-    async spawn({ task, specs, newTab, effort, full, auto, branch }) {
+    async spawn({ task, specs, newTab, effort, full, auto, includeUncommitted, branch }) {
       const g = git();
       const repo = await g.toplevel(deps.cwd);
       if (!repo) throw fail('USAGE', 'run foreman spawn inside the git repository');
       return spawnWorkers({
-        herdr: herdr(), git: g, paths: deps.paths, config: config(), repo, task, specs, newTab, effort, full, auto, branch, run: deps.run,
+        herdr: herdr(), git: g, paths: deps.paths, config: config(), repo, task, specs, newTab, effort, full, auto, includeUncommitted, branch, run: deps.run,
         pane: deps.env.HERDR_PANE_ID, writeFile: deps.writeFile, readFile: deps.readFile, appendFile: deps.appendFile, mkdir: deps.mkdir,
       });
     },
@@ -194,7 +208,7 @@ function defaultOps(deps) {
     start: async ({ task }) => startForeman({
       task, cwd: deps.cwd, env: deps.env, herdr: herdr(), git: git(), which: deps.which, config: config(), paths: deps.paths,
       homedir: deps.homedir, exists: deps.exists, spawnDetached: deps.spawnDetached, attach: deps.attach, sleep: deps.sleep,
-      foremanCmd: deps.foremanCmd, report: (m) => deps.stdout.write(`${m}\n`),
+      foremanCmd: deps.foremanCmd, writeFile: deps.writeFile, mkdir: deps.mkdir, report: (m) => deps.stdout.write(`${m}\n`),
     }),
   };
 }
@@ -212,9 +226,13 @@ function printAgents(out, agents) {
 }
 
 export async function main(argv, deps) {
-  // Plain `foreman` is where a newcomer starts: show what works and what to do.
-  const r = argv.length ? route(argv) : { kind: 'command', name: 'setup', flags: {}, positionals: [] };
   const { stdout, stderr } = deps;
+  // Plain `foreman` is where a newcomer starts: show what works and what to do.
+  let r = argv.length ? route(argv) : { kind: 'command', name: 'setup', flags: {}, positionals: [] };
+  if (argv.length === 0 && deps.readStdin) {
+    const piped = await deps.readStdin();
+    if (piped?.trim()) r = { kind: 'start', task: piped.trim() };
+  }
   if (r.kind === 'help') {
     stdout.write(HELP);
     return r.code;
@@ -233,9 +251,19 @@ export async function main(argv, deps) {
 
   try {
     if (r.kind === 'start') {
+      let task = r.task;
+      if (r.file) {
+        try {
+          task = deps.readFile(r.file).trim();
+        } catch {
+          throw fail('USAGE', `I could not read the file ${r.file}. Check the name and try again.`);
+        }
+        if (!task) throw fail('USAGE', `The file ${r.file} is empty. Write what you want done in it, for example: ${EXAMPLE}`);
+      }
       const setup = await ops.ensureSetup?.();
-      if (setup?.changes.length) stdout.write(`${formatSetup(setup)}\n`);
-      const res = await ops.start({ task: r.task });
+      if (setup?.changes.length) stdout.write(`${formatSetup(setup)}
+`);
+      const res = await ops.start({ task });
       if (!res.ok) {
         stderr.write(`${res.message}\n`);
         return 1;
@@ -275,10 +303,11 @@ export async function main(argv, deps) {
         return 0;
       case 'spawn': {
         const res = await ops.spawn({
-          task, specs: r.positionals, newTab: Boolean(r.flags['--new-tab']), effort: r.flags['--effort'] ?? null, full: Boolean(r.flags['--full']), auto: Boolean(r.flags['--auto']), branch: r.flags['--branch'] ?? null,
+          task, specs: r.positionals, newTab: Boolean(r.flags['--new-tab']), effort: r.flags['--effort'] ?? null, full: Boolean(r.flags['--full']), auto: Boolean(r.flags['--auto']), includeUncommitted: Boolean(r.flags['--include-uncommitted']), branch: r.flags['--branch'] ?? null,
         });
         print(res, (v) => {
           for (const w of v.workers) stdout.write(`${w.name.padEnd(12)}${w.kind.padEnd(10)}${w.paneId.padEnd(10)}${w.status}${w.error ? ` (${w.error})` : ''}\n`);
+          if (v.snapshot) stdout.write('workers start from a copy that includes your uncommitted changes\n');
           for (const warning of v.warnings) stdout.write(`warning: ${warning}\n`);
         });
         return 0;

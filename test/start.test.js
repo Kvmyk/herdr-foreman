@@ -53,28 +53,28 @@ test('refuses empty task', async () => {
   const { deps } = fakes();
   const r = await startForeman({ ...deps, task: '   ' });
   assert.equal(r.ok, false);
-  assert.match(r.message, /Describe the task/);
+  assert.match(r.message, /what you want done/);
 });
 
 test('refuses outside git repo', async () => {
   const { deps } = fakes({ toplevel: null });
   const r = await startForeman({ ...deps, task: 'fix it' });
   assert.equal(r.ok, false);
-  assert.match(r.message, /git repository/);
+  assert.match(r.message, /uses git/);
 });
 
 test('refuses the home directory as repository', async () => {
   const { deps } = fakes({ toplevel: home });
   const r = await startForeman({ ...deps, cwd: path.join(home, 'Downloads'), task: 'fix it' });
   assert.equal(r.ok, false);
-  assert.match(r.message, /home directory/);
+  assert.match(r.message, /home folder/);
 });
 
 test('refuses a repository without commits', async () => {
   const { deps } = fakes({ headFails: true });
   const r = await startForeman({ ...deps, task: 'fix it' });
   assert.equal(r.ok, false);
-  assert.match(r.message, /no commits/);
+  assert.match(r.message, /no saved version/);
 });
 
 test('refuses a missing leader program', async () => {
@@ -141,4 +141,37 @@ test('lean can be switched off', async () => {
   const { deps, log } = fakes();
   await startForeman({ ...deps, config: { ...DEFAULT_CONFIG, lean: false }, task: 'fix it' });
   assert.deepEqual(log.find(([k]) => k === 'start')[1].args, []);
+});
+
+test('a task with several lines goes to a task file the prompt points at', async () => {
+  const { deps, log } = fakes();
+  const written = [];
+  const r = await startForeman({ ...deps, paths: { runs: path.resolve('/s/runs'), home: path.resolve('/s') }, mkdir: () => {}, writeFile: (f, t) => written.push([f, t]), task: 'fix login\n\nand the tests' });
+  assert.equal(r.ok, true);
+  assert.equal(written.length, 1);
+  assert.ok(written[0][0].includes('tasks'));
+  assert.equal(written[0][1], 'fix login\n\nand the tests\n');
+  const text = log.find(([k]) => k === 'prompt')[1].text;
+  assert.ok(!text.includes('\n'));
+  assert.ok(text.includes(written[0][0]));
+});
+
+test('@file mentions are listed for the leader; uncommitted ones are flagged', async () => {
+  const { deps, log } = fakes();
+  deps.exists = (p) => p.endsWith('login.js') || p.endsWith('README.md');
+  deps.git.changedFiles = async () => ['src/login.js'];
+  const said = [];
+  const r = await startForeman({ ...deps, report: (m) => said.push(m), task: 'fix @src/login.js, see @README.md.' });
+  assert.equal(r.ok, true);
+  const text = log.find(([k]) => k === 'prompt')[1].text;
+  assert.match(text, /Files the user pointed to \(read them first\): src\/login\.js \(has uncommitted changes\), README\.md\./);
+  assert.ok(said.some((m) => /src\/login\.js has changes you have not committed/.test(m)));
+});
+
+test('a missing @file stops with a plain message', async () => {
+  const { deps, log } = fakes();
+  const r = await startForeman({ ...deps, task: 'fix @nope.js and mail me@site.com' });
+  assert.equal(r.ok, false);
+  assert.match(r.message, /could not find this file: nope\.js/);
+  assert.equal(log.length, 0);
 });
