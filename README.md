@@ -1,6 +1,6 @@
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="media/banner.png"><source media="(prefers-color-scheme: light)" srcset="media/banner-light.png"><img src="media/banner.png" alt="foreman: one task, a crew of coding agents" width="820"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="media/banner.png"><source media="(prefers-color-scheme: light)" srcset="media/banner-light.png"><img src="media/banner-light.png" alt="foreman: one task, a crew of coding agents" width="100%"></picture></p>
 
-<p align="center"><img src="media/demo.gif" alt="foreman splits a task across claude, codex and opencode in herdr panes" width="820"><br>
+<p align="center"><img src="media/demo.gif" alt="foreman splits a task across claude, codex and opencode in herdr panes" width="100%"><br>
 <a href="media/demo.mp4">Watch with sound (35 s, MP4)</a></p>
 
 # herdr-foreman
