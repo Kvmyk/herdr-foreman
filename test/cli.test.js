@@ -59,9 +59,49 @@ test('double dash forces start', async () => {
   assert.deepEqual(h.calls, [['start', 'agents are slow']]);
 });
 
-test('no args prints help and returns 2', async () => {
+const setupResult = (o = {}) => ({
+  quiet: false, changes: [], ok: true, node: { ok: true, version: '22.1.0' }, herdr: { ok: true, version: '0.9.5' },
+  git: { version: '2.45', name: 'Ada', hasEmail: true }, plugin: 'enabled', key: { status: 'already', key: 'prefix+f', prefix: 'ctrl+b' },
+  agents: [{ kind: 'claude', status: 'ready' }], leader: 'claude', ...o,
+});
+
+test('no args runs setup and says what to do next', async () => {
+  const h = harness({ setup: async (o) => { h.calls.push(['setup', o.quiet]); return setupResult(); } });
+  assert.equal(await main([], h.deps), 0);
+  assert.deepEqual(h.calls, [['setup', false]]);
+  assert.match(h.out(), /What to do next/);
+});
+
+test('setup returns 1 while something is missing; doctor is the same', async () => {
+  const h = harness({ setup: async () => setupResult({ ok: false }) });
+  assert.equal(await main(['doctor'], h.deps), 1);
+  assert.match(h.out(), /Fix the lines marked/);
+});
+
+test('quiet setup (install and startup hooks) never fails', async () => {
+  const h = harness({ setup: async () => { throw new Error('boom'); } });
+  assert.equal(await main(['setup', '--quiet'], h.deps), 0);
+  assert.match(h.err(), /boom/);
+  const off = harness({ setup: async () => { throw new Error('must not run'); } }, { deps: { env: { FOREMAN_NO_SETUP: '1' } } });
+  assert.equal(await main(['setup', '--postinstall'], off.deps), 0);
+});
+
+test('a task first runs the quiet setup and reports what it changed', async () => {
+  const h = harness({ ensureSetup: async () => setupResult({ quiet: true, changes: ['added the shortcut Ctrl+B, then F to herdr'] }) });
+  assert.equal(await main(['fix the login'], h.deps), 0);
+  assert.match(h.out(), /^foreman added the shortcut Ctrl\+B, then F to herdr\.\n/);
+  assert.deepEqual(h.calls, [['start', 'fix the login']]);
+});
+
+test('setup is a task when followed by words', async () => {
   const h = harness();
-  assert.equal(await main([], h.deps), 2);
+  assert.equal(await main(['setup', 'the', 'database'], h.deps), 0);
+  assert.deepEqual(h.calls, [['start', 'setup the database']]);
+});
+
+test('--help prints help', async () => {
+  const h = harness();
+  assert.equal(await main(['--help'], h.deps), 0);
   assert.match(h.out(), /foreman "<task>"/);
 });
 

@@ -12,6 +12,7 @@ import { spawnWorkers, SPEC_PATTERN } from './spawn.js';
 import { loadRun, listRuns } from './runs.js';
 import { workerStatus, mergeWorkers, land, cleanup, findLeftovers } from './collect.js';
 import { startForeman } from './start.js';
+import { runSetup, formatSetup } from './setup.js';
 import { fail } from './errors.js';
 
 const HELP = `foreman: describe a task; a lead agent splits it across your coding agents in herdr.
@@ -19,6 +20,8 @@ const HELP = `foreman: describe a task; a lead agent splits it across your codin
 Usage:
   foreman "<task>"                     start a leader for the task in this git repository
   foreman -- <task words...>           same, when the task starts with a subcommand name
+  foreman setup                        check herdr, git and your agents, add the herdr shortcut,
+                                       and say what to do next (also: foreman doctor, or just foreman)
 
 Subcommands (used by the leader; add --json for machine-readable output):
   agents                               agents installed here: signed in? which models?
@@ -57,6 +60,8 @@ const COMMANDS = {
   'close-leader': { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   journal: { flags: { '--json': false }, positionals: (p) => (p[0] === 'add' && p.length === 2) || (p[0] === 'stats' && p.length === 1) },
   help: { flags: {}, positionals: (p) => p.length === 0 },
+  setup: { flags: { '--json': false, '--quiet': false, '--postinstall': false }, positionals: (p) => p.length === 0 },
+  doctor: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
 };
 
 const USAGE_CODES = new Set(['USAGE', 'BAD_SPEC', 'TOO_MANY', 'BAD_TASK', 'BAD_EFFORT', 'BAD_BRANCH', 'BRANCH_REQUIRED', 'UNKNOWN_KIND', 'NAME_TAKEN', 'NO_PANE', 'INVALID_ENTRY', 'NO_RUN']);
@@ -114,8 +119,25 @@ function defaultOps(deps) {
     home: deps.homedir, exclude: config().excludeKinds,
   });
 
+  const setupDeps = () => ({
+    run: deps.run, which: deps.which, env: deps.env, cwd: deps.cwd, homedir: deps.homedir, platform: deps.platform, paths: deps.paths,
+    readFile: deps.readFile, writeFile: deps.writeFile, removeFile: deps.removeFile, exists: deps.exists, tmpdir: deps.tmpdir,
+    nodeVersion: deps.nodeVersion, inventory: inv,
+  });
+
   return {
     inventory: inv,
+    setup: (opts) => runSetup(setupDeps(), opts),
+    autoSetupOff: () => Boolean(deps.env?.FOREMAN_NO_SETUP) || config().autoSetup === false,
+    // First run of a task: set up quietly once, unless the user turned it off.
+    async ensureSetup() {
+      try {
+        if (this.autoSetupOff() || deps.exists(deps.paths.setupState)) return null;
+        return await runSetup(setupDeps(), { quiet: true });
+      } catch {
+        return null;
+      }
+    },
     async brief() {
       const cfg = config();
       const [agents, know] = await Promise.all([
@@ -190,7 +212,8 @@ function printAgents(out, agents) {
 }
 
 export async function main(argv, deps) {
-  const r = route(argv);
+  // Plain `foreman` is where a newcomer starts: show what works and what to do.
+  const r = argv.length ? route(argv) : { kind: 'command', name: 'setup', flags: {}, positionals: [] };
   const { stdout, stderr } = deps;
   if (r.kind === 'help') {
     stdout.write(HELP);
@@ -210,6 +233,8 @@ export async function main(argv, deps) {
 
   try {
     if (r.kind === 'start') {
+      const setup = await ops.ensureSetup?.();
+      if (setup?.changes.length) stdout.write(`${formatSetup(setup)}\n`);
       const res = await ops.start({ task: r.task });
       if (!res.ok) {
         stderr.write(`${res.message}\n`);
@@ -223,6 +248,25 @@ export async function main(argv, deps) {
       case 'help':
         stdout.write(HELP);
         return 0;
+      case 'setup':
+      case 'doctor': {
+        const quiet = Boolean(r.flags['--quiet'] || r.flags['--postinstall']);
+        let res;
+        try {
+          if (quiet && ops.autoSetupOff()) return 0;
+          res = await ops.setup({ quiet, postinstall: Boolean(r.flags['--postinstall']) });
+        } catch (err) {
+          // Install and startup hooks must never fail because of setup.
+          if (!quiet) throw err;
+          stderr.write(`foreman setup: ${err.message}\n`);
+          return 0;
+        }
+        print(res, (v) => {
+          const text = formatSetup(v);
+          if (text) stdout.write(`${text}\n`);
+        });
+        return res.ok || quiet ? 0 : 1;
+      }
       case 'agents':
         print(await ops.inventory(), (v) => printAgents(stdout, v));
         return 0;
