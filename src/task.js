@@ -47,15 +47,24 @@ export function editorCommand(env, platform = process.platform) {
 }
 
 // Let the user write the task in an editor. Returns the text, or null when no
-// editor could be used (the caller falls back to typing).
-export function editTask({ env, platform = process.platform, spawnSync, readFile, writeFile, removeFile, tmpdir }) {
+// editor could be used (the caller falls back to typing). An editor that
+// returns at once with the file untouched (code, subl without --wait) gets a
+// hint through report.
+export function editTask({ env, platform = process.platform, spawnSync, readFile, writeFile, removeFile, tmpdir, now = Date.now, report = () => {} }) {
   const file = path.join(tmpdir, `foreman-task-${Date.now()}.md`);
   try {
     writeFile(file, EDITOR_NOTE);
     const cmd = editorCommand(env, platform);
+    const started = now();
     const res = spawnSync(`${cmd} "${file}"`, { stdio: 'inherit', shell: true });
     if (res.error || res.status) return null;
-    return readFile(file).split(/\r?\n/).filter((l) => !l.startsWith('#')).join('\n').trim();
+    const text = readFile(file);
+    if (now() - started < 1000 && text.replace(/\r\n/g, '\n') === EDITOR_NOTE) {
+      const example = platform === 'win32' ? `in PowerShell: $env:EDITOR = 'code --wait'` : `export EDITOR='code --wait'`;
+      report(`Your editor (${cmd}) closed at once, before you could write anything. Set EDITOR to one that waits until you close the file, for example ${example}.`);
+      return null;
+    }
+    return text.split(/\r?\n/).filter((l) => !l.startsWith('#')).join('\n').trim();
   } catch {
     return null;
   } finally {
