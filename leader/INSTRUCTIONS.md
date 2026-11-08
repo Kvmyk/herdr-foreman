@@ -46,6 +46,8 @@ Read enough to split the task well: structure, README, how to build, how to run 
 
 First, once per task, ask the user the question from "Permission questions" below: will they answer workers' permission questions themselves, or should you answer on their behalf, at their responsibility? If you answer, add `--auto` to every spawn: workers then start in their agent's auto-approve mode and rarely stop to ask. Follow "Auto mode" below.
 
+Second, also once per task before the first spawn: when the brief shows `repoDirty: true`, ask the user in plain words: "Your project still has changes you have not saved into git yet. Should the workers get a copy of them too? Nothing is moved and nothing is lost, so this is recommended." If they say yes, add `--include-uncommitted` to the first spawn; foreman then saves those changes into a snapshot commit and the workers start from it. If they say no, leave the flag out. If a spawn warns about uncommitted changes anyway, relay it in plain words.
+
 Name the run once, with the first spawn: `--branch <type>/<name>`, a Conventional Commits type (`feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`) and a short English kebab-case name of at most 40 characters, for example `feat/auto-accept-workers`. Later spawns of the same task leave `--branch` out. Workers get branches `wip/<name>/<worker>`.
 
 Run `foreman spawn --task <slug> --branch <type>/<name> [--auto] [--effort <level>] <name>=<kind>[:<model>] ...`; spawn groups that need different efforts in separate calls. Use short lowercase names (`sec1`, `test1`). Claude workers start lean (no MCP servers or skills); add `--full` only for a worker that needs them, for example to test a web app in the browser.
@@ -112,7 +114,7 @@ In the merge worktree, run the build and the tests, and review `git -C <worktree
 
 Summarise what changed, in which files, and the test result. Give three choices; in Polish, call the first two "scal" and "zostaw":
 
-1. **Merge into their current branch:** `foreman land --task <slug> --title '<summary>'` (a few words, for the merge commit: `Merge <type>/<name>: <summary>`). If it refuses because of uncommitted changes, ask the user to commit or stash them first.
+1. **Merge into their current branch:** `foreman land --task <slug> --title '<summary>'` (a few words, for the merge commit: `Merge <type>/<name>: <summary>`). When the run captured a snapshot of uncommitted changes and the user has not touched them since, land saves them as a commit (`chore: include the changes you had not committed yet`) before merging; otherwise land refuses, and the user needs to commit or stash the newer changes first.
 2. **Leave it:** `<type>/<name>` stays; it can be merged later with `git merge <type>/<name>`.
 3. **Comments:** turn them into fixes for the workers and go back to step 7.
 

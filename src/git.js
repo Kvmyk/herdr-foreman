@@ -1,16 +1,17 @@
 // The git operations foreman needs: worktrees per worker, status checks, merges.
 import path from 'node:path';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const PUSH_HOOK = '#!/bin/sh\necho "push blocked by foreman" >&2\nexit 1\n';
 
 export function createGit({ run }) {
-  async function git(dir, args) {
-    return run('git', ['-C', dir, ...args], { timeoutMs: 120000 });
+  async function git(dir, args, env = null) {
+    return run('git', ['-C', dir, ...args], { timeoutMs: 120000, env: env ? { ...process.env, ...env } : undefined });
   }
 
-  async function ok(dir, args) {
-    const res = await git(dir, args);
+  async function ok(dir, args, env = null) {
+    const res = await git(dir, args, env);
     if (res.code !== 0) {
       throw new Error(`git ${args.join(' ')} failed: ${(res.stderr || res.stdout).trim()}`);
     }
@@ -42,6 +43,42 @@ export function createGit({ run }) {
     },
     async changedFiles(dir) {
       return (await porcelain(dir)).map((l) => l.slice(3).replace(/^"|"$/g, ''));
+    },
+    // Tracked files that are modified, staged or deleted; untracked ones are left out.
+    async modifiedTracked(dir) {
+      return (await porcelain(dir)).filter((l) => !l.startsWith('??')).map((l) => l.slice(3).replace(/^"|"$/g, ''));
+    },
+    // True when the file's content in the working tree equals its content in
+    // the given commit (or both are absent): a quiet diff exits 0 only then.
+    async fileMatchesTree(dir, treeish, file) {
+      const res = await git(dir, ['diff', '--quiet', treeish, '--', file]);
+      return res.code === 0;
+    },
+    // Commit the tracked changes (staged ones included, untracked ones left out).
+    async commitTracked(dir, message) {
+      await ok(dir, ['add', '--update', '.']);
+      await ok(dir, ['commit', '-m', message]);
+      return ok(dir, ['rev-parse', 'HEAD']);
+    },
+    // A commit on top of HEAD holding modified, staged, deleted and untracked
+    // (not ignored) files from the working tree. Staging happens in a temporary
+    // index file, so the user's index and working tree are not touched. The
+    // commit has its own identity, so no user.name/user.email is required.
+    async createSnapshot(repo, message) {
+      const tmp = mkdtempSync(path.join(tmpdir(), 'foreman-index-'));
+      const index = path.join(tmp, 'index');
+      try {
+        await ok(repo, ['read-tree', 'HEAD'], { GIT_INDEX_FILE: index });
+        await ok(repo, ['add', '-A', '.'], { GIT_INDEX_FILE: index });
+        const tree = await ok(repo, ['write-tree'], { GIT_INDEX_FILE: index });
+        return await ok(repo, ['commit-tree', tree, '-p', 'HEAD', '-m', message], {
+          GIT_INDEX_FILE: index,
+          GIT_AUTHOR_NAME: 'foreman', GIT_AUTHOR_EMAIL: 'foreman@localhost',
+          GIT_COMMITTER_NAME: 'foreman', GIT_COMMITTER_EMAIL: 'foreman@localhost',
+        });
+      } finally {
+        rmSync(tmp, { recursive: true, force: true });
+      }
     },
     // With base: new branch at base. Without: check out an existing branch.
     async addWorktree(repo, wtPath, branch, base = null) {

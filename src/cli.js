@@ -30,10 +30,12 @@ Usage:
 Subcommands (used by the leader; add --json for machine-readable output):
   agents                               agents installed here: signed in? which models?
   brief                                everything the leader needs to plan, as JSON
-  spawn --task <slug> [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--branch <type>/<name>] <name>=<kind>[:<model>]...
+  spawn --task <slug> [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--branch <type>/<name>] [--include-uncommitted] <name>=<kind>[:<model>]...
                                        open workers in their own worktrees and panes
                                        (claude workers start lean unless --full;
-                                       --auto starts workers in their auto-approve mode)
+                                       --auto starts workers in their auto-approve mode;
+                                       --include-uncommitted starts workers from a copy
+                                       that also holds the changes not committed yet)
   wait --task <slug> [--phase investigate|implement] [--only a,b] [--timeout ms]
                                        block until workers finish or one needs attention
   status --task <slug>                 what each worker changed and reported
@@ -55,7 +57,7 @@ Foreman never pushes and creates no pull request. It arms a push guard (a tripwi
 const COMMANDS = {
   agents: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   brief: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
-  spawn: { flags: { '--task': true, '--new-tab': false, '--effort': true, '--full': false, '--auto': false, '--branch': true, '--json': false }, required: ['--task'], positionals: (p) => p.length > 0 && p.every((s) => SPEC_PATTERN.test(s)) },
+  spawn: { flags: { '--task': true, '--new-tab': false, '--effort': true, '--full': false, '--auto': false, '--include-uncommitted': false, '--branch': true, '--json': false }, required: ['--task'], positionals: (p) => p.length > 0 && p.every((s) => SPEC_PATTERN.test(s)) },
   wait: { flags: { '--task': true, '--phase': true, '--only': true, '--timeout': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   status: { flags: { '--task': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   merge: { flags: { '--task': true, '--only': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
@@ -148,6 +150,9 @@ function defaultOps(deps) {
     },
     async brief() {
       const cfg = config();
+      const g = git();
+      const repo = await g.toplevel(deps.cwd);
+      const repoDirty = repo ? await g.isDirty(repo) : null;
       const [agents, know] = await Promise.all([
         inv(),
         loadKnowledge({ paths: deps.paths, fetchImpl: deps.fetchImpl, readFile: deps.readFile, writeFile: deps.writeFile, now: deps.now(), knowledgeUrl: cfg.knowledgeUrl }),
@@ -159,6 +164,7 @@ function defaultOps(deps) {
         stats: computeStats(readEntries({ path: deps.paths.journal, readFile: deps.readFile })),
         config: cfg,
         warnings: know.warnings,
+        repoDirty,
       });
     },
     async wait({ task, phase, only, timeoutMs }) {
@@ -167,12 +173,12 @@ function defaultOps(deps) {
         phase, only, timeoutMs: timeoutMs ?? config().waitTimeoutMs,
       });
     },
-    async spawn({ task, specs, newTab, effort, full, auto, branch }) {
+    async spawn({ task, specs, newTab, effort, full, auto, includeUncommitted, branch }) {
       const g = git();
       const repo = await g.toplevel(deps.cwd);
       if (!repo) throw fail('USAGE', 'run foreman spawn inside the git repository');
       return spawnWorkers({
-        herdr: herdr(), git: g, paths: deps.paths, config: config(), repo, task, specs, newTab, effort, full, auto, branch, run: deps.run,
+        herdr: herdr(), git: g, paths: deps.paths, config: config(), repo, task, specs, newTab, effort, full, auto, includeUncommitted, branch, run: deps.run,
         pane: deps.env.HERDR_PANE_ID, writeFile: deps.writeFile, readFile: deps.readFile, appendFile: deps.appendFile, mkdir: deps.mkdir,
       });
     },
@@ -297,10 +303,11 @@ export async function main(argv, deps) {
         return 0;
       case 'spawn': {
         const res = await ops.spawn({
-          task, specs: r.positionals, newTab: Boolean(r.flags['--new-tab']), effort: r.flags['--effort'] ?? null, full: Boolean(r.flags['--full']), auto: Boolean(r.flags['--auto']), branch: r.flags['--branch'] ?? null,
+          task, specs: r.positionals, newTab: Boolean(r.flags['--new-tab']), effort: r.flags['--effort'] ?? null, full: Boolean(r.flags['--full']), auto: Boolean(r.flags['--auto']), includeUncommitted: Boolean(r.flags['--include-uncommitted']), branch: r.flags['--branch'] ?? null,
         });
         print(res, (v) => {
           for (const w of v.workers) stdout.write(`${w.name.padEnd(12)}${w.kind.padEnd(10)}${w.paneId.padEnd(10)}${w.status}${w.error ? ` (${w.error})` : ''}\n`);
+          if (v.snapshot) stdout.write('workers start from a copy that includes your uncommitted changes\n');
           for (const warning of v.warnings) stdout.write(`warning: ${warning}\n`);
         });
         return 0;
