@@ -133,7 +133,19 @@ test('spawn passes effort and full', async () => {
 });
 
 test('spawn --auto is passed through', async () => {
-  const h = harness({ spawn: async (o) => { h.calls.push(['spawn', o.auto]); return { workers: [], warnings: [] }; } });
-  assert.equal(await main(['spawn', '--task', 't', '--auto', 'w1=claude', '--json'], h.deps), 0);
-  assert.deepEqual(h.calls, [['spawn', true]]);
+  const h = harness({ spawn: async (o) => { h.calls.push(['spawn', o.auto, o.branch]); return { workers: [], warnings: [] }; } });
+  assert.equal(await main(['spawn', '--task', 't', '--auto', '--branch', 'feat/x', 'w1=claude', '--json'], h.deps), 0);
+  assert.deepEqual(h.calls, [['spawn', true, 'feat/x']]);
+});
+
+test('land passes --title', async () => {
+  const h = harness({ land: async (o) => { h.calls.push(['land', o.task, o.title]); return { ok: true, branch: 'feat/x' }; } });
+  assert.equal(await main(['land', '--task', 't', '--title', 'add x', '--json'], h.deps), 0);
+  assert.equal(await main(['land', '--task', 't', '--json'], h.deps), 0);
+  assert.deepEqual(h.calls, [['land', 't', 'add x'], ['land', 't', null]]);
+});
+
+test('spawn without --branch is a usage error when foreman says so', async () => {
+  const h = harness({ spawn: async () => { throw Object.assign(new Error('needs --branch'), { code: 'BRANCH_REQUIRED' }); } });
+  assert.equal(await main(['spawn', '--task', 't', 'w1=claude'], h.deps), 2);
 });

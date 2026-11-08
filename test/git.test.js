@@ -143,3 +143,15 @@ test('pushGuardArmed turns false after a remote is added in the worker worktree'
   rawGit(wt, 'remote', 'add', 'sneaky', 'https://example.invalid/y.git');
   assert.equal(await g.pushGuardArmed(wt), false);
 });
+
+test('validBranchName follows git rules and merge takes a message', async () => {
+  const repo = makeRepo();
+  assert.equal(await g.validBranchName(repo, 'feat/ok-name'), true);
+  assert.equal(await g.validBranchName(repo, 'feat/a..b'), false);
+  assert.equal(await g.validBranchName(repo, 'feat/a b'), false);
+  rawGit(repo, 'checkout', '-q', '-b', 'side');
+  commitFile(repo, 'z.txt', 'z\n');
+  rawGit(repo, 'checkout', '-q', '-');
+  assert.deepEqual(await g.merge(repo, 'side', 'Merge side (custom)'), { ok: true });
+  assert.equal(rawGit(repo, 'log', '-1', '--format=%s'), 'Merge side (custom)');
+});

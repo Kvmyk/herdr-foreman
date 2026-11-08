@@ -102,8 +102,12 @@ export function createGit({ run }) {
     async commitsAhead(dir, base) {
       return Number(await ok(dir, ['rev-list', '--count', `${base}..HEAD`]));
     },
-    async merge(dir, branch) {
-      const res = await git(dir, ['merge', '--no-ff', '--no-edit', branch]);
+    // True when git accepts the name as a branch name.
+    async validBranchName(repo, name) {
+      return (await git(repo, ['check-ref-format', '--branch', name])).code === 0;
+    },
+    async merge(dir, branch, message = null) {
+      const res = await git(dir, ['merge', '--no-ff', ...(message ? ['-m', message] : ['--no-edit']), branch]);
       if (res.code === 0) return { ok: true };
       const files = (await git(dir, ['diff', '--name-only', '--diff-filter=U'])).stdout.split(/\r?\n/).filter(Boolean);
       await git(dir, ['merge', '--abort']);
