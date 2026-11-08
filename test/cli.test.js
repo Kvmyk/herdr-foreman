@@ -138,6 +138,20 @@ test('spawn --auto is passed through', async () => {
   assert.deepEqual(h.calls, [['spawn', true, 'feat/x']]);
 });
 
+test('spawn --include-uncommitted is passed through and mentioned when a snapshot was made', async () => {
+  const h = harness({
+    spawn: async (o) => { h.calls.push(['spawn', o.includeUncommitted]); return { workers: [], warnings: [], snapshot: 'snap111' }; },
+  });
+  assert.equal(await main(['spawn', '--task', 't', '--include-uncommitted', 'w1=claude', '--json'], h.deps), 0);
+  assert.deepEqual(h.calls, [['spawn', true]]);
+  assert.equal(JSON.parse(h.out()).snapshot, 'snap111');
+
+  const h2 = harness({ spawn: async (o) => { h2.calls.push(['spawn', o.includeUncommitted]); return { workers: [], warnings: [], snapshot: 'snap111' }; } });
+  await main(['spawn', '--task', 't', 'w1=claude'], h2.deps);
+  assert.deepEqual(h2.calls, [['spawn', false]]);
+  assert.match(h2.out(), /workers start from a copy that includes your uncommitted changes/);
+});
+
 test('land passes --title', async () => {
   const h = harness({ land: async (o) => { h.calls.push(['land', o.task, o.title]); return { ok: true, branch: 'feat/x' }; } });
   assert.equal(await main(['land', '--task', 't', '--title', 'add x', '--json'], h.deps), 0);
