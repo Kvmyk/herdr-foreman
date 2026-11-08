@@ -1,7 +1,7 @@
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="media/banner.png"><source media="(prefers-color-scheme: light)" srcset="media/banner-light.png"><img src="media/banner-light.png" alt="foreman: one task, a crew of coding agents" width="100%"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/banner.png"><source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/banner-light.png"><img src="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/banner-light.png" alt="foreman: one task, a crew of coding agents" width="100%"></picture></p>
 
-<p align="center"><img src="media/demo.gif" alt="foreman splits a task across claude, codex and opencode in herdr panes" width="100%"><br>
-<a href="media/demo.mp4">Watch with sound (35 s, MP4)</a></p>
+<p align="center"><img src="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/demo.gif" alt="foreman splits a task across claude, codex and opencode in herdr panes" width="100%"><br>
+<a href="https://github.com/Kvmyk/herdr-foreman/blob/assets/demo.mp4">Watch with sound (35 s, MP4)</a></p>
 
 # herdr-foreman
 
@@ -192,7 +192,7 @@ Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Media
 
-The logo (`media/logo.svg`), the banners, the demo videos and their music are original and covered by the same license. `media/src/` holds the scripts that make them: `brand.py` draws the logo and both banners with Pillow, using the Barlow font vendored in `media/src/fonts/` under the SIL Open Font License; `music.py` synthesises an ambient pad and key-click foley with numpy; `demo.py` draws the frames with Pillow and encodes them with ffmpeg, both for `media/demo.mp4` (16:9) and for the 29-second 4:5 LinkedIn cut `media/demo-linkedin.mp4` with its captions as `media/demo-linkedin.srt` and its 1080x1350 cover `media/demo-linkedin-cover.png`; and `gif.py` turns the 16:9 cut into `media/demo.gif` with ffmpeg. The run in the videos follows foreman's real flow and command names; its repository, findings and commit ids are made up.
+The logo, the banners, the demo videos and their music are original and covered by the same license. The images and the video in this README live on the [`assets`](https://github.com/Kvmyk/herdr-foreman/tree/assets) branch. The run in the videos follows foreman's real flow and command names; its repository, findings and commit ids are made up.
 
 ## License
 

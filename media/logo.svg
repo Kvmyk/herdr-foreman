@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="foreman">
-  <style>.brim { fill: #111113 } @media (prefers-color-scheme: dark) { .brim { fill: #F4F1EA } }</style>
-  <path fill="#FFB000" d="M66 320 L66 320.00 A190 190 0 0 1 172 149.58 L172 320 Z M204 320 L204 137.25 A190 190 0 0 1 308 137.25 L308 320 Z M340 320 L340 149.58 A190 190 0 0 1 446 320.00 L446 320 Z"/>
-  <rect class="brim" x="36" y="320" width="440" height="62" rx="14"/>
-</svg>
