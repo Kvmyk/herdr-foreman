@@ -146,10 +146,11 @@ def banner(theme):
         return img
 
     # The solid mark is heavy and the short mono line leaves the lower right
-    # empty, so a centred box looks pushed up and left; move part of the way
-    # towards centring the ink itself.
-    cx, cy = ink_centroid(draw(left, base), bg)
-    img = draw(left + OPTICAL * (W * s / 2 - cx), base + OPTICAL * (H * s / 2 - cy))
+    # empty, so a centred box looks pushed up; move part of the way towards
+    # centring the ink vertically. Horizontally the full-width tagline already
+    # fills the box, so keep it centred to give equal left and right margins.
+    _, cy = ink_centroid(draw(left, base), bg)
+    img = draw(left, base + OPTICAL * (H * s / 2 - cy))
     return img.resize((W, H), Image.LANCZOS)
 
 
