@@ -30,3 +30,13 @@ test('plugin manifest and package agree on the version', () => {
   assert.match(manifest, /^id = "herdr-foreman"/m);
   assert.match(manifest, /^min_herdr_version = "0\.9\.5"/m);
 });
+
+test('install and server start run the quiet setup, which never fails the install', () => {
+  const manifest = readFileSync(new URL('../herdr-plugin.toml', import.meta.url), 'utf8');
+  assert.match(manifest, /\[\[build\]\]\ncommand = \["node", "plugin\/setup\.js", "--quiet"\]/);
+  assert.match(manifest, /\[\[startup\]\]\ncommand = \["node", "plugin\/setup\.js", "--quiet"\]/);
+  assert.match(manifest, /id = "setup"[\s\S]*command = \["node", "plugin\/setup\.js"\]/);
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const f of ['plugin', 'herdr-plugin.toml']) assert.ok(pkg.files.includes(f), `${f} ships with npm`);
+  assert.equal(pkg.scripts.postinstall, 'node bin/foreman.js setup --postinstall');
+});
