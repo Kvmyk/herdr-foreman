@@ -4,9 +4,19 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-08
+
+### Added
+
+- `CHANGELOG.md` lists the changes in every release.
+
 ### Changed
 
 - Claude leaders and workers started by foreman can use your own skills (`~/.claude/skills` and plugin skills); the lean start still leaves out MCP servers. Other agents already load their own skills.
+
+### Removed
+
+- The `media/` folder (logo, banners, videos and the scripts that make them) is no longer in the repository. The README images and the demo video now come from the `assets` branch.
 
 ## [0.3.0] - 2026-11-08
 
@@ -46,6 +56,7 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Kvmyk/herdr-foreman/releases/tag/v0.2.0
