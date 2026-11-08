@@ -1,151 +1,151 @@
-# herdr-foreman: specyfikacja
+# herdr-foreman: specification
 
-Stan na 2026-11-07, druga sesja. Przebieg, uprawnienia, wynik pracy i dobór agentów są ustalone z Kubą. Decyzje techniczne (sekcja „Decyzje techniczne”) to propozycje Claude przyjęte przez polecenie „rozpocznij implementację”, bez osobnego omawiania. Nazwa jest robocza.
+Status as of 2026-11-07, second session. The workflow, permissions, result of the work, and agent selection were agreed with the author. The technical decisions (section "Technical decisions") are proposals by Claude, accepted through the instruction "start the implementation", without a separate discussion. The name is a working name.
 
-## Po co
+## Why
 
-Rozdzielanie pracy między kilku agentów w herdr jest dziś ręczne: trzeba samemu wymyślić podział, otworzyć panele, wybrać agentów, rozesłać zadania i potem wszystko zebrać. Cel: wpisujesz w terminalu zadanie zwykłymi słowami, a resztę robi agent-lider. Najpierw na własny użytek Kuby, potem publikacja na GitHubie (marketplace pluginów herdr, lista awesome-herdr).
+Splitting work between several agents in herdr is manual today: you have to come up with the split yourself, open panels, pick agents, send tasks out, and then collect everything. Goal: you type a task in the terminal in plain words, and a leader agent does the rest. First for the author's own use, then publication on GitHub (the herdr plugin marketplace, the awesome-herdr list).
 
-Główne zastosowanie: **rozwijanie i utrzymanie oprogramowania**. Typowe zadania (od Kuby): testowanie aplikacji (sprawdzanie i szukanie błędów), sprawdzanie luk w bezpieczeństwie, tworzenie oprogramowania, analiza działania aplikacji.
+Main use: **developing and maintaining software**. Typical tasks (from the author): testing the application (checking and looking for bugs), checking for security holes, building software, analysing how the application behaves.
 
-## Cele, nie-cele, anty-cele
+## Goals, non-goals, anti-goals
 
-- **Cele:** jedno polecenie w terminalu; lider sam wybiera liczbę i rodzaj agentów spośród zainstalowanych i działających; dobór według mocnych stron, który z czasem się uczy i nie starzeje; zawsze widać, co się zmieni, zanim ktoś ruszy kod; wszystko zostaje lokalnie.
-- **Nie-cele (na teraz):** push, PR, praca w chmurze, automatyczne zatwierdzanie PR-ów z aktualizacją wiedzy (później), sterowanie z telefonu.
-- **Anty-cele:** workerzy zmieniający kod bez zgody użytkownika; ciche wyczerpanie limitów subskrypcji; tabela mocnych stron, która po miesiącu jest nieaktualna; wymóg ręcznej konfiguracji każdego agenta przed pierwszym użyciem.
+- **Goals:** one command in the terminal; the leader picks the number and kind of agents itself from those installed and running; selection by strengths, which learns over time and does not go stale; it is always visible what will change before anyone touches the code; everything stays local.
+- **Non-goals (for now):** push, PR, cloud work, automatic approval of PRs with knowledge updates (later), control from a phone.
+- **Anti-goals:** workers changing code without the user's consent; quietly using up subscription limits; a table of strengths that is out of date after a month; requiring manual setup of every agent before the first use.
 
-## Przebieg (ustalony)
+## Workflow (agreed)
 
-1. W katalogu repo, w zwykłym terminalu: `foreman "sprawdź bezpieczeństwo modułu płatności i popraw, co trzeba"`. Komenda działa też z panelu herdr. Ze zwykłego terminala sama uruchamia serwer herdr, jeśli nie działa, tworzy przestrzeń roboczą z tym katalogiem, startuje lidera i otwiera herdr. Z panelu herdr startuje lidera w nowej karcie bieżącej przestrzeni roboczej.
-2. Lider czyta repo i sprawdza, którzy agenci są zainstalowani, zalogowani i na jakich modelach działają (inwentarz, niżej).
-3. Lider dzieli zadanie na części, ustala liczbę workerów i dobiera agenta do każdej części. Plan pokazuje tylko do wglądu, bez czekania na zgodę, bo ten etap niczego nie zmienia w kodzie. To propozycja Claude: szkic z pierwszej sesji zakładał zgodę na starcie.
-4. Każdy worker bada swoją część **bez zmieniania czegokolwiek** i oddaje liderowi krótką listę: co jest nie tak, gdzie, co chce zmienić. Przy nowych funkcjach to opis, jak zrobi swoją część.
-5. Lider usuwa powtórzenia i pokazuje użytkownikowi jedną ponumerowaną listę z wagą i autorem:
+1. In the repo directory, in a normal terminal: `foreman "check the security of the payment module and fix what needs fixing"`. The command also works from a herdr panel. From a normal terminal it starts the herdr server itself if it is not running, creates a workspace with this directory, starts the leader, and opens herdr. From a herdr panel it starts the leader in a new tab of the current workspace.
+2. The leader reads the repo and checks which agents are installed, logged in, and on which models they run (inventory, below).
+3. The leader splits the task into parts, decides the number of workers, and picks an agent for each part. The plan is shown for information only, without waiting for consent, because this stage changes nothing in the code. This is a proposal by Claude: the first session's draft assumed consent at the start.
+4. Each worker examines its part **without changing anything** and returns a short list to the leader: what is wrong, where, and what it wants to change. For new features, it is a description of how it would build its part.
+5. The leader removes duplicates and shows the user one numbered list with the weight and the author:
    ```
    1. [wysokie] api/auth.ts: token bez daty ważności -> dodać exp i sprawdzanie   (claude1)
    2. [średnie] /login bez limitu prób -> rate limit                             (gemini1)
    ```
-   Użytkownik odpowiada np. „1 i 3 tak, 2 nie”. **Zlecenia workerom wydaje tylko lider.**
-6. Lider zleca zatwierdzone zmiany, domyślnie workerowi, który znalazł problem (ma kontekst). Każdy worker zmieniający kod pracuje w osobnym worktree git na lokalnej gałęzi.
-7. Lider zbiera zmiany w jedną lokalną gałąź `foreman/<krótka-nazwa-zadania>`, sprawdza, czy projekt się buduje i czy testy przechodzą, i przegląda wynik.
-8. Lider pokazuje podsumowanie (co zmieniono, w których plikach, wynik testów) i pyta, czy wszystko jest w porządku. Użytkownik wybiera:
-   - `scal`: lider scala gałąź do bieżącej; jeśli są niezapisane zmiany, najpierw pyta;
-   - `zostaw`: gałąź zostaje, lider podaje komendę do scalenia i sprząta worktree;
-   - uwagi własnymi słowami: lider zleca poprawki i wraca z tym samym pytaniem.
-9. Nic nie wychodzi poza komputer: bez push i bez PR.
+   The user answers, for example, "1 and 3 yes, 2 no". **Only the leader gives orders to workers.**
+6. The leader orders the approved changes, by default to the worker that found the problem (it has the context). Each worker that changes code works in a separate git worktree on a local branch.
+7. The leader collects the changes into one local branch `foreman/<short-task-name>`, checks that the project builds and the tests pass, and reviews the result.
+8. The leader shows a summary (what changed, in which files, test result) and asks whether everything is in order. The user chooses:
+   - `scal` (merge): the leader merges the branch into the current one; if there are uncommitted changes, it asks first;
+   - `zostaw` (leave): the branch stays, the leader gives the command to merge it and cleans up the worktrees;
+   - comments in the user's own words: the leader orders fixes and comes back with the same question.
+9. Nothing leaves the computer: no push and no PR.
 
-## Pytania workerów o zgodę (ustalone)
+## Workers' questions about consent (agreed)
 
-Jeśli któryś worker zatrzyma się na pytaniu o zgodę (stan `blocked`), lider pyta użytkownika, czy odpowiada sam, czy lider ma akceptować za niego. Jeśli lider, to akceptuje na odpowiedzialność użytkownika.
+If a worker stops at a consent question (state `blocked`), the leader asks the user whether they will answer themselves or whether the leader should accept for them. If the leader, it accepts on the user's responsibility.
 
-Propozycje Claude:
+Proposals by Claude:
 
-- Lider pyta raz, przy pierwszym takim pytaniu, a wybór obowiązuje do końca zadania.
-- Jeśli użytkownik odpowiada sam, lider mówi, który panel czeka i o co pyta.
-- Nawet gdy lider akceptuje, zawsze odmawia push i PR, a o rzeczy wyraźnie spoza zadania (usuwanie plików poza worktree, globalna instalacja pakietów) pyta użytkownika.
-- Odpowiedź wysyła przez `herdr agent read` (odczyt ekranu) i `herdr agent send-keys`.
+- The leader asks once, at the first such question, and the choice applies until the end of the task.
+- If the user answers themselves, the leader says which panel is waiting and what it asks.
+- Even when the leader accepts, it always refuses push and PR, and it asks the user about things clearly outside the task (deleting files outside the worktree, global package installation).
+- The answer is sent with `herdr agent read` (reading the screen) and `herdr agent send-keys`.
 
-## Dobór agentów (ustalone, szczegóły w research)
+## Agent selection (agreed, details in the research)
 
-Research: `docs/research/2026-11-07-dobor-agentow.md`. Najważniejsze: o wyniku decyduje trójka program + model + dostęp, a nie sam rodzaj agenta. Żaden model nie wygrywa we wszystkim. Rankingi się starzeją. Najlepiej działa dobór z pamięcią wcześniejszych wyników.
+Research: `docs/research/2026-11-07-agent-selection.md`. The most important points: the result is decided by the triple program + model + access, not by the kind of agent alone. No model wins at everything. Rankings go stale. Selection works best with memory of earlier results.
 
-Trzy warstwy wiedzy, które lider dostaje przy planowaniu:
+Three layers of knowledge the leader gets when planning:
 
-1. **Inwentarz** (przy każdym starcie): dla każdego rodzaju z listy herdr, którego program jest w PATH, zbierane są wersja, stan logowania, dostępne modele i model domyślny, tryby uprawnień, rodzaj dostępu (lokalny, subskrypcja, API). Agent bez działającego dostępu wypada z puli, a użytkownik dostaje jedno zdanie, dlaczego.
-2. **Wiedza ogólna:** cechy programów (plik w pluginie) i cechy modeli (models.dev automatycznie oraz krótka lista tendencji rodzin modeli z datą i źródłem). Wszystko nadpisywalne w konfiguracji użytkownika. Wpis starszy niż ~90 dni lider traktuje jako niepewny.
-3. **Dziennik wyników** u użytkownika. Po każdym zadaniu lider zapisuje dla każdego workera kategorię części, program, model, zatwierdzone i odrzucone propozycje, wynik testów i przeglądu, liczbę poprawek oraz to, czy utknął. Przy planowaniu lider dostaje statystyki per kategoria. Póki w kategorii jest mniej niż ~5 wyników, decyduje wiedza ogólna; potem przeważa dziennik, z małą szansą na próbę innego agenta.
+1. **Inventory** (at every start): for each kind from the herdr list whose program is on the PATH, the version, login state, available models and default model, permission modes, and access type (local, subscription, API) are collected. An agent without working access drops out of the pool, and the user gets one sentence explaining why.
+2. **General knowledge:** strengths of the programs (a file in the plugin) and characteristics of the models (models.dev automatically, plus a short list of model family tendencies with a date and a source). Everything can be overridden in the user's configuration. The leader treats an entry older than about 90 days as uncertain.
+3. **Results journal** kept by the user. After each task, the leader records for each worker the part category, program, model, approved and rejected proposals, the test and review result, the number of fixes, and whether it got stuck. When planning, the leader gets statistics per category. While a category has fewer than about 5 results, general knowledge decides; after that the journal prevails, with a small chance of trying another agent.
 
-Kategorie części: analiza działania, audyt bezpieczeństwa, testowanie i szukanie błędów, naprawa błędu, nowa funkcja, refaktoryzacja, pisanie testów, dokumentacja.
+Part categories: behaviour analysis, security audit, testing and bug hunting, bug fix, new feature, refactoring, test writing, documentation.
 
-Reguły stałe:
+Fixed rules:
 
-- Przy przeglądzie i bezpieczeństwie ten sam obszar dostają dwie różne rodziny modeli (różne programy z tym samym modelem się nie liczą).
-- Limity subskrypcji traktowane są jako budżet.
-- Modele lokalne dostają tylko proste zadania.
+- For review and security, the same area gets two different model families (different programs with the same model do not count).
+- Subscription limits are treated as a budget.
+- Local models get only simple tasks.
 
-## Aktualność wiedzy (ustalone: droga A)
+## Keeping knowledge current (agreed: route A)
 
-Raz w tygodniu zaplanowany agent (rutyna w chmurze albo GitHub Action w repo pluginu):
+Once a week a scheduled agent (a cloud routine or a GitHub Action in the plugin repo):
 
-1. pobiera dane z models.dev i aktualnych rankingów;
-2. robi research nowych modeli i szuka nowych źródeł, bo stare umierają (ranking Aidera stoi od 10.2025, dotychczasowe API Artificial Analysis zwraca 410);
-3. aktualizuje plik wiedzy ze źródłami i datami;
-4. otwiera PR.
+1. fetches data from models.dev and current rankings;
+2. researches new models and looks for new sources, because old ones die (the Aider ranking has been frozen since 2025-10, and the existing Artificial Analysis API returns 410);
+3. updates the knowledge file with sources and dates;
+4. opens a PR.
 
-Kuba zatwierdza PR; później można to zautomatyzować. Foreman przy starcie pobiera aktualny plik wiedzy z repo, najwyżej raz dziennie, z kopią lokalną na wypadek braku sieci. Model, o którym nikt nic nie wie, dostaje oznaczenie „nowy, niesprawdzony” i na początek mniejsze części pracy.
+The author approves the PR; later this can be automated. At start, foreman fetches the current knowledge file from the repo, at most once a day, with a local copy in case there is no network. A model nobody knows anything about gets the mark "new, unverified" and smaller parts of work at first.
 
-## Decyzje techniczne (propozycje Claude)
+## Technical decisions (proposals by Claude)
 
-- **Architektura C (hybryda):** program dostarcza mechanikę jako komendy, a model-lider podejmuje decyzje i woła te komendy.
-  - Mechanika: inwentarz, panele i worktree, start i czekanie na workerów, zbieranie wyników, dziennik.
-  - Decyzje: podział, przydział, łączenie list, przegląd, scalanie.
-  - Uzasadnienie: przebieg ma kroki wymagające osądu (podział, przegląd, odpowiadanie na pytania o zgodę) i kroki mechaniczne, które muszą być powtarzalne i testowalne.
-- **Język: Node.js ≥ 20, czysty JavaScript (ESM), bez zależności i bez kroku budowania.**
-  - Działa tak samo na Windows, macOS i Linuksie, a Kuba pracuje na Windowsie.
-  - Node jest prawie zawsze obecny u użytkowników agentów, bo większość z nich instaluje się przez npm.
-  - Testy na `node:test`.
-  - Logika układu paneli przeniesiona z `C:\Users\Kuba\.claude\skills\agenci\agenci.ps1`.
-- **Lider domyślnie:** `claude`, zmienialny w konfiguracji.
-- **Lider tylko koordynuje,** nie wykonuje części pracy. To propozycja: wynika z zasady „lider wypisuje, im zleca”.
-- **Instrukcja dla lidera** to plik Markdown w pluginie, przekazywany liderowi przy starcie. Nie zależy od mechanizmu skilli konkretnego agenta, więc działa dla każdego rodzaju lidera.
-- **Stan i dziennik:** katalog `~/.herdr-foreman/` (konfiguracja, dziennik JSONL, kopia pliku wiedzy).
-- **Plugin herdr** (dodany 2026-11-07): `herdr-plugin.toml` w katalogu głównym repo, akcja `herdr-foreman.start` (użytkownik przypisuje ją do klawisza, np. `prefix+f`) otwiera nakładkę `ask` z pytaniem o zadanie; lider startuje w nowej karcie tej samej przestrzeni. Komenda `foreman` działa dalej samodzielnie, oba wejścia używają tego samego kodu.
-- **Workerzy startują od razu we własnych worktree,** także w fazie badania. Zakaz zmian w tej fazie wynika z instrukcji, a lider sprawdza go po fazie badania (czysty worktree, zero commitów). Worker poprawiający problem zachowuje wtedy kontekst, a okno zaufania do folderu pojawia się tylko raz.
-- **Lokalizacje:**
-  - worktree poza repo: `~/.herdr-foreman/worktrees/<repo>-<hash>/<task>/<worker>`, gałęzie `foreman-work/<task>/<worker>` (git nie pozwala mieć naraz `foreman/<task>` i `foreman/<task>/<worker>`);
-  - zmiany zbierane w osobnym worktree `_merge` na gałęzi `foreman/<task>`, więc gałąź i katalog użytkownika są nietknięte aż do `scal`;
-  - raporty workerów w `<worktree>/.foreman/`, a `.foreman/` dopisane do `.git/info/exclude` repozytorium. Pierwotnie raporty leżały w `~/.herdr-foreman/runs/`, ale w próbie na żywo agy pytał o zgodę przy każdym zapisie poza swoim folderem.
-- **Wyjście CLI po angielsku** (publikacja). Lider rozmawia z użytkownikiem w języku zadania.
-- **Plan implementacji:** `docs/plans/2026-11-07-foreman-mvp.md`.
-- **Zabezpieczenia startu** (wyszły w trakcie budowy): foreman odmawia, gdy repozytorium to katalog domowy (u Kuby `C:\Users\Kuba` jest repozytorium git bez commitów), i gdy repo nie ma jeszcze commitów.
-- **Sprzątanie w Windows:** po zamknięciu paneli proces agenta trzyma folder jeszcze kilka sekund, więc `cleanup` czeka, ponawia próbę, a w ostateczności usuwa folder i robi `git worktree prune`.
-- **Okno zaufania Claude Code** ma domyślnie zaznaczone „No, exit”; lider wybiera „Yes” klawiszami `down`, `enter`.
-- **Koniec pracy** (ustalone z Kubą po próbie na żywo):
-  - workerów zamyka `foreman cleanup` w ostatnim kroku lidera, także gdy praca zostanie przerwana;
-  - lider na koniec pyta, czy zamknąć jego kartę, i przy zgodzie woła `foreman close-leader`;
-  - `foreman cleanup` bez `--task` pokazuje porzucone zadania, a `--all` je sprząta;
-  - panel z zapisu jest zamykany tylko wtedy, gdy nadal siedzi w nim ten worker albo proces w jego worktree, bo po restarcie herdr numery paneli zaczynają się od nowa.
-- **Oszczędzanie tokenów** (prośba Kuby po próbie; research i pomiary w `docs/research/2026-11-07-tokeny.md`): koszt to liczba tur razy kontekst na turę. Wdrożone:
-  - `foreman wait` zamiast odpytywania workerów przez lidera;
-  - odchudzony start Claude Code (bez MCP, skilli i zbędnych narzędzi; `--full` i `"lean": false` to wyłączają);
-  - `--effort` przy `spawn`;
-  - zwięzły `brief` i JSON;
-  - instrukcja lidera nastawiona na mniej tur (łączenie komend, celne briefy, krótkie raporty).
-- **herdr po zamknięciu ostatniego panelu** (sprawdzone na osobnej sesji 2026-11-07): karta i przestrzeń robocza znikają, serwer działa dalej z zerem przestrzeni i można tworzyć nowe. Niesprawdzone: zachowanie okna (klienta) podłączonego do sesji, w której znika ostatnia przestrzeń.
+- **Architecture C (hybrid):** the program provides the mechanics as commands, and the model-leader makes the decisions and calls these commands.
+  - Mechanics: inventory, panels and worktrees, starting and waiting for workers, collecting results, the journal.
+  - Decisions: split, assignment, combining lists, review, merging.
+  - Reasoning: the workflow has steps that need judgement (splitting, reviewing, answering consent questions) and mechanical steps that must be repeatable and testable.
+- **Language: Node.js ≥ 20, plain JavaScript (ESM), no dependencies and no build step.**
+  - Works the same on Windows, macOS and Linux, and the author works on Windows.
+  - Node is almost always present for agent users, because most of them install through npm.
+  - Tests on `node:test`.
+  - The panel layout logic is moved from `C:\Users\Kuba\.claude\skills\agenci\agenci.ps1`.
+- **Default leader:** `claude`, changeable in the configuration.
+- **The leader only coordinates** and does not do part of the work. This is a proposal: it follows from the rule "the leader writes down, others carry out".
+- **Instructions for the leader** are a Markdown file in the plugin, handed to the leader at start. They do not depend on the skills mechanism of a particular agent, so they work for every kind of leader.
+- **State and journal:** the `~/.herdr-foreman/` directory (configuration, JSONL journal, copy of the knowledge file).
+- **herdr plugin** (added 2026-11-07): `herdr-plugin.toml` in the repo root, the action `herdr-foreman.start` (the user binds it to a key, for example `prefix+f`) opens the overlay `ask` with a question about the task; the leader starts in a new tab of the same workspace. The `foreman` command keeps working on its own; both entry points use the same code.
+- **Workers start right away in their own worktrees,** also in the research stage. The ban on changes in that stage comes from the instructions, and the leader checks it after the research stage (clean worktree, zero commits). A worker fixing a problem then keeps its context, and the folder trust prompt appears only once.
+- **Locations:**
+  - worktrees outside the repo: `~/.herdr-foreman/worktrees/<repo>-<hash>/<task>/<worker>`, branches `foreman-work/<task>/<worker>` (git does not allow `foreman/<task>` and `foreman/<task>/<worker>` to exist at the same time);
+  - changes are collected in a separate `_merge` worktree on the branch `foreman/<task>`, so the branch and the user's directory stay untouched until `scal`;
+  - worker reports in `<worktree>/.foreman/`, and `.foreman/` is added to the repository's `.git/info/exclude`. The reports were first kept in `~/.herdr-foreman/runs/`, but in a live test agy asked for consent on every write outside its own folder.
+- **CLI output in English** (for publication). The leader talks to the user in the language of the task.
+- **Implementation plan:** `docs/plans/2026-11-07-foreman-mvp.md`.
+- **Start safeguards** (they came up during the build): foreman refuses when the repository is the home directory (the author's `C:\Users\Kuba` is a git repo with no commits), and when the repo has no commits yet.
+- **Cleanup on Windows:** after panels are closed, the agent process keeps the folder for a few seconds, so `cleanup` waits, retries, and as a last resort deletes the folder and runs `git worktree prune`.
+- **Claude Code trust prompt** has "No, exit" selected by default; the leader chooses "Yes" with the keys `down`, `enter`.
+- **End of work** (agreed with the author after a live test):
+  - `foreman cleanup` closes the workers in the leader's last step, also when the work is interrupted;
+  - at the end the leader asks whether to close its tab, and with consent it calls `foreman close-leader`;
+  - `foreman cleanup` without `--task` shows abandoned tasks, and `--all` cleans them up;
+  - a panel from the saved record is closed only if this worker or a process in its worktree is still in it, because after a herdr restart the panel numbers start again.
+- **Saving tokens** (a request by the author after a trial; research and measurements in `docs/research/2026-11-07-tokens.md`): the cost is the number of turns times the context per turn. Implemented:
+  - `foreman wait` instead of the leader polling the workers;
+  - a slimmed-down Claude Code start (without MCP, skills, and unneeded tools; `--full` and `"lean": false` turn this off);
+  - `--effort` with `spawn`;
+  - a concise `brief` and JSON;
+  - leader instructions aimed at fewer turns (combining commands, precise briefs, short reports).
+- **herdr after the last panel is closed** (checked in a separate session on 2026-11-07): the tab and the workspace disappear, the server keeps running with zero workspaces, and new ones can be created. Not checked: the behaviour of a window (client) attached to a session where the last workspace disappears.
 
-## Co już istnieje (przegląd 2026-11-07)
+## What already exists (review of 2026-11-07)
 
-herdr 0.9.5 (najnowszy, 2026-10-14) nie ma wbudowanej orkiestracji, tylko klocki (panele, `agent start/prompt/wait/read/send-keys`). Tematem `herdr-plugin` oznaczono ponad 2000 repozytoriów, w tym kilkadziesiąt orkiestratorów. Najbliższe pomysłowi:
+herdr 0.9.5 (the latest, 2026-10-14) has no built-in orchestration, only building blocks (panels, `agent start/prompt/wait/read/send-keys`). More than 2000 repositories are tagged `herdr-plugin`, including several dozen orchestrators. The closest to the idea:
 
-| Projekt | Co ma | Czego brakuje względem foremana |
+| Project | What it has | What is missing compared to foreman |
 |---|---|---|
-| [herdr-hive](https://github.com/pparitoshh/herdr-hive) (0★, od 2026-11-06) | lider i N workerów w worktree, szyna wiadomości, lokalny router wybierający poziom trudności (fast/regular/think), dziennik decyzji, ekran przeglądu, scal/popraw/odrzuć | programy i modele poziomów ustawia użytkownik; brak wykrywania dostępu i modeli, mocnych stron per kategoria, aktualizacji wiedzy, przebiegu „propozycje i zgoda”; Python i gniazdo uniksowe |
-| [AgentCompass](https://github.com/akiiwa-games/AgentCompass) (4★, od 2026-10-27) | dobór model × wysiłek według mocnych stron i bieżących limitów 5h/7d, wykrywanie zalogowanych kont, dane publiczne z repo co 6 h (kalibracja z LMArena, vals.ai, Artificial Analysis), Windows | to router wołany przez inną sesję, bez przebiegu w panelach herdr (plan, propozycje, zgoda, scalanie); bardzo rozbudowany (zasobnik, usługi), jeden autor |
-| [ralfkuh-lab/herdr-orchestrator](https://github.com/ralfkuh-lab/herdr-orchestrator) | skill: delegowanie do 9 rodzajów agentów w widocznych panelach, odpowiadanie na pytania o zgodę po treści opcji, odczyt limitów | wybór agenta opisuje użytkownik w `policy.md` |
-| [oldwinter/herdr-orchestrator](https://github.com/oldwinter/herdr-orchestrator) | katalog programów z polami strengths / best_for / avoid_for, deterministyczny koordynator z kolejką | katalog statyczny, ręczny |
-| [squad-devkit](https://github.com/bthanhtung/squad-devkit) | lider i workerzy w worktree, wykrywa zainstalowane silniki | wybór workerów bez mocnych stron per kategoria |
-| [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) (70k★) | kategorie zadań przypisane do modeli, utrzymywane przez autorów | własny program (omo), nie orkiestracja w herdr |
+| [herdr-hive](https://github.com/pparitoshh/herdr-hive) (0★, since 2026-11-06) | a leader and N workers in worktrees, message bus, local router choosing a difficulty level (fast/regular/think), decision journal, review screen, merge/fix/reject | the user sets the programs and models for the levels; no access and model detection, no strengths per category, no knowledge updates, no "proposals and consent" workflow; Python and a Unix socket |
+| [AgentCompass](https://github.com/akiiwa-games/AgentCompass) (4★, since 2026-10-27) | model × effort selection by strengths and current 5h/7d limits, detection of logged-in accounts, public data from the repo every 6 h (calibrated with LMArena, vals.ai, Artificial Analysis), Windows | it is a router called by another session, with no run in herdr panels (plan, proposals, consent, merging); very large (pool, services), one author |
+| [ralfkuh-lab/herdr-orchestrator](https://github.com/ralfkuh-lab/herdr-orchestrator) | a skill: delegating to 9 kinds of agents in visible panels, answering consent questions based on the option text, reading limits | the user describes agent selection in `policy.md` |
+| [oldwinter/herdr-orchestrator](https://github.com/oldwinter/herdr-orchestrator) | a catalogue of programs with strengths / best_for / avoid_for fields, deterministic coordinator with a queue | static, manual catalogue |
+| [squad-devkit](https://github.com/bthanhtung/squad-devkit) | a leader and workers in worktrees, detects installed engines | worker selection without strengths per category |
+| [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) (70k★) | task categories assigned to models, maintained by its authors | its own program (omo), not orchestration in herdr |
 
-Wyróżnik foremana to połączenie, którego nikt nie ma w całości: jedna komenda; wykrywanie programu, modelu i dostępu; liczba agentów zależna od zadania; dobór według mocnych stron z uczeniem na wynikach użytkownika i cotygodniowo aktualizowaną wiedzą; przebieg „propozycje, zgoda, poprawki”. Ryzyko: rynek jest zatłoczony i szybki, a AgentCompass albo herdr-hive mogą dobudować brakujące części.
+The distinguishing feature of foreman is a combination that nobody has as a whole: one command; detection of program, model, and access; the number of agents depends on the task; selection by strengths, learning from the user's results, and weekly knowledge updates; a "proposals, consent, fixes" workflow. Risk: the market is crowded and fast, and AgentCompass or herdr-hive may add the missing parts.
 
-Starsze projekty z pierwszego przeglądu: crew, herdr-claude-teams, herdr-swarm, herdr-fleet, herdr-orchestra, oh-my-herdr (stałe role albo wybór przez użytkownika).
+Older projects from the first review: crew, herdr-claude-teams, herdr-swarm, herdr-fleet, herdr-orchestra, oh-my-herdr (fixed roles or selection by the user).
 
-## Fakty o herdr (sprawdzone na v0.9.5)
+## Facts about herdr (checked on v0.9.5)
 
-- Plugin to manifest TOML plus dowolny program. Ma akcje pod klawiszami (`[[keys.command]]` z `plugin_action`), panele `overlay`, `popup`, `split`, `tab`, `zoomed` i hooki. Dostaje `HERDR_BIN_PATH`, `HERDR_SOCKET_PATH`, `HERDR_PLUGIN_CONTEXT_JSON`. Instalacja: `herdr plugin install owner/repo[/subdir]`, lokalnie `herdr plugin link <ścieżka>`. Marketplace indeksuje publiczne repo z tematem `herdr-plugin`. Dokumentacja: https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/plugins.mdx
-- Na Windowsie komendy z `[[keys.command]]` idą przez `cmd.exe /d /c`.
-- Sprawdzone przy budowie wtyczki: `HERDR_PLUGIN_CONTEXT_JSON` ma `focused_pane_cwd` i `workspace_cwd`, także w panelu otwartym z akcji; panel wtyczki dostaje terminal (TTY), akcja nie. Nakładka (`overlay`) zawsze otwiera się nad aktywnym panelem: `--target-pane` daje błąd `invalid_params`. CLI 0.9.5 nie zna jeszcze `popup` przy `plugin pane open`. Karta utworzona z nakładki z `--focus` zostaje aktywna po jej zamknięciu. Komendy wtyczki dziedziczą `HERDR_SESSION` i `HERDR_SOCKET_PATH`, więc `herdr` wywołany z nich trafia do właściwej sesji.
-- `herdr agent start <nazwa> --kind <rodzaj> --pane <id> [--timeout MS] [-- <argumenty agenta>]` wymaga panelu z powłoką przy znaku zachęty i wraca, gdy agent jest gotowy, albo z `agent_not_ready`. Nazwy: `[a-z][a-z0-9_-]{0,31}`.
-- `herdr agent prompt <cel> "<tekst>" --wait`, `herdr agent wait`, `herdr agent read --source recent-unwrapped --lines N`, `herdr agent send-keys`, stany `idle`, `working`, `blocked`, `done`, `unknown`.
-- Rodzaje agentów: pi, claude, codex, gemini, cursor, devin, agy, cline, omp, mastracode, opencode, copilot, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qwen, letta, maki, muse.
-- `herdr pane split --pane <id> --direction right|down --ratio <r> --cwd <ścieżka> --no-focus`; `ratio` to część, która zostaje w dzielonym panelu.
-- `herdr worktree create` zakłada osobną przestrzeń roboczą na każdy worktree. Żeby workerzy byli obok siebie, foreman sam robi `git worktree add` i otwiera panele z `--cwd`.
-- Agent w panelu herdr ma `HERDR_ENV=1`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID`.
-- Claude Code pokazuje okno zaufania w każdym nowym worktree (potwierdza herdr-hive). `agy` ma listę `trustedWorkspaces` w `~/.gemini/antigravity-cli/settings.json`.
+- A plugin is a TOML manifest plus any program. It has actions under keys (`[[keys.command]]` with `plugin_action`), panels `overlay`, `popup`, `split`, `tab`, `zoomed`, and hooks. It receives `HERDR_BIN_PATH`, `HERDR_SOCKET_PATH`, `HERDR_PLUGIN_CONTEXT_JSON`. Installation: `herdr plugin install owner/repo[/subdir]`, locally `herdr plugin link <path>`. The marketplace indexes public repos with the tag `herdr-plugin`. Documentation: https://raw.githubusercontent.com/herdrdev/herdr/v0.9.5/docs/next/website/src/content/docs/plugins.mdx
+- On Windows, commands from `[[keys.command]]` go through `cmd.exe /d /c`.
+- Checked while building the plugin: `HERDR_PLUGIN_CONTEXT_JSON` has `focused_pane_cwd` and `workspace_cwd`, also in a panel opened from an action; a plugin panel gets a terminal (TTY), an action does not. An overlay (`overlay`) always opens over the active panel: `--target-pane` gives an `invalid_params` error. CLI 0.9.5 does not yet know `popup` in `plugin pane open`. A tab created from an overlay with `--focus` stays active after the overlay is closed. Plugin commands inherit `HERDR_SESSION` and `HERDR_SOCKET_PATH`, so `herdr` called from them reaches the right session.
+- `herdr agent start <name> --kind <kind> --pane <id> [--timeout MS] [-- <agent arguments>]` requires a panel with a shell at the prompt and returns when the agent is ready, or with `agent_not_ready`. Names: `[a-z][a-z0-9_-]{0,31}`.
+- `herdr agent prompt <target> "<text>" --wait`, `herdr agent wait`, `herdr agent read --source recent-unwrapped --lines N`, `herdr agent send-keys`, states `idle`, `working`, `blocked`, `done`, `unknown`.
+- Agent kinds: pi, claude, codex, gemini, cursor, devin, agy, cline, omp, mastracode, opencode, copilot, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qwen, letta, maki, muse.
+- `herdr pane split --pane <id> --direction right|down --ratio <r> --cwd <path> --no-focus`; `ratio` is the part that stays in the split panel.
+- `herdr worktree create` creates a separate workspace for each worktree. To have workers next to each other, foreman runs `git worktree add` itself and opens panels with `--cwd`.
+- An agent in a herdr panel has `HERDR_ENV=1`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID`.
+- Claude Code shows the trust prompt in every new worktree (confirmed by herdr-hive). `agy` has a `trustedWorkspaces` list in `~/.gemini/antigravity-cli/settings.json`.
 
-## Pozostawione budowniczemu
+## Left to the implementer
 
-- Maksymalna liczba workerów (propozycja: 6, w konfiguracji) i limit czasu workera.
-- Format listy propozycji, który workerzy oddają liderowi (propozycja: plik JSON albo Markdown w `.foreman/` w worktree, żeby lider nie czytał ekranu).
-- Dokładne sondy dla rodzajów, których Kuba nie ma (codex, copilot, cursor, kimi i inne); nieznany rodzaj traktowany jako „nieznany model”.
-- Ostateczna nazwa.
+- Maximum number of workers (proposal: 6, in the configuration) and the worker time limit.
+- The format of the proposal list that workers return to the leader (proposal: a JSON or Markdown file in `.foreman/` in the worktree, so the leader does not have to read the screen).
+- Exact probes for kinds the author does not have (codex, copilot, cursor, kimi, and others); an unknown kind is treated as "unknown model".
+- Final name.
