@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { main } from '../src/cli.js';
+import { main, route } from '../src/cli.js';
 
 function harness(ops = {}, extra = {}) {
   let out = '';
@@ -148,4 +148,28 @@ test('land passes --title', async () => {
 test('spawn without --branch is a usage error when foreman says so', async () => {
   const h = harness({ spawn: async () => { throw Object.assign(new Error('needs --branch'), { code: 'BRANCH_REQUIRED' }); } });
   assert.equal(await main(['spawn', '--task', 't', 'w1=claude'], h.deps), 2);
+});
+
+test('-f reads the task from a file', async () => {
+  const h = harness({}, { deps: { readFile: (f) => (f === 'task.md' ? 'line one\nline two\n' : '') } });
+  assert.equal(await main(['-f', 'task.md'], h.deps), 0);
+  assert.deepEqual(h.calls, [['start', 'line one\nline two']]);
+});
+
+test('-f with a missing or empty file explains in plain words', async () => {
+  const missing = harness({}, { deps: { readFile: () => { throw new Error('ENOENT'); } } });
+  assert.equal(await main(['-f', 'x.md'], missing.deps), 2);
+  assert.match(missing.err(), /could not read the file x\.md/);
+  const empty = harness({}, { deps: { readFile: () => '  \n' } });
+  assert.equal(await main(['--file', 'x.md'], empty.deps), 2);
+  assert.match(empty.err(), /is empty/);
+  assert.equal(route(['-f']).kind, 'usage');
+});
+
+test('a task piped in on stdin starts; a terminal still shows help', async () => {
+  const piped = harness({}, { deps: { readStdin: async () => 'fix the thing\nplease\n' } });
+  assert.equal(await main([], piped.deps), 0);
+  assert.deepEqual(piped.calls, [['start', 'fix the thing\nplease']]);
+  const tty = harness({}, { deps: { readStdin: async () => null } });
+  assert.equal(await main([], tty.deps), 2);
 });

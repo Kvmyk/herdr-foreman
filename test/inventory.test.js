@@ -143,6 +143,8 @@ test('inventory honours exclude', async () => {
 test('lean and effort args per kind', () => {
   assert.ok(PROBES.claude.leanArgs.worker.includes('--strict-mcp-config'));
   assert.ok(PROBES.claude.leanArgs.leader.join(' ').includes('AskUserQuestion'));
+  assert.ok(PROBES.claude.leanArgs.leader.join(' ').includes('WebFetch,WebSearch'));
+  assert.ok(!PROBES.claude.leanArgs.worker.join(' ').includes('WebFetch'));
   assert.ok(!PROBES.claude.leanArgs.worker.join(' ').includes('AskUserQuestion'));
   assert.deepEqual(PROBES.claude.effortArgs('low'), ['--effort', 'low']);
   assert.deepEqual(PROBES.agy.effortArgs('high'), ['--effort', 'high']);

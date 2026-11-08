@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import { paneOpenArgs, repoFromContext } from '../src/plugin.js';
+import { editTask, parseMentions, readTaskLines } from '../src/task.js';
 
 const ctx = (o) => ({ HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify(o) });
 
@@ -29,4 +31,32 @@ test('plugin manifest and package agree on the version', () => {
   assert.equal(manifest.match(/^version = "([^"]+)"/m)?.[1], pkg.version);
   assert.match(manifest, /^id = "herdr-foreman"/m);
   assert.match(manifest, /^min_herdr_version = "0\.9\.5"/m);
+});
+
+test('pasted lines are kept; an empty line or the end of input finishes', async () => {
+  assert.equal(await readTaskLines(Readable.from(['fix the bug\nsee @a.js\n\nignored\n'])), 'fix the bug\nsee @a.js');
+  assert.equal(await readTaskLines(Readable.from(['one\ntwo'])), 'one\ntwo');
+  assert.equal(await readTaskLines(Readable.from(['\n'])), '');
+  assert.equal(await readTaskLines(Readable.from(['E\nmore\n']), null, { editKey: 'e' }), 'e');
+});
+
+test('the editor text comes back without comment lines and the temp file is removed', () => {
+  const files = new Map();
+  const removed = [];
+  const text = editTask({
+    env: { EDITOR: 'myedit' }, platform: 'linux', tmpdir: '/tmp',
+    writeFile: (f, t) => files.set(f, t), readFile: (f) => `${files.get(f)}fix the bug\nsecond line\n`, removeFile: (f) => removed.push(f),
+    spawnSync: (cmd) => { assert.match(cmd, /^myedit /); return { status: 0 }; },
+  });
+  assert.equal(text, 'fix the bug\nsecond line');
+  assert.equal(removed.length, 1);
+});
+
+test('no usable editor gives null so the overlay falls back to typing', () => {
+  const r = editTask({ env: {}, platform: 'win32', tmpdir: '/t', writeFile() {}, readFile: () => '', removeFile() {}, spawnSync: (cmd) => { assert.match(cmd, /^notepad /); return { error: new Error('x') }; } });
+  assert.equal(r, null);
+});
+
+test('@mentions: paths and quoted paths, not emails', () => {
+  assert.deepEqual(parseMentions('see @src/a.js, @"my notes.md" and mail me@site.com. Also @docs/.'), ['src/a.js', 'my notes.md', 'docs/']);
 });
