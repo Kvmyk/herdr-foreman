@@ -3,13 +3,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
 import { PROBES } from './inventory/kinds.js';
+import { EXAMPLE, resolveMentions } from './task.js';
 
 export const INSTRUCTIONS_PATH = fileURLToPath(new URL('../leader/INSTRUCTIONS.md', import.meta.url));
 
-export function buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd = 'foreman' }) {
-  const oneLine = task.replace(/\s*[\r\n]+\s*/g, ' ').trim();
+// The prompt is one line, because a newline would send it early. A task with
+// several lines goes in taskFile and the prompt points at it.
+export function buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd = 'foreman', files = [], taskFile = null }) {
   const cmd = foremanCmd === 'foreman' ? '' : ` Run foreman commands as: ${foremanCmd}.`;
-  return `You are the foreman leader for task "${slug}". Read ${instructionsPath} and follow it exactly.${cmd} The user's task: ${oneLine}`;
+  const oneLine = task.replace(/\s*[\r\n]+\s*/g, ' ').trim();
+  const body = taskFile ? ` is written in ${taskFile}; read it first.` : `: ${oneLine}`;
+  const pointed = files.length
+    ? ` Files the user pointed to (read them first): ${files.map((f) => (f.dirty ? `${f.path} (has uncommitted changes)` : f.path)).join(', ')}.`
+    : '';
+  return `You are the foreman leader for task "${slug}". Read ${instructionsPath} and follow it exactly.${cmd} The user's task${body}${pointed}`;
 }
 
 const samePath = (a, b) => {
@@ -30,22 +37,28 @@ async function waitForServer({ herdr, spawnDetached, sleep }) {
 }
 
 export async function startForeman({
-  task, cwd, env, herdr, git, which, config, paths, homedir, exists, spawnDetached, attach, sleep,
+  task, cwd, env, herdr, git, which, config, paths, homedir, exists, spawnDetached, attach, sleep, writeFile, mkdir,
   foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {},
 }) {
-  if (!task?.trim()) return failed('Describe the task, e.g. foreman "fix the login bug"');
+  if (!task?.trim()) return failed(`Tell me what you want done, for example:
+  foreman "${EXAMPLE}"`);
 
   const repo = await git.toplevel(cwd);
-  if (!repo) return failed('foreman needs a git repository; run it inside one');
+  if (!repo) return failed('foreman works inside a project folder that uses git, and this folder is not one. Open your project folder and try again.');
   if (samePath(repo, homedir)) {
-    return failed(`refusing to use your home directory (${repo}) as the repository; run foreman inside a project repository`);
+    return failed(`This looks like your home folder (${repo}), not a project. Open the folder of the project you want to work on and try again.`);
   }
   try {
     await git.head(repo);
   } catch {
-    return failed(`the repository ${repo} has no commits yet; make a first commit so workers have something to branch from`);
+    return failed(`The project in ${repo} has no saved version yet. Save a first commit (git add -A, then git commit -m "first version"), then run foreman again.`);
   }
-  if (!which(config.leader)) return failed(`leader agent "${config.leader}" is not installed (not found on PATH)`);
+  if (!which(config.leader)) return failed(`${config.leader} is not installed on this computer, so foreman cannot start. Install it and sign in, then try again.`);
+
+  const { files, missing } = await resolveMentions({ task, cwd, repo, exists, git });
+  if (missing.length) {
+    return failed(`I could not find ${missing.length > 1 ? 'these files' : 'this file'}: ${missing.join(', ')}. Check the name (it is relative to ${cwd}), or remove the @ if it is not a file.`);
+  }
 
   const slug = uniqueSlug(slugify(task), (s) => exists(path.join(paths.runs, `${s}.json`)));
   const inside = env.HERDR_ENV === '1';
@@ -54,7 +67,7 @@ export async function startForeman({
   if (inside) {
     ({ paneId } = await herdr.tabCreate({ workspaceId: env.HERDR_WORKSPACE_ID, cwd: repo, label: 'foreman', focus: true }));
   } else {
-    if (!(await waitForServer({ herdr, spawnDetached, sleep }))) return failed('herdr server did not start within 10 s; start herdr and try again');
+    if (!(await waitForServer({ herdr, spawnDetached, sleep }))) return failed('herdr did not start in time. Open herdr once, then try again.');
     ({ paneId } = await herdr.workspaceCreate({ cwd: repo, label: 'foreman', focus: true }));
   }
 
@@ -62,7 +75,13 @@ export async function startForeman({
   let leader = 'lead';
   for (let n = 2; live.has(leader); n++) leader = `lead${n}`;
 
-  const prompt = buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd });
+  let taskFile = null;
+  if (/[\r\n]/.test(task.trim()) && writeFile) {
+    taskFile = path.join(paths.home ?? path.dirname(paths.runs), 'tasks', `${slug}.md`);
+    mkdir?.(path.dirname(taskFile), { recursive: true });
+    writeFile(taskFile, `${task.trim()}\n`);
+  }
+  const prompt = buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile });
   const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];
   const args = [...lean, ...(config.leaderArgs ?? [])];
   const started = await herdr.agentStart({ name: leader, kind: config.leader, pane: paneId, timeoutMs: config.startTimeoutMs, args });
@@ -71,10 +90,12 @@ export async function startForeman({
     await herdr.agentPrompt(leader, prompt);
     message = `Leader "${leader}" (${config.leader}) started in pane ${paneId} for task "${slug}".`;
   } else {
-    message = `Leader is waiting in pane ${paneId} (${started.code}: ${started.message}). Answer it there, then run: herdr agent prompt ${leader} "${prompt.replace(/"/g, '\\"')}"`;
+    message = `The leader is waiting for an answer in pane ${paneId} (${started.message}). Answer it there, then run: herdr agent prompt ${leader} "${prompt.replace(/"/g, '\\"')}"`;
   }
 
   report(message);
+  const dirty = files.filter((f) => f.dirty).map((f) => f.path);
+  if (dirty.length) report(`Note: ${dirty.join(', ')} ${dirty.length > 1 ? 'have' : 'has'} changes you have not committed. Workers start from your last commit, so they will not see those changes.`);
   if (!inside) attach();
   return { ok: true, slug, leader, paneId, message };
 }

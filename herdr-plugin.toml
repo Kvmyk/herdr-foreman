@@ -5,8 +5,18 @@ min_herdr_version = "0.9.5"
 description = "Describe a task; a lead agent splits it across your coding agents in panes and git worktrees"
 platforms = ["linux", "macos", "windows"]
 
-# prefix+f (see README) runs this action: it opens the task prompt over the
-# focused pane; the leader then starts in a new tab of the same workspace.
+# Right after install: bind prefix+f (or the first free fallback) to the
+# start action in herdr's config.toml, checked by "herdr config check" first.
+[[build]]
+command = ["node", "plugin/setup.js", "--quiet"]
+
+# At every server start: restore the shortcut if it went missing (e.g. after
+# "herdr config reset-keys"). "autoSetup": false in foreman's config.json stops this.
+[[startup]]
+command = ["node", "plugin/setup.js", "--quiet"]
+
+# prefix+f runs this action: it opens the task prompt over the focused pane;
+# the leader then starts in a new tab of the same workspace.
 [[actions]]
 id = "start"
 title = "foreman: new task"
@@ -18,3 +28,11 @@ id = "ask"
 title = "foreman"
 placement = "overlay"
 command = ["node", "plugin/ask.js"]
+
+# "herdr plugin pane open --plugin herdr-foreman --entrypoint setup": what
+# works, what is missing, and what to do next.
+[[panes]]
+id = "setup"
+title = "foreman setup"
+placement = "overlay"
+command = ["node", "plugin/setup.js"]

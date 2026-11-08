@@ -14,6 +14,7 @@ const modelsDev = { opus: { name: 'Opus', context: 1000000, costIn: 5, costOut: 
 
 test('brief keeps only what planning needs', () => {
   const b = buildBrief({ agents, knowledge, modelsDev, stats: {}, config: { maxWorkers: 6 } });
+  assert.equal(b.repoDirty, undefined, 'a clean repo says nothing about dirty files');
   assert.deepEqual(b.agents.map((a) => a.kind), ['claude', 'opencode']);
   assert.deepEqual(b.unavailable, [{ kind: 'gemini', status: 'unavailable', reason: 'not signed in' }]);
   assert.equal(b.agents[0].path, undefined);
@@ -27,6 +28,11 @@ test('brief keeps only what planning needs', () => {
   assert.equal(b.sources, undefined);
   assert.equal(b.maxWorkers, 6);
   assert.equal(b.stats, undefined, 'empty stats are left out');
+});
+
+test('brief tells the leader when the repo has uncommitted changes', () => {
+  const b = buildBrief({ agents, knowledge, modelsDev, stats: {}, config: { maxWorkers: 6 }, repoDirty: true });
+  assert.equal(b.repoDirty, true);
 });
 
 test('summarizeModels keeps default and subscription first and caps the list', () => {

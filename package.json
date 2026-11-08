@@ -31,10 +31,13 @@
     "bin",
     "src",
     "knowledge",
-    "leader"
+    "leader",
+    "plugin",
+    "herdr-plugin.toml"
   ],
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "postinstall": "node bin/foreman.js setup --postinstall"
   },
   "engines": {
     "node": ">=20"
