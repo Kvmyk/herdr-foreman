@@ -40,6 +40,8 @@ export function createHerdr({ run, bin = 'herdr' }) {
   const focusFlag = (focus) => (focus ? '--focus' : '--no-focus');
 
   return {
+    kind: 'herdr',
+
     async serverRunning() {
       const res = await run(bin, ['status', 'server'], { timeoutMs: 10000 });
       return /status:\s*running/.test(res.stdout);
@@ -97,15 +99,21 @@ export function createHerdr({ run, bin = 'herdr' }) {
       return { ok: false, code: err.code, message: err.message };
     },
 
-    // Plain text of what the agent's pane shows (not JSON).
-    async agentRead(target, { source = 'visible' } = {}) {
-      const res = await run(bin, ['agent', 'read', target, '--source', source], { timeoutMs: 15000 });
+    // Plain text of what the agent's pane shows (not JSON); with lines, its
+    // recent output instead.
+    async agentRead(target, { source = 'visible', lines = null } = {}) {
+      const args = lines ? ['--source', 'recent', '--lines', String(lines)] : ['--source', source];
+      const res = await run(bin, ['agent', 'read', target, ...args], { timeoutMs: 15000 });
       if (res.code !== 0) throw errorOf(res);
       return res.stdout;
     },
 
     async agentPrompt(target, text) {
       await call(['agent', 'prompt', target, text]);
+    },
+
+    async agentKeys(target, keys) {
+      await call(['agent', 'send-keys', target, ...keys]);
     },
   };
 }

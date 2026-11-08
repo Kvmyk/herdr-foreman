@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { main, route } from '../src/cli.js';
+import { fakeRun } from './helpers.js';
 
 function harness(ops = {}, extra = {}) {
   let out = '';
@@ -227,4 +228,58 @@ test('a task piped in on stdin starts; a terminal still shows status', async () 
   const tty = harness({ setup: async () => setupResult() }, { deps: { readStdin: async () => null } });
   assert.equal(await main([], tty.deps), 0);
   assert.deepEqual(tty.calls, []);
+});
+
+test('--backend before or after a task picks the backend; with a subcommand it is a usage error', async () => {
+  assert.deepEqual(route(['--backend', 'app', 'fix', 'it']), { kind: 'start', task: 'fix it', backend: 'app' });
+  assert.deepEqual(route(['fix it', '--backend', 'herdr']), { kind: 'start', task: 'fix it', backend: 'herdr' });
+  assert.deepEqual(route(['--backend', 'app', '-f', 'task.md']), { kind: 'start', file: 'task.md', backend: 'app' });
+  assert.equal(route(['--backend', 'app', 'status', '--task', 'x']).kind, 'usage');
+  assert.equal(route(['--backend', 'tmux', 'fix']).kind, 'usage');
+  const h = harness({ start: async (o) => { h.calls.push(['start', o.task, o.backend]); return { ok: true }; } });
+  assert.equal(await main(['--backend', 'app', 'fix it'], h.deps), 0);
+  assert.deepEqual(h.calls, [['start', 'fix it', 'app']]);
+});
+
+test('prompt, read and keys need --task, so task words still start a leader', async () => {
+  assert.equal(route(['read', 'the', 'docs']).kind, 'start');
+  assert.equal(route(['prompt', 'me', 'for', 'a', 'name']).kind, 'start');
+  assert.deepEqual(route(['keys', '--task', 't', 'w1', 'down', 'enter']).positionals, ['w1', 'down', 'enter']);
+});
+
+test('prompt, read and keys reach the agent', async () => {
+  const h = harness({
+    prompt: async (o) => { h.calls.push(['prompt', o]); return { sent: o.name }; },
+    read: async (o) => { h.calls.push(['read', o]); return 'screen'; },
+    keys: async (o) => { h.calls.push(['keys', o]); return { sent: o.name, keys: o.keys }; },
+  });
+  assert.equal(await main(['prompt', '--task', 't', 'w1', 'do the thing'], h.deps), 0);
+  assert.equal(await main(['read', '--task', 't', '--lines', '40', 'w1'], h.deps), 0);
+  assert.equal(await main(['keys', '--task', 't', '--backend', 'app', 'w1', 'down', 'enter'], h.deps), 0);
+  assert.deepEqual(h.calls, [
+    ['prompt', { task: 't', backend: null, name: 'w1', text: 'do the thing' }],
+    ['read', { task: 't', backend: null, name: 'w1', lines: 40 }],
+    ['keys', { task: 't', backend: 'app', name: 'w1', keys: ['down', 'enter'] }],
+  ]);
+  assert.match(h.out(), /sent to w1\nscreen\npressed down enter in w1\n/);
+  assert.equal(await main(['read', '--task', 't', '--lines', 'x', 'w1'], h.deps), 2);
+});
+
+test('prompt goes through the backend of the run; read and keys follow the terminal foreman runs in', async () => {
+  const run = fakeRun([[/^hc send/, { stdout: '{"turn":1}' }], [/^hc keys/, { stdout: '{}' }], [/^herdr agent read/, { stdout: 'herdr screen' }]]);
+  const files = { [path.join('/s/runs', 'fix-login.json')]: JSON.stringify({ task: 'fix-login', backend: 'app', workers: [] }) };
+  const h = harness({}, { files, deps: { run, which: () => null, exists: () => false, env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p1' } } });
+  assert.equal(await main(['prompt', '--task', 'fix-login', 'w1', 'go'], h.deps), 0);
+  assert.equal(await main(['read', '--task', 'other', 'w1'], h.deps), 0);
+  assert.equal(await main(['keys', '--task', 'other', '--backend', 'app', 'w1', 'esc'], h.deps), 0);
+  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'send'], ['herdr', 'agent'], ['hc', 'keys']]);
+});
+
+test('close-leader in the Herdr app ends the calling hc terminal', async () => {
+  const run = fakeRun([[/^hc kill/, { stdout: '{}' }], [/^hc rm/, { stdout: '{}' }]]);
+  const h = harness({}, { deps: { run, which: () => null, exists: () => false, env: { HC_TERMINAL_ID: 't7' } } });
+  assert.equal(await main(['close-leader'], h.deps), 0);
+  assert.deepEqual(run.calls[0].args, ['kill', '--json', 't7']);
+  const outside = harness({}, { deps: { run, which: () => null, exists: () => false, env: {} } });
+  assert.equal(await main(['close-leader'], outside.deps), 2);
 });

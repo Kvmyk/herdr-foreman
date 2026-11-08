@@ -125,7 +125,7 @@ test('trust prompt leaves instructions instead of prompting', async () => {
   assert.equal(r.ok, true);
   assert.equal(log.some(([k]) => k === 'prompt'), false);
   assert.match(r.message, /w1:p9/);
-  assert.match(r.message, /herdr agent prompt lead/);
+  assert.match(r.message, /foreman prompt --task fix-it lead "/);
 });
 
 test('claude leader starts lean with AskUserQuestion; extra leader args are appended', async () => {
@@ -174,4 +174,68 @@ test('a missing @file stops with a plain message', async () => {
   assert.equal(r.ok, false);
   assert.match(r.message, /could not find this file: nope\.js/);
   assert.equal(log.length, 0);
+});
+
+// The Herdr app: hc terminals instead of panes; ids for new spaces and tabs.
+function appFakes({ inside = true, labels = { space: 'spA', tab: 'tbA' }, startResult = { ok: true, pane: 't9' }, windowOpen = true } = {}) {
+  const f = fakes({ inside: false });
+  const { log } = f;
+  f.deps.herdr = {
+    kind: 'app',
+    appBin: 'C:/apps/herdr-app.exe',
+    here: async (t) => { log.push(['here', t]); return labels; },
+    workspaceCreate: async (o) => { log.push(['workspace', o]); return { workspaceId: 'spNew', tabId: 'tbNew', paneId: null }; },
+    tabCreate: async (o) => { log.push(['tab', o]); return { workspaceId: o.workspaceId ?? 'spNew', tabId: 'tbNew', paneId: null }; },
+    agentList: async () => [],
+    agentStart: async (o) => { log.push(['start', o]); return startResult; },
+    agentPrompt: async (name, text) => { log.push(['prompt', { name, text }]); },
+    appRunning: async () => windowOpen,
+    serverRunning: async () => { throw new Error('the app backend does not wait for a herdr server'); },
+  };
+  f.deps.env = inside ? { HC_TERMINAL_ID: 't3' } : {};
+  return f;
+}
+
+test('in the Herdr app the leader goes into a new tab of the caller\'s space', async () => {
+  const { deps, log } = appFakes();
+  const r = await startForeman({ ...deps, task: 'fix it' });
+  assert.equal(r.ok, true);
+  assert.equal(r.paneId, 't9');
+  assert.deepEqual(log.find(([k]) => k === 'here')[1], 't3');
+  const start = log.find(([k]) => k === 'start')[1];
+  assert.deepEqual([start.name, start.cwd, start.space, start.tab, start.label, start.focus], ['lead', repo, 'spA', 'tbNew', 'foreman', true]);
+  assert.equal(log.find(([k]) => k === 'prompt')[1].name, 'lead');
+  assert.equal(log.some(([k]) => k === 'attach' || k === 'detached'), false);
+});
+
+test('in the Herdr app outside any terminal the leader gets a new space and nothing attaches', async () => {
+  const { deps, log } = appFakes({ inside: false });
+  const r = await startForeman({ ...deps, task: 'fix it' });
+  assert.equal(r.ok, true);
+  const start = log.find(([k]) => k === 'start')[1];
+  assert.deepEqual([start.space, start.tab], ['spNew', 'tbNew']);
+  assert.equal(log.some(([k]) => k === 'attach' || k === 'detached'), false);
+});
+
+test('in the Herdr app with the window closed foreman opens it', async () => {
+  const { deps, log } = appFakes({ inside: false, windowOpen: false });
+  await startForeman({ ...deps, task: 'fix it' });
+  assert.deepEqual(log.filter(([k]) => k === 'detached').map(([, c]) => c), [['C:/apps/herdr-app.exe']]);
+  assert.equal(log.some(([k]) => k === 'attach'), false);
+});
+
+test('in the Herdr app a leader that is not ready gets a foreman prompt hint with --backend app', async () => {
+  const { deps, log } = appFakes({ inside: false, startResult: { ok: false, pane: 't9', code: 'agent_not_ready', message: 'claude is waiting for an answer' } });
+  const r = await startForeman({ ...deps, task: 'fix it' });
+  assert.equal(r.ok, true);
+  assert.equal(log.some(([k]) => k === 'prompt'), false);
+  assert.match(r.message, /pane t9/);
+  assert.match(r.message, /foreman prompt --task fix-it --backend app lead "/);
+});
+
+test('a leader that never got a terminal fails with hc\'s reason', async () => {
+  const { deps } = appFakes({ startResult: { ok: false, pane: null, code: 'spawn_failed', message: 'claude not found' } });
+  const r = await startForeman({ ...deps, task: 'fix it' });
+  assert.equal(r.ok, false);
+  assert.match(r.message, /claude not found/);
 });

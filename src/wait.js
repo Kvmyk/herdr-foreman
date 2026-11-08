@@ -67,6 +67,14 @@ export async function waitForWorkers({
         continue;
       }
 
+      // The Herdr app reports an agent that hit an error (an API failure, for example).
+      if (state === 'error') {
+        out[w.name] = { state: 'error', screen: await read(w.name) };
+        attention = true;
+        allDone = false;
+        continue;
+      }
+
       // idle, done or unknown: the agent is not doing anything right now.
       Object.assign(m, { blockedSince: null, screen: null });
       m.idleSince ??= now();
