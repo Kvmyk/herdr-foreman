@@ -57,6 +57,32 @@ test('no usable editor gives null so the overlay falls back to typing', () => {
   assert.equal(r, null);
 });
 
+test('an editor that returns at once with the file untouched gets an EDITOR hint', () => {
+  const files = new Map();
+  const said = [];
+  let t = 0;
+  const r = editTask({
+    env: { EDITOR: 'code' }, platform: 'win32', tmpdir: '/t', now: () => (t += 200),
+    writeFile: (f, x) => files.set(f, x.replace(/\n/g, '\r\n')), readFile: (f) => files.get(f), removeFile() {},
+    spawnSync: () => ({ status: 0 }), report: (m) => said.push(m),
+  });
+  assert.equal(r, null);
+  assert.match(said[0], /code --wait/);
+});
+
+test('a slow editor with the file untouched gives an empty task, not a hint', () => {
+  const files = new Map();
+  const said = [];
+  let t = 0;
+  const r = editTask({
+    env: { EDITOR: 'vim' }, platform: 'linux', tmpdir: '/t', now: () => (t += 5000),
+    writeFile: (f, x) => files.set(f, x), readFile: (f) => files.get(f), removeFile() {},
+    spawnSync: () => ({ status: 0 }), report: (m) => said.push(m),
+  });
+  assert.equal(r, '');
+  assert.deepEqual(said, []);
+});
+
 test('@mentions: paths and quoted paths, not emails', () => {
   assert.deepEqual(parseMentions('see @src/a.js, @"my notes.md" and mail me@site.com. Also @docs/.'), ['src/a.js', 'my notes.md', 'docs/']);
 });

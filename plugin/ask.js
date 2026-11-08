@@ -21,6 +21,7 @@ let task = await readTaskLines(stdin, null, { editKey: 'e' });
 if (task === 'e') {
   const text = editTask({
     env, spawnSync, readFile: (f) => readFileSync(f, 'utf8'), writeFile: writeFileSync, removeFile: (f) => rmSync(f, { force: true }), tmpdir: os.tmpdir(),
+    report: (m) => stdout.write(`\n  ${m}\n`),
   });
   if (text === null) {
     stdout.write('\n  I could not open an editor. Type your task here instead; finish with an empty line.\n\n  > ');

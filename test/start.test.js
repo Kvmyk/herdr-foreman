@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { buildLeaderPrompt, startForeman, INSTRUCTIONS_PATH } from '../src/start.js';
+import { buildLeaderPrompt, shellQuote, startForeman, INSTRUCTIONS_PATH } from '../src/start.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
 const repo = path.resolve('/code/shop');
@@ -31,6 +31,7 @@ function fakes({ inside = true, toplevel = repo, running = [true], live = [], st
     spawnDetached: (cmd, args) => log.push(['detached', [cmd, ...args]]),
     attach: () => log.push(['attach']),
     sleep: async () => {},
+    platform: 'linux',
   };
   return { deps, log };
 }
@@ -231,6 +232,18 @@ test('in the Herdr app a leader that is not ready gets a foreman prompt hint wit
   assert.equal(log.some(([k]) => k === 'prompt'), false);
   assert.match(r.message, /pane t9/);
   assert.match(r.message, /foreman prompt --task fix-it --backend app lead "/);
+});
+
+test('on Windows the foreman prompt hint is quoted for PowerShell', async () => {
+  const { deps } = fakes({ startResult: { ok: false, code: 'agent_not_ready', message: 'claude is waiting for an answer' } });
+  const r = await startForeman({ ...deps, platform: 'win32', task: "fix Bob's $price `rounding` \"now\"" });
+  assert.match(r.message, /foreman prompt --task [\w-]+ lead 'You are the foreman leader for task ''[\w-]+''\. /);
+  assert.ok(r.message.includes("fix Bob''s $price `rounding` ''now'''"));
+});
+
+test('shell quoting: double quotes on POSIX, PowerShell single quotes on Windows', () => {
+  assert.equal(shellQuote('say "hi" $x', 'linux'), '"say \\"hi\\" $x"');
+  assert.equal(shellQuote("it's \"$x\"", 'win32'), "'it''s ''$x'''");
 });
 
 test('a leader that never got a terminal fails with hc\'s reason', async () => {

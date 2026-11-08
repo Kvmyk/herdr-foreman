@@ -255,6 +255,7 @@ function defaultOps(deps) {
       task, cwd: deps.cwd, env: deps.env, herdr: backend(here(flag)), git: git(), which: deps.which, config: config(), paths: deps.paths,
       homedir: deps.homedir, exists: deps.exists, spawnDetached: deps.spawnDetached, attach: deps.attach, sleep: deps.sleep,
       foremanCmd: deps.foremanCmd, writeFile: deps.writeFile, mkdir: deps.mkdir, report: (m) => deps.stdout.write(`${m}\n`),
+      platform: deps.platform,
     }),
   };
 }
