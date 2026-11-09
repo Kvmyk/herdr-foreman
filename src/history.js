@@ -5,6 +5,7 @@
 import path from 'node:path';
 import { loadRun, saveRun } from './runs.js';
 import { formatUsage, formatTokens } from './usage.js';
+import { createUi, table } from './ui.js';
 
 // spawned -> investigate -> implement -> merged -> landed -> cleaned
 export const PHASES = Object.freeze(['spawned', 'investigate', 'implement', 'merged', 'landed', 'cleaned']);
@@ -145,24 +146,26 @@ export function describeRun(run, { paths, readFile, exists, agents = [] }) {
 
 const when = (s) => (s ? s.slice(0, 16).replace('T', ' ') : '-');
 
-export function formatRuns(rows) {
+export function formatRuns(rows, ui = createUi()) {
   if (!rows.length) return 'no foreman runs yet\n';
   const lines = rows.map((r) => {
     const live = r.liveWorkers.length ? `, ${r.liveWorkers.length} live` : '';
     const end = r.outcome ? ` (${r.outcome})` : '';
     const cost = r.usage?.total ? `${formatTokens(r.usage.total)} ${r.usage.costUsd === null ? '' : `~$${r.usage.costUsd.toFixed(2)}`}`.trim() : '-';
-    return `${r.task.padEnd(32)} ${`${r.phase}${end}`.padEnd(22)} ${String(r.branch ?? '-').padEnd(28)} ${`${r.workers} workers${live}`.padEnd(20)} ${cost.padEnd(14)} ${when(r.createdAt)}  ${r.repo}`;
+    const phase = `${r.phase}${end}`;
+    return [r.task, r.liveWorkers.length ? ui.cyan(phase) : phase, String(r.branch ?? '-'), `${r.workers} workers${live}`, cost, when(r.createdAt), r.repo];
   });
-  return `${lines.join('\n')}\nDetails: foreman show --task <slug>\n`;
+  const text = table({ headers: ['TASK', 'PHASE', 'BRANCH', 'WORKERS', 'TOKENS', 'STARTED', 'REPO'], rows: lines, ui });
+  return `${text}\nDetails: foreman show --task <slug>\n`;
 }
 
-export function formatShow(d) {
+export function formatShow(d, ui = createUi()) {
   const out = [
     `task     ${d.task}`,
     ...(d.text ? [`asked    ${d.text.split(/\r?\n/)[0].slice(0, 200)}`] : []),
     `repo     ${d.repo}`,
     `branch   ${d.branch ?? '-'} (base ${String(d.base).slice(0, 10)}${d.snapshot ? ', with your uncommitted changes' : ''})`,
-    `phase    ${d.phase}${d.outcome ? `, ${d.outcome}` : ''}`,
+    `phase    ${ui.bold(d.phase)}${d.outcome ? `, ${d.outcome}` : ''}`,
     `started  ${when(d.createdAt)}   last change ${when(d.updatedAt)}`,
   ];
   if (d.merged.length) out.push(`merged   ${d.merged.join(', ')} (${when(d.mergedAt)})`);

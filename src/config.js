@@ -31,6 +31,7 @@ export function paths({ env = process.env, homedir = os.homedir() } = {}) {
     overrides: path.join(home, 'knowledge.override.json'),
     worktrees: path.join(home, 'worktrees'),
     runs: path.join(home, 'runs'),
+    startFailures: path.join(home, 'start-failures.json'),
     setupState: path.join(home, 'setup.json'),
   };
 }

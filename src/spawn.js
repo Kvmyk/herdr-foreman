@@ -4,7 +4,11 @@
 // one), and the app lays them out.
 import path from 'node:path';
 import { HERDR_KINDS, PROBES, EFFORT_LEVELS } from './inventory/kinds.js';
-import { planLayout, columnRatios, rowRatios } from './layout.js';
+import { planLayout, columnRatios, rowRatios, MAX_BESIDE_LEADER } from './layout.js';
+import { checkStartFlags, flagsOf } from './startflags.js';
+import { classifyScreen, describeBlocked } from './blocked.js';
+import { recordStartResults } from './startfail.js';
+import { screenTail } from './wait.js';
 import { worktreeRoot, saveRun, loadRun } from './runs.js';
 import { fail } from './errors.js';
 
@@ -123,6 +127,30 @@ async function openPanes({ herdr, pane, newTab, task, workers }) {
   }
 }
 
+// The end of an agent's pane, by name or by pane id; '' when it cannot be read.
+async function readTail(herdr, targets) {
+  for (const t of targets.filter(Boolean)) {
+    try {
+      const tail = screenTail(await herdr.agentRead(t));
+      if (tail) return tail;
+    } catch { /* the agent may be gone; try the next target */ }
+  }
+  return '';
+}
+
+// Press the answer, then wait for the agent to stop being blocked.
+async function answerTrust({ herdr, w, keys, sleep }) {
+  try {
+    await herdr.agentKeys(w.name, keys);
+    for (let waited = 0; waited < 30000; waited += 1000) {
+      await sleep(1000);
+      const status = (await herdr.agentList()).find((a) => a.name === w.name)?.agent_status;
+      if (['idle', 'done', 'working'].includes(status)) return true;
+    }
+  } catch { /* leave it for the user */ }
+  return false;
+}
+
 // Worker reports live in <worktree>/.foreman/, inside the worker's own folder
 // (agents ask before writing outside it) but excluded from git for every worktree.
 async function excludeReports({ git, repo, readFile, appendFile, mkdir }) {
@@ -139,7 +167,7 @@ async function excludeReports({ git, repo, readFile, appendFile, mkdir }) {
 }
 
 export async function spawnWorkers({
-  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, includeUncommitted = false, run = null, prepare = null, writeFile, readFile, appendFile, mkdir,
+  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, includeUncommitted = false, run = null, prepare = null, writeFile, readFile, appendFile, mkdir, sleep = null, now = Date.now, foremanCmd = 'foreman',
 }) {
   const existing = loadRun(task, { paths, readFile });
   const backend = herdr.kind ?? 'herdr';
@@ -147,10 +175,14 @@ export async function spawnWorkers({
     const where = existing.backend === 'app' ? 'the Herdr app' : 'herdr';
     throw fail('USAGE', `task "${task}" runs its workers in ${where}; run foreman spawn from there`);
   }
+  const warnings = [];
+  if (!newTab && specs.length > MAX_BESIDE_LEADER && specs.length <= config.maxWorkers) {
+    newTab = true;
+    warnings.push(`${specs.length} workers would be too narrow next to the leader; opened them in a new tab`);
+  }
   const checked = await validate({ herdr, git, repo, config, task, specs, existing, pane, newTab, effort, branch });
   const parsed = checked.parsed;
   const runBranch = existing ? existing.branch : checked.branch;
-  const warnings = [];
 
   // Uncommitted work: on the first spawn the user can have it copied into a
   // snapshot commit the workers start from (--include-uncommitted); otherwise
@@ -208,39 +240,55 @@ export async function spawnWorkers({
   const setup = prepare ? await prepare(workers) : { results: [], warnings: [] };
   warnings.push(...setup.warnings);
 
-  // The first auto spawn of a kind checks that the installed agent still knows its flag.
-  const helpChecked = new Set();
-  if (auto && run) {
-    for (const kind of new Set(workers.map((w) => w.kind))) {
-      const flagName = PROBES[kind]?.autoFlag;
-      if (!flagName || helpChecked.has(kind)) continue;
-      helpChecked.add(kind);
-      const help = await run(kind, ['--help'], { timeoutMs: 15000 }).catch(() => null);
-      if (help && !`${help.stdout}
-${help.stderr}`.includes(flagName)) {
-        warnings.push(`"${kind} --help" does not mention ${flagName}; auto mode may not work for ${kind}`);
-      }
-    }
-  }
-
-  const results = await Promise.all(workers.map((w) => {
+  const argsOf = new Map();
+  const startArgs = workers.map((w) => {
     const start = agentArgs({ name: w.name, kind: w.kind, model: w.model, effort, auto, full, config });
     w.auto = start.auto;
     warnings.push(...start.warnings);
-    const { args } = start;
-    return herdr.agentStart({
-      name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
-      timeoutMs: config.startTimeoutMs, args,
-    });
-  }));
-  workers.forEach((w, i) => {
-    w.paneId = results[i].pane ?? w.paneId;
-    delete w.place;
-    w.status = results[i].ok ? 'ready' : 'not_ready';
-    w.error = results[i].ok ? null : `${results[i].code}: ${results[i].message}`;
+    argsOf.set(w.kind, [...new Set([...(argsOf.get(w.kind) ?? []), ...flagsOf(start.args)])]);
+    return start.args;
   });
+  // Each kind's start flags are checked once against its own --help.
+  if (run) warnings.push(...await checkStartFlags({ run, byKind: argsOf }));
 
-  const startedAt = new Date().toISOString();
+
+  const results = await Promise.all(workers.map((w, i) => herdr.agentStart({
+    name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
+    timeoutMs: config.startTimeoutMs, args: startArgs[i],
+  })));
+  for (const [i, w] of workers.entries()) {
+    const res = results[i];
+    w.paneId = res.pane ?? w.paneId;
+    delete w.place;
+    w.status = res.ok ? 'ready' : 'not_ready';
+    w.error = null;
+    if (res.ok) continue;
+    w.error = `${res.code}: ${res.message}`;
+    w.exited = res.code === 'agent_exited';
+    const screen = await readTail(herdr, [w.name, w.paneId]);
+    if (screen) w.screen = screen;
+    const c = classifyScreen(w.kind, screen);
+    // The worktree is foreman's own, so a known trust dialog is answered here.
+    if (c?.safeToAnswer && sleep && await answerTrust({ herdr, w, keys: c.keys, sleep })) {
+      w.status = 'ready';
+      w.error = null;
+      warnings.push(`${w.name}: answered the folder-trust dialog of ${w.kind} for its worktree`);
+      continue;
+    }
+    const hint = describeBlocked({ kind: w.kind, screen, task, name: w.name, foremanCmd });
+    if (hint) w.error += `; ${hint}`;
+    if (screen) w.error += `
+${screen}`;
+  }
+  try {
+    recordStartResults({
+      paths, readFile, writeFile, mkdir, now,
+      failed: workers.filter((w) => w.exited).map((w) => ({ kind: w.kind, message: w.error.split(/\r?\n/)[0] })),
+      worked: workers.filter((w) => w.status === 'ready').map((w) => w.kind),
+    });
+  } catch { /* the note about failures is optional */ }
+
+  const startedAt = new Date(now()).toISOString();
   const record = {
     // History fields (phase, merged, ...) written by later commands stay.
     ...existing,

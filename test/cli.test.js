@@ -284,6 +284,106 @@ test('close-leader in the Herdr app ends the calling hc terminal', async () => {
   assert.equal(await main(['close-leader'], outside.deps), 2);
 });
 
+test('--version prints the package version', async () => {
+  const h = harness();
+  assert.equal(await main(['--version'], h.deps), 0);
+  assert.match(h.out(), /^\d+\.\d+\.\d+/);
+});
+
+test('<command> --help prints that command usage only', async () => {
+  const h = harness();
+  assert.equal(await main(['spawn', '--help'], h.deps), 0);
+  assert.match(h.out(), /^Usage: foreman spawn --task/);
+  assert.equal(h.out().split('\n').length, 2);
+});
+
+test('a usage error shows the command usage line', async () => {
+  const h = harness();
+  assert.equal(await main(['status', '--tsk', 'x'], h.deps), 2);
+  assert.match(h.err(), /Usage: foreman status --task <slug>/);
+});
+
+test('a near-miss subcommand followed by flags offers the right one; plain words still start', async () => {
+  const h = harness();
+  assert.equal(await main(['statu', '--task', 'x'], h.deps), 2);
+  assert.match(h.err(), /Did you mean "foreman status"\?/);
+  assert.deepEqual(h.calls, []);
+  assert.equal(route(['statu', 'of', 'the', 'app']).kind, 'start');
+  assert.equal(route(['fix', '--the', 'login']).kind, 'start');
+});
+
+test('spawn exits 1 when an agent exited at start, and says which pane was left open', async () => {
+  const h = harness({
+    spawn: async () => ({
+      workers: [
+        { name: 'w1', kind: 'codex', paneId: 'p9', status: 'not_ready', exited: true, error: 'agent_exited: codex exited (code 2)\nunexpected argument' },
+        { name: 'w2', kind: 'agy', paneId: 'p10', status: 'ready', error: null },
+      ],
+      warnings: [],
+    }),
+  });
+  assert.equal(await main(['spawn', '--task', 't', '--branch', 'feat/x', 'w1=codex', 'w2=agy'], h.deps), 1);
+  assert.match(h.out(), /w1: failed to start: agent_exited: codex exited \(code 2\); pane p9 left open/);
+  assert.match(h.out(), /WORKER\s+AGENT\s+PANE\s+STATUS/);
+});
+
+test('a worker waiting on a dialog is not a failed spawn', async () => {
+  const h = harness({ spawn: async () => ({ workers: [{ name: 'w1', kind: 'agy', paneId: 'p9', status: 'not_ready', error: 'agent_not_ready: waiting' }], warnings: [] }) });
+  assert.equal(await main(['spawn', '--task', 't', '--branch', 'feat/x', 'w1=agy'], h.deps), 0);
+});
+
+test('status shows state, time, files and lines; --json stays plain data', async () => {
+  const list = [{ name: 'w1', state: 'working', ageS: 125, dirty: true, changedFiles: ['a', 'b'], added: 10, removed: 3, commitsAhead: 1, report: false, proposals: false, pushGuardArmed: false }];
+  const h = harness({ status: async () => list });
+  assert.equal(await main(['status', '--task', 't'], h.deps), 0);
+  assert.match(h.out(), /w1\s+working\s+2m05s\s+changed\s+2\s+\+10 -3\s+1\s+-\s+MISSING/);
+  const j = harness({ status: async () => list });
+  await main(['status', '--task', 't', '--json'], j.deps);
+  assert.deepEqual(JSON.parse(j.out()), list);
+});
+
+test('wait, brief and journal stats are readable on a terminal and JSON otherwise', async () => {
+  const wait = { result: 'attention', elapsedS: 12, workers: { w1: { state: 'blocked', screen: 'Trust?', hint: 'agy asks to trust this folder; answer it with: foreman keys --task t w1 enter' }, w2: 'done' } };
+  const tty = harness({ wait: async () => wait }, { deps: { stdout: { isTTY: true, write() {} } } });
+  const lines = [];
+  tty.deps.stdout.write = (s) => lines.push(s);
+  await main(['wait', '--task', 't'], tty.deps);
+  assert.match(lines.join(''), /attention after 12s/);
+  assert.match(lines.join(''), /foreman keys --task t w1 enter/);
+  const piped = harness({ wait: async () => wait });
+  await main(['wait', '--task', 't'], piped.deps);
+  assert.deepEqual(JSON.parse(piped.out()), wait);
+  const json = harness({ wait: async () => wait }, { deps: { stdout: { isTTY: true, write() {} } } });
+  let got = '';
+  json.deps.stdout.write = (s) => { got += s; };
+  await main(['wait', '--task', 't', '--json'], json.deps);
+  assert.deepEqual(JSON.parse(got), wait);
+});
+
+test('config lists settings, and --json is data', async () => {
+  const h = harness({}, { files: { '/s/config.json': '{"leader":"codex"}' } });
+  assert.equal(await main(['config', '--json'], h.deps), 0);
+  const out = JSON.parse(h.out());
+  assert.equal(out.config.leader, 'codex');
+  assert.deepEqual(out.changed, ['leader']);
+});
+
+test('watch needs --task and an interval above zero', async () => {
+  const h = harness();
+  assert.equal(route(['watch', '--interval', '3']).kind, 'usage');
+  assert.equal(await main(['watch', '--task', 't', '--interval', '0'], h.deps), 2);
+});
+
+test('NO_COLOR keeps every output plain, FORCE_COLOR colors it', async () => {
+  const bad = { workers: [{ name: 'w1', kind: 'codex', paneId: 'p9', status: 'not_ready', exited: true, error: 'agent_exited: x' }], warnings: [] };
+  const plain = harness({ spawn: async () => bad }, { deps: { env: { NO_COLOR: '1', FORCE_COLOR: '1' } } });
+  await main(['spawn', '--task', 't', '--branch', 'feat/x', 'w1=codex'], plain.deps);
+  assert.doesNotMatch(plain.out(), /\x1b\[/);
+  const colored = harness({ spawn: async () => bad }, { deps: { env: { FORCE_COLOR: '1' } } });
+  await main(['spawn', '--task', 't', '--branch', 'feat/x', 'w1=codex'], colored.deps);
+  assert.match(colored.out(), /\x1b\[31m/);
+});
+
 test('route: answers given in front of a task go to the leader', () => {
   assert.deepEqual(route(['--backend', 'app', '--auto-answer', '--include-uncommitted', '--', 'fix', 'it']),
     { kind: 'start', task: 'fix it', backend: 'app', prefs: { autoAnswer: true, includeUncommitted: true } });

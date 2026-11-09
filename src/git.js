@@ -136,6 +136,19 @@ export function createGit({ run }) {
     async branchExists(repo, branch) {
       return (await git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).code === 0;
     },
+    // Lines added and removed in tracked files since base, commits and working tree together.
+    async diffStat(dir, base) {
+      const res = await git(dir, ['diff', '--numstat', base]);
+      let added = 0;
+      let removed = 0;
+      if (res.code === 0) {
+        for (const l of res.stdout.split(/\r?\n/)) {
+          const [a, r] = l.split('\t');
+          if (/^\d+$/.test(a ?? '')) { added +=Number(a); removed += Number(r); }
+        }
+      }
+      return { added, removed };
+    },
     async commitsAhead(dir, base) {
       return Number(await ok(dir, ['rev-list', '--count', `${base}..HEAD`]));
     },

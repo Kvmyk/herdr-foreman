@@ -270,6 +270,24 @@ test('a leader that never got a terminal fails with hc\'s reason', async () => {
   assert.match(r.message, /claude not found/);
 });
 
+test('a leader stuck on a trust dialog is told which keys answer it', async () => {
+  const { deps } = fakes({ startResult: { ok: false, code: 'agent_not_ready', message: 'claude is waiting for an answer' } });
+  deps.herdr.agentRead = async () => 'Do you trust the files in this folder?';
+  const r = await startForeman({ ...deps, task: 'fix it' });
+  assert.match(r.message, /asks to trust this folder; answer it with: foreman keys --task fix-it lead enter/);
+  assert.match(r.message, /foreman prompt --task fix-it lead/);
+});
+
+test('progress lines tell what foreman is doing, and the result names the leader tab', async () => {
+  const { deps } = fakes();
+  const lines = [];
+  const r = await startForeman({ ...deps, task: 'fix it', progress: (m) => lines.push(m) });
+  assert.equal(r.tab, 'foreman');
+  assert.equal(lines.length, 3);
+  assert.match(lines[0], /Checking the project/);
+  assert.match(lines[2], /Starting claude/);
+});
+
 test('prompt tells the leader what the user already answered', async () => {
   const { takePrefs, prefsText } = await import('../src/start-prefs.js');
   assert.deepEqual(takePrefs(['--auto-answer', '--include-uncommitted', '--', 'x']), { prefs: { autoAnswer: true, includeUncommitted: true }, rest: ['--', 'x'] });

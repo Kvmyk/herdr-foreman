@@ -29,7 +29,7 @@ const isEmpty = (v) => v === null || v === undefined || v === ''
   || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length);
 const nonEmpty = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => !isEmpty(v)));
 
-export function buildBrief({ agents, knowledge, modelsDev, stats, config, warnings = [], repoDirty = null, limit = 25 }) {
+export function buildBrief({ agents, knowledge, modelsDev, stats, config, warnings = [], repoDirty = null, limit = 25, startFailures = {} }) {
   const families = new Set();
   const modelFacts = {};
   const ready = [];
@@ -38,6 +38,11 @@ export function buildBrief({ agents, knowledge, modelsDev, stats, config, warnin
   for (const a of agents) {
     if (a.status !== 'ready') {
       unavailable.push({ kind: a.kind, status: a.status, reason: a.reason });
+      continue;
+    }
+    // A kind whose program exited at its last start is not offered to the leader.
+    if (startFailures[a.kind]) {
+      unavailable.push({ kind: a.kind, status: 'start_failed', reason: `failed to start at ${startFailures[a.kind].at}: ${startFailures[a.kind].message}` });
       continue;
     }
     const s = summarizeModels(a, limit, { knowledge });

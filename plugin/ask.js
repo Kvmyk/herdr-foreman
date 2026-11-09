@@ -3,11 +3,11 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
-import { createInterface } from 'node:readline/promises';
 import { main } from '../src/cli.js';
 import { realDeps } from '../src/deps.js';
 import { repoFromContext } from '../src/plugin.js';
 import { HINT, editTask, readTaskLines } from '../src/task.js';
+import { waitForKey } from '../src/pause.js';
 
 const { stdin, stdout, env } = process;
 const cwd = repoFromContext(env) ?? process.cwd();
@@ -32,16 +32,14 @@ if (task === 'e') {
 }
 
 if (task) {
-  const code = await main(['--', task], { ...realDeps(), cwd });
+  stdout.write('\n');
+  const deps = { ...realDeps(), cwd, progress: true };
+  const code = await main(['--', task], deps);
   if (code) {
     // Keep a failure readable; the overlay closes when this process exits.
-    if (stdin.readableEnded) {
-      await new Promise((resolve) => setTimeout(resolve, 10000));
-    } else {
-      const again = createInterface({ input: stdin, output: stdout });
-      await again.question('\n  Press Enter to close. ');
-      again.close();
-    }
+    await waitForKey({ stdin, stdout, sleep: deps.sleep });
+  } else {
+    stdout.write('\n  Done. The leader works in the tab "foreman"; switch to it to follow along.\n');
   }
   process.exitCode = code;
 }
