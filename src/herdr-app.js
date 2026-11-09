@@ -46,12 +46,19 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
   }
 
   // The reply of an app command; null when it failed or the window is closed.
+  // A terminal hc has just started is not known to the window for a moment:
+  // until it is, the command is tried again (every 200 ms, up to 5 s).
   async function appCall(command, args) {
-    try {
-      const res = await run(app, ['do', command, JSON.stringify(args)], { timeoutMs: 10000 });
-      return res.code === 0 ? parseJson(res.stdout) ?? {} : null;
-    } catch {
-      return null;
+    for (let tries = 0; ; tries++) {
+      let res;
+      try {
+        res = await run(app, ['do', command, JSON.stringify(args)], { timeoutMs: 10000 });
+      } catch {
+        return null;
+      }
+      if (res.code === 0) return parseJson(res.stdout) ?? {};
+      if (tries >= 25 || !/no running terminal/.test(`${res.stdout}${res.stderr}`)) return null;
+      await sleep(200);
     }
   }
 

@@ -243,3 +243,35 @@ test('stackLayout in a new tab: the first worker is shown by its labels, the res
     ['pane.focus', { terminal: 't1' }],
   ]);
 });
+
+test('stackLayout waits until the window knows a just-started terminal before keeping it', async () => {
+  const run = appWindow();
+  let misses = 0;
+  const slept = [];
+  const racy = async (cmd, args, opts) => {
+    if (cmd === 'herdr-app' && args[1] === 'terminal.keep' && misses < 2) {
+      misses++;
+      run.calls.push({ cmd, args, opts, line: [cmd, ...args].join(' ') });
+      return { code: 1, stdout: JSON.stringify({ error: `no running terminal "${JSON.parse(args[2]).terminal}"` }), stderr: '' };
+    }
+    return run(cmd, args, opts);
+  };
+  const herdr = createHerdrApp({ run: racy, sleep: async (ms) => { slept.push(ms); } });
+  await startAll(herdr, await herdr.stackLayout({ leader: 't1', space: 'spA', tab: 'tbA', count: 1 }), ['w0']);
+  const keeps = appDos(run).filter(([cmd]) => cmd === 'terminal.keep');
+  assert.equal(keeps.length, 3);
+  assert.deepEqual(slept, [200, 200]);
+  assert.ok(!run.calls.some((c) => c.line.startsWith('hc label')));
+  assert.ok(appDos(run).some(([cmd, a]) => cmd === 'layout.resize' && a.id === 'pL'));
+});
+
+test('stackLayout gives up on an unknown terminal after about 5 s and shows it by its labels', async () => {
+  const run = appWindow();
+  const racy = async (cmd, args, opts) => (cmd === 'herdr-app' && args[1] === 'terminal.keep'
+    ? { code: 1, stdout: '{"error":"no running terminal \\"tw0\\""}', stderr: '' } : run(cmd, args, opts));
+  let waited = 0;
+  const herdr = createHerdrApp({ run: racy, sleep: async (ms) => { waited += ms; } });
+  await startAll(herdr, await herdr.stackLayout({ leader: 't1', space: 'spA', tab: 'tbA', count: 1 }), ['w0']);
+  assert.equal(waited, 5000);
+  assert.ok(run.calls.some((c) => c.line.startsWith('hc label --json tw0')));
+});
