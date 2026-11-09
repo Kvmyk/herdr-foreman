@@ -87,6 +87,26 @@ test('@mentions: paths and quoted paths, not emails', () => {
   assert.deepEqual(parseMentions('see @src/a.js, @"my notes.md" and mail me@site.com. Also @docs/.'), ['src/a.js', 'my notes.md', 'docs/']);
 });
 
+test('the one-command installers install from GitHub, then run the full setup from the global package', () => {
+  const ps = readFileSync(new URL('../install.ps1', import.meta.url), 'utf8');
+  const sh = readFileSync(new URL('../install.sh', import.meta.url), 'utf8');
+  for (const s of [ps, sh]) {
+    assert.match(s, /github:Kvmyk\/herdr-foreman/);
+    assert.match(s, /FOREMAN_PACKAGE/);
+    assert.match(s, /root -g/);
+    assert.match(s, /herdr-foreman[\\/]bin[\\/]foreman\.js['"]?\)? setup\b/);
+    assert.doesNotMatch(s, /setup --quiet/);
+  }
+  // irm | iex runs in the user's own window: exit would close it, and npm.ps1 is blocked by a Restricted policy.
+  assert.doesNotMatch(ps, /^\s*exit\b/m);
+  assert.match(ps, /& npm\.cmd install -g \$package/);
+  // curl | sh: nothing runs before the whole script is read.
+  assert.match(sh, /\nmain "\$@"\n$/);
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  assert.match(readme, /irm https:\/\/raw\.githubusercontent\.com\/Kvmyk\/herdr-foreman\/main\/install\.ps1 \| iex/);
+  assert.match(readme, /curl -fsSL https:\/\/raw\.githubusercontent\.com\/Kvmyk\/herdr-foreman\/main\/install\.sh \| sh/);
+});
+
 test('install and server start run the quiet setup, which never fails the install', () => {
   const manifest = readFileSync(new URL('../herdr-plugin.toml', import.meta.url), 'utf8');
   assert.match(manifest, /\[\[build\]\]\ncommand = \["node", "plugin\/setup\.js", "--quiet"\]/);

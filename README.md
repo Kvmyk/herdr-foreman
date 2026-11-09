@@ -24,9 +24,16 @@ Open herdr in your project folder, press `Ctrl+B`, then `F`, and describe the ta
 
 **In the Herdr desktop app**
 
+Open the app once, then in a terminal (Windows: PowerShell):
+
 ```
-npm install -g github:Kvmyk/herdr-foreman
-foreman setup
+irm https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.ps1 | iex
+```
+
+macOS and Linux:
+
+```
+curl -fsSL https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.sh | sh
 ```
 
 Open a terminal in your project folder, press `Ctrl+Shift+Y`, describe the task and press `Ctrl+Enter`.
@@ -54,14 +61,21 @@ herdr plugin install Kvmyk/herdr-foreman
 
 herdr shows what the plugin will run and asks you to confirm; answer yes. That is all: foreman adds its keyboard shortcut to herdr by itself.
 
-**Herdr desktop app, or any terminal.** Install the `foreman` command, then let it set itself up once:
+**Herdr desktop app, or any terminal.** Open the Herdr app once (setup needs its folder and its `keys.json`), then run one command. On Windows, in PowerShell:
 
 ```
-npm install -g github:Kvmyk/herdr-foreman
-foreman setup
+irm https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.ps1 | iex
 ```
 
-`foreman setup` checks herdr, git and your agents, adds foreman to the desktop app and to herdr if they are installed, and says in plain words what is left to do. Run it again after every update; it is quick and changes nothing that is already right. More in [Advanced](#advanced-install-as-a-command-or-set-up-by-hand).
+On macOS and Linux:
+
+```
+curl -fsSL https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.sh | sh
+```
+
+The script checks Node.js and git, installs the `foreman` command with `npm install -g github:Kvmyk/herdr-foreman` and runs `foreman setup`; read [install.ps1](install.ps1) or [install.sh](install.sh) first if you like. By hand it is the same two commands: `npm install -g github:Kvmyk/herdr-foreman`, then `foreman setup`.
+
+`foreman setup` checks herdr, git and your agents, adds foreman to the desktop app and to herdr if they are installed, and says in plain words what is left to do. Run the same command again to update; `foreman setup` on its own is quick and changes nothing that is already right. More in [Advanced](#advanced-install-as-a-command-or-set-up-by-hand).
 
 
 ## Herdr app (desktop)

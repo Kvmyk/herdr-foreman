@@ -4,9 +4,13 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- One command installs and sets up foreman for the Herdr desktop app and herdr: `irm https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.ps1 | iex` on Windows, `curl -fsSL https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.sh | sh` on macOS and Linux. It checks Node.js and git, runs `npm install -g` and `foreman setup`, and shows what is left to do.
+
 ### Changed
 
-- The Herdr desktop prompt lists the branches at once and the ready agents from the last time foreman looked, then updates them; before, both pills waited several seconds while every agent was asked again. `foreman agents --quick` leaves out the agents' versions.
+- The Herdr desktop prompt lists the branches at once and the ready agents from the last time foreman looked, then updates them; before, both pills waited several seconds while every agent was asked again. The herdr terminal prompt keeps the list for it too. `foreman agents --quick` leaves out the agents' versions.
 - Every foreman command starts a little faster on Windows: it finds programs by listing each PATH folder once.
 
 ## [0.7.0] - 2026-11-09
