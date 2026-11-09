@@ -224,15 +224,16 @@ export default class Foreman extends View {
       .opacity(enabled ? 1 : 0.4).cursor_pointer().hover((s) => (enabled ? s.opacity(0.88) : s))
       .on_click(() => { if (enabled) action(); }).child(text);
     // A switch row: track and knob, a title, and one line saying what it does. The
-    // handlers redraw with the context they are given: the one render() got is only
-    // good while rendering. Clicking anywhere on the row flips it, so does Space or Enter.
+    // handler redraws with the context it is given: the one render() got is only
+    // good while rendering. Clicking anywhere on the row flips it. Space and Enter on a
+    // focused row arrive as a click too (GPUI does that for a clickable element), so a
+    // key handler of its own would flip the row twice and look like nothing happened.
     const flip = (name, hcx) => { this.prefs = { ...this.prefs, [name]: !this.prefs[name] }; hcx.notify(); };
     const toggle = (id, title, detail, name) => {
       const on = Boolean(this.prefs[name]);
       return h_flex().id(id).track_focus(this.rowFocus[name]).items_center().gap(12).py(4).px(6).rounded(6).cursor_pointer()
         .hover((s) => s.bg(t.hover)).focus((s) => s.bg(t.hover))
         .on_click((_e, hcx) => flip(name, hcx))
-        .on_key_down((e, hcx) => { if (e.key === "space" || e.key === " " || e.key === "enter") { flip(name, hcx); hcx.stop_propagation(); } })
         .child((on ? h_flex().justify_end() : h_flex().justify_start()).w(32).h(18).p(2).flex_shrink_0().rounded_full().items_center().bg(on ? t.solid : t.input).border_1().border_color(on ? t.solid : t.border)
           .child(div().w(12).h(12).rounded_full().bg(on ? t.solid_foreground : t.muted)))
         .child(v_flex().flex_1().min_w(0)

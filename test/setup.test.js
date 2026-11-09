@@ -399,6 +399,10 @@ test('app/foreman template: placeholders for node and foreman, the backend flag,
   assert.match(main, /\$\{this\.dir\}\/agents\.json/);
   assert.equal(path.basename(paths({ env: {}, homedir: '/h' }).agentsCache), 'agents.json');
   assert.match(main, /\[BIN, "agents", "--json", "--quick"\]/);
+  // Space and Enter on a focused switch row already arrive as a click; a key handler
+  // on the row as well flipped it twice. Only the prompt's own (Escape) handler stays.
+  assert.equal(main.match(/\.on_key_down\(/g).length, 1);
+  assert.match(main, /track_focus\(this\.rowFocus\[name\]\)[^\n]*\n[^\n]*\n\s*\.on_click\(\(_e, hcx\) => flip\(name, hcx\)\)/);
   assert.doesNotMatch(main, /node:|require\(|process\./);
   assert.equal(JSON.parse(readFileSync(new URL('../app/foreman/mod.json', import.meta.url), 'utf8')).place, 'none');
 });

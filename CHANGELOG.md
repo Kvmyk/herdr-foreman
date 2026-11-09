@@ -4,6 +4,10 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- Space and Enter on a switch row of the Herdr desktop prompt flip it again; they flipped it twice, so nothing seemed to happen. Clicking always worked.
+
 ## [0.8.0] - 2026-11-09
 
 ### Added
