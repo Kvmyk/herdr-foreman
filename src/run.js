@@ -2,12 +2,32 @@
 // macOS and Linux. npm installs CLIs on Windows as .cmd shims, which Node can
 // only start through cmd.exe, so those get a shell with strictly checked args.
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 const SHELL_UNSAFE = /["%!^&|<>\r\n]/;
 
-export function which(name, { env = process.env, platform = process.platform, exists = existsSync } = {}) {
+// Each PATH folder is listed once per process instead of checked file by file:
+// looking for the 24 agent kinds asked thousands of exists() calls (~0.5 s on Windows).
+const listings = new Map();
+function listed(file) {
+  const dir = path.dirname(file);
+  if (!listings.has(dir)) {
+    let names = null;
+    try {
+      names = new Set(readdirSync(dir).map((n) => (process.platform === 'win32' ? n.toLowerCase() : n)));
+    } catch {
+      // not a readable folder: ask the file itself
+    }
+    listings.set(dir, names);
+  }
+  const names = listings.get(dir);
+  if (!names) return existsSync(file);
+  const base = path.basename(file);
+  return names.has(process.platform === 'win32' ? base.toLowerCase() : base);
+}
+
+export function which(name, { env = process.env, platform = process.platform, exists = listed } = {}) {
   const p = platform === 'win32' ? path.win32 : path.posix;
   const exts = platform === 'win32'
     ? (env.PATHEXT || env.Pathext || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)

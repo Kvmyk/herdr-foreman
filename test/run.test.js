@@ -28,6 +28,16 @@ test('which returns null when missing', () => {
   assert.equal(which('nope', { platform: 'linux', env: { PATH: '/usr/bin' }, exists: () => false }), null);
 });
 
+test('which finds a program by listing its PATH folder, ignoring case on Windows', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fm-which-'));
+  const name = process.platform === 'win32' ? 'Tool.CMD' : 'tool';
+  writeFileSync(join(dir, name), '');
+  const env = { PATH: [join(dir, 'missing'), dir].join(process.platform === 'win32' ? ';' : ':'), PATHEXT: '.EXE;.CMD' };
+  const found = which('tool', { env });
+  assert.equal(found?.toLowerCase(), join(dir, process.platform === 'win32' ? 'tool.CMD' : 'tool').toLowerCase());
+  assert.equal(which('nothing-here', { env }), null);
+});
+
 test('run captures stdout and exit code', async () => {
   const res = await run(process.execPath, ['-e', "console.log('hi'); process.exit(3)"]);
   assert.equal(res.code, 3);
