@@ -34,5 +34,5 @@ test('brief and stats summarise instead of dumping JSON', () => {
   assert.match(b, /codex\s+start_failed: boom/);
   const s = formatStats({ bugfix: [{ kind: 'claude', model: null, n: 2, approvalRate: 0.5, firstPassRate: null, stuckRate: 0, trusted: false }] }, plain);
   assert.match(s, /claude\s+-\s+2\s+50%\s+-\s+0%\s+few samples/);
-  assert.match(formatStats({}, plain), /No results/);
+  assert.match(formatStats({}, plain), /^no results yet/);
 });

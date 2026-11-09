@@ -4,6 +4,17 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- codex was listed as ready although its sign-in had run out (it then exits with "Your access token could not be refreshed"); the probe now treats a token that expired long ago without a refresh as signed out, and such a start failure carries the hint `run "codex login"`.
+- agy workers in auto mode still asked permission for every shell command; they now start with `--dangerously-skip-permissions` instead of `--mode auto` (the README auto-mode note says so).
+- A cost that includes a model without a known price (for example claude haiku) showed `~$0.00`; `show`, `runs` and the journal now say "cost unknown" then.
+- `foreman runs` printed "1 workers"; it now prints "1 worker".
+- `foreman runs` and `foreman show` printed "landed (landed)" or "cleaned (landed)"; the phase is printed once and the outcome only when it adds something, in plain words ("landed, cleaned up").
+- `foreman journal stats` with no results now says "no results yet" on a terminal (JSON output stays `{}`).
+- `foreman status` counts FILES from the same diff as LINES, so committed work no longer shows 0 files next to changed lines; TIME counts from the worker's start.
+- `foreman config` showed `autoSetup true` while `FOREMAN_NO_SETUP=1` was set; it now shows the value in effect and says the environment set it.
+
 ## [0.5.0] - 2026-11-09
 
 ### Added

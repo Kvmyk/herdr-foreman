@@ -474,7 +474,7 @@ export async function main(argv, deps) {
         return 0;
       }
       case 'config':
-        print(describeConfig({ paths: deps.paths, readFile: deps.readFile }), (v) => stdout.write(`${formatConfig(v, ui)}\n`));
+        print(describeConfig({ paths: deps.paths, readFile: deps.readFile, env: deps.env }), (v) => stdout.write(`${formatConfig(v, ui)}\n`));
         return 0;
       case 'watch': {
         const interval = r.flags['--interval'] === undefined ? 5 : Number(r.flags['--interval']);

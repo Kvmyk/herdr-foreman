@@ -141,13 +141,15 @@ export function createGit({ run }) {
       const res = await git(dir, ['diff', '--numstat', base]);
       let added = 0;
       let removed = 0;
+      let files = 0;
       if (res.code === 0) {
         for (const l of res.stdout.split(/\r?\n/)) {
-          const [a, r] = l.split('\t');
-          if (/^\d+$/.test(a ?? '')) { added +=Number(a); removed += Number(r); }
+          const [a, r, name] = l.split('\t');
+          if (name) files += 1;
+          if (/^\d+$/.test(a ?? '')) { added += Number(a); removed += Number(r); }
         }
       }
-      return { added, removed };
+      return { added, removed, files };
     },
     async commitsAhead(dir, base) {
       return Number(await ok(dir, ['rev-list', '--count', `${base}..HEAD`]));
