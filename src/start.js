@@ -3,7 +3,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
-import { PROBES } from './inventory/kinds.js';
+import { HERDR_KINDS, PROBES } from './inventory/kinds.js';
 import { EXAMPLE, resolveMentions } from './task.js';
 import { describeBlocked } from './blocked.js';
 import { screenTail } from './wait.js';
@@ -69,6 +69,12 @@ export async function startForeman({
   } catch {
     return failed(`The project in ${repo} has no saved version yet. Save a first commit (git add -A, then git commit -m "first version"), then run foreman again.`);
   }
+  // --leader and --base apply to this task only.
+  if (prefs.leader && prefs.leader !== config.leader) {
+    if (!HERDR_KINDS.includes(prefs.leader)) return failed(`"${prefs.leader}" is not an agent foreman can start. Choose one of: ${HERDR_KINDS.join(', ')}.`);
+    config = { ...config, leader: prefs.leader };
+  }
+  if (prefs.base && !(await git.branchExists(repo, prefs.base))) return failed(`The branch "${prefs.base}" does not exist in ${repo}. Check the name (git branch lists them) and try again.`);
   if (!which(config.leader)) return failed(`${config.leader} is not installed on this computer, so foreman cannot start. Install it and sign in, then try again.`);
 
   // A resumed run brings its own slug and prompt; its files were checked when it started.

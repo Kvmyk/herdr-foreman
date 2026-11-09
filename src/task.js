@@ -12,7 +12,9 @@ export const HINT = `Describe what you want done, in your own words.
 // Read lines until an empty line (after some text) or the end of input. An
 // empty first line gives an empty task. Returns the lines joined by newlines.
 // With editKey, a first line that is just that key finishes at once and returns it.
-export function readTaskLines(input, output = null, { editKey = null, afterLine = null } = {}) {
+// With command, a first line it accepts (returns true or a promise of true) is
+// a setting such as "/leader codex", not part of the task; lines are handled in order.
+export function readTaskLines(input, output = null, { editKey = null, afterLine = null, command = null } = {}) {
   return new Promise((resolve) => {
     const rl = createInterface({ input, output: output ?? undefined, terminal: false });
     const lines = [];
@@ -23,7 +25,13 @@ export function readTaskLines(input, output = null, { editKey = null, afterLine 
       rl.close();
       resolve(lines.join('\n').trim());
     };
+    let queue = Promise.resolve();
     rl.on('line', (line) => {
+      queue = queue.then(() => onLine(line));
+    });
+    const onLine = async (line) => {
+      if (done) return;
+      if (command && lines.length === 0 && line.trim() && (await command(line))) return;
       if (!line.trim()) return finish();
       if (editKey && lines.length === 0 && line.trim().toLowerCase() === editKey) {
         lines.push(editKey);
@@ -31,8 +39,8 @@ export function readTaskLines(input, output = null, { editKey = null, afterLine 
       }
       lines.push(line.replace(/\s+$/, ''));
       afterLine?.();
-    });
-    rl.on('close', finish);
+    };
+    rl.on('close', () => { queue = queue.then(finish); });
   });
 }
 

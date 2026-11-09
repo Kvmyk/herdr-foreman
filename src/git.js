@@ -133,6 +133,12 @@ export function createGit({ run }) {
     async deleteBranch(repo, branch) {
       await ok(repo, ['branch', '-D', branch]);
     },
+    // Local branch names, for the base choice in the prompts.
+    async localBranches(repo) {
+      return (await ok(repo, ['branch', '--format=%(refname:short)'])).split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('('));
+    },
+    // The commit a local branch points at.
+    commitOf: (repo, branch) => ok(repo, ['rev-parse', '--verify', `refs/heads/${branch}^{commit}`]),
     async branchExists(repo, branch) {
       return (await git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).code === 0;
     },

@@ -353,6 +353,8 @@ test('app/foreman template: placeholders for node and foreman, the backend flag,
   assert.match(main, /const NODE = "__NODE__";/);
   assert.match(main, /const BIN = "__BIN__";/);
   assert.match(main, /\[NODE, BIN, "--backend", "app", [^\n]*"--", task\]/);
+  assert.match(main, /"--leader", this\.leader/);
+  assert.match(main, /"--base", this\.base/);
   assert.doesNotMatch(main, /node:|require\(|process\./);
   assert.equal(JSON.parse(readFileSync(new URL('../app/foreman/mod.json', import.meta.url), 'utf8')).place, 'none');
 });
