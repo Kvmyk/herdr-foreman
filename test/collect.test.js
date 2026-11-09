@@ -328,3 +328,10 @@ test('status adds the agent state, time since start and lines changed', async ()
   assert.deepEqual([st[0].added, st[0].removed], [2, 0]);
   assert.equal(st[1].removed > 0 || st[1].added > 0, true);
 });
+
+test('status counts files from the same diff as the lines, committed work included', async () => {
+  const { run } = await setup();
+  commitFile(run.workers[0].worktree, 'b.txt', 'one\ntwo\n');
+  const st = await workerStatus({ run, git, exists: existsSync });
+  assert.deepEqual([st[0].files, st[0].added, st[0].changedFiles.length], [1, 2, 0]);
+});

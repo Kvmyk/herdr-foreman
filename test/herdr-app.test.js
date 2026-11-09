@@ -76,7 +76,8 @@ test('paneClose kills and removes the terminal; a missing one is pane_not_found'
 
 test('read, prompt and keys use hc read, send and keys', async () => {
   const run = fakeRun([[/^hc read/, { stdout: 'screen\n' }], [/^hc send/, out({ turn: 2 })], [/^hc keys/, out({ status: 'idle' })]]);
-  const herdr = createHerdrApp({ run });
+  const pauses = [];
+  const herdr = createHerdrApp({ run, sleep: async (ms) => { pauses.push(ms); } });
   assert.equal(await herdr.agentRead('w1'), 'screen\n');
   await herdr.agentRead('w1', { lines: 50 });
   await herdr.agentPrompt('w1', '-starts with a dash');
@@ -85,8 +86,11 @@ test('read, prompt and keys use hc read, send and keys', async () => {
     ['read', '--lines', '0', 'w1'],
     ['read', '--lines', '50', 'w1'],
     ['send', '--json', 'w1', '--', '-starts with a dash'],
-    ['keys', '--json', 'w1', 'down', 'enter'],
+    ['read', '--lines', '0', 'w1'],
+    ['keys', '--json', 'w1', 'down'],
+    ['keys', '--json', 'w1', 'enter'],
   ]);
+  assert.deepEqual(pauses, [500, 150]);
 });
 
 test('a refused send becomes an error with hc kind', async () => {
@@ -144,4 +148,130 @@ test('agentStart keeps the warning in the tab when a later worker of that tab is
   const ok = await herdr.agentStart({ name: 'w2', kind: 'claude', tab: 'tb1', label: 'foreman:x', focus: true });
   assert.equal(ok.ok, true);
   assert.equal(run.calls.slice(before).filter((c) => c.cmd === 'herdr-app').length, 0);
+});
+
+test('agentPrompt presses enter once when the prompt is still in the input', async () => {
+  const run = fakeRun([[/^hc send/, out({ turn: 1 })], [/^hc read/, { stdout: 'x\n> hello there\n' }], [/^hc keys/, out({})]]);
+  await createHerdrApp({ run, sleep: async () => {} }).agentPrompt('w1', 'hello there');
+  assert.deepEqual(run.calls.map((c) => c.args[0]), ['send', 'read', 'keys']);
+});
+
+// A window showing the leader t1 (pane pL) alone in tab tbA, or more terminals.
+function appWindow({ status = 0, keep = true, others = [], shown = [] } = {}) {
+  const tabs = [{ id: 'tbA', terminals: [{ terminal: 't1', pane: 'pL' }, ...others] }];
+  return fakeRun([
+    [/^herdr-app status/, { code: status }],
+    [/^herdr-app ls/, () => out({ spaces: [{ id: 'spA', tabs: [...tabs, { id: 'tbN', terminals: shown }] }] })],
+    [/^herdr-app do terminal\.keep/, (cmd, args) => (keep ? out({ pane: `p${JSON.parse(args[2]).terminal}` }) : { code: 1, stdout: '{"error":"no window"}' })],
+    [/^herdr-app do/, out({ ok: true })],
+    [/^hc run/, (cmd, args) => out({ address: `t${args[args.indexOf('--name') + 1]}` })],
+    [/^hc label/, out({})],
+    [/^hc wait/, out({ ended: true, status: 'idle' })],
+  ]);
+}
+const appDos = (run) => run.calls.filter((c) => c.cmd === 'herdr-app' && c.args[0] === 'do').map((c) => [c.args[1], JSON.parse(c.args[2])]);
+const startAll = (herdr, stack, names, place = { space: 'spA', tab: 'tbA' }) => Promise.all(names.map((name, index) => herdr.agentStart({ name, kind: 'claude', ...place, stack, index })));
+
+test('stackLayout stacks workers right of the leader, equal heights, leader at 40%', async () => {
+  const run = appWindow();
+  const herdr = createHerdrApp({ run, sleep: async () => {} });
+  const stack = await herdr.stackLayout({ leader: 't1', space: 'spA', tab: 'tbA', count: 3 });
+  const res = await startAll(herdr, stack, ['w0', 'w1', 'w2']);
+  assert.deepEqual(res.map((r) => r.ok), [true, true, true]);
+  // Hidden at start: no herdr.space / herdr.tab labels.
+  for (const c of run.calls.filter((x) => x.line.startsWith('hc run'))) assert.ok(!c.args.some((a) => a.startsWith('herdr.')));
+  const dos = appDos(run);
+  assert.deepEqual(dos.slice(0, 6), [
+    ['pane.focus', { terminal: 't1' }], ['terminal.keep', { terminal: 'tw0', place: 'right' }],
+    ['pane.focus', { terminal: 'tw0' }], ['terminal.keep', { terminal: 'tw1', place: 'down' }],
+    ['pane.focus', { terminal: 'tw1' }], ['terminal.keep', { terminal: 'tw2', place: 'down' }],
+  ]);
+  assert.deepEqual(dos.slice(6, 9), ['ptw0', 'ptw1', 'ptw2'].map((id) => ['layout.resize', { id, weight: 1 }]));
+  assert.equal(dos[9][0], 'layout.resize');
+  assert.equal(dos[9][1].id, 'pL');
+  assert.ok(Math.abs(dos[9][1].weight - 1 / 3) < 1e-9);
+  assert.deepEqual(dos.at(-1), ['pane.focus', { terminal: 't1' }]);
+});
+
+test('stackLayout: a worker the window cannot keep gets the labels instead', async () => {
+  const run = appWindow({ keep: false });
+  const herdr = createHerdrApp({ run, sleep: async () => {} });
+  const stack = await herdr.stackLayout({ leader: 't1', space: 'spA', tab: 'tbA', count: 2 });
+  await startAll(herdr, stack, ['w0', 'w1']);
+  const labels = run.calls.filter((c) => c.line.startsWith('hc label')).map((c) => c.args);
+  assert.deepEqual(labels, [
+    ['label', '--json', 'tw0', 'herdr.space=spA', 'herdr.tab=tbA'],
+    ['label', '--json', 'tw1', 'herdr.space=spA', 'herdr.tab=tbA'],
+  ]);
+});
+
+test('stackLayout: a worker that did not start leaves the rest placed', async () => {
+  const run = appWindow();
+  const taken = (cmd, args) => cmd === 'hc' && args[0] === 'run' && args.includes('w0');
+  const herdr = createHerdrApp({ run: async (cmd, args, opts) => (taken(cmd, args) ? { code: 0, ...hcError('usage', 'taken', 2) } : run(cmd, args, opts)), sleep: async () => {} });
+  const stack = await herdr.stackLayout({ leader: 't1', space: 'spA', tab: 'tbA', count: 2 });
+  const res = await startAll(herdr, stack, ['w0', 'w1']);
+  assert.deepEqual(res.map((r) => r.ok), [false, true]);
+  // w1 has no worker above it to go under: shown by its labels.
+  assert.ok(run.calls.some((c) => c.line.startsWith('hc label --json tw1')));
+});
+
+test('stackLayout is null when the window is closed or does not show the leader', async () => {
+  assert.equal(await createHerdrApp({ run: appWindow({ status: 1 }) }).stackLayout({ leader: 't1', space: 'spA', tab: 'tbA', count: 2 }), null);
+  assert.equal(await createHerdrApp({ run: appWindow() }).stackLayout({ leader: 't9', space: 'spA', tab: 'tbA', count: 2 }), null);
+});
+
+test('stackLayout leaves the leader\'s width alone when it shares its tab', async () => {
+  const run = appWindow({ others: [{ terminal: 't5', pane: 'p5' }] });
+  const herdr = createHerdrApp({ run, sleep: async () => {} });
+  await startAll(herdr, await herdr.stackLayout({ leader: 't1', space: 'spA', tab: 'tbA', count: 1 }), ['w0']);
+  assert.ok(!appDos(run).some(([cmd, a]) => cmd === 'layout.resize' && a.id === 'pL'));
+});
+
+test('stackLayout in a new tab: the first worker is shown by its labels, the rest kept around it', async () => {
+  const run = appWindow({ shown: [{ terminal: 'tw0', pane: 'ptw0' }] });
+  const herdr = createHerdrApp({ run, sleep: async () => {} });
+  const stack = await herdr.stackLayout({ leader: 't1', space: 'spA', tab: 'tbN', newTab: true, count: 2 });
+  await startAll(herdr, stack, ['w0', 'w1'], { space: 'spA', tab: 'tbN', label: 'foreman:x' });
+  const runs = run.calls.filter((c) => c.line.startsWith('hc run'));
+  assert.ok(runs[0].args.includes('herdr.tab=tbN'));
+  assert.ok(!runs[1].args.some((a) => a.startsWith('herdr.')));
+  const dos = appDos(run).filter(([cmd]) => cmd !== 'tab.rename');
+  assert.deepEqual(dos, [
+    ['pane.focus', { terminal: 'tw0' }], ['terminal.keep', { terminal: 'tw1', place: 'down' }],
+    ['layout.resize', { id: 'ptw0', weight: 1 }], ['layout.resize', { id: 'ptw1', weight: 1 }],
+    ['pane.focus', { terminal: 't1' }],
+  ]);
+});
+
+test('stackLayout waits until the window knows a just-started terminal before keeping it', async () => {
+  const run = appWindow();
+  let misses = 0;
+  const slept = [];
+  const racy = async (cmd, args, opts) => {
+    if (cmd === 'herdr-app' && args[1] === 'terminal.keep' && misses < 2) {
+      misses++;
+      run.calls.push({ cmd, args, opts, line: [cmd, ...args].join(' ') });
+      return { code: 1, stdout: JSON.stringify({ error: `no running terminal "${JSON.parse(args[2]).terminal}"` }), stderr: '' };
+    }
+    return run(cmd, args, opts);
+  };
+  const herdr = createHerdrApp({ run: racy, sleep: async (ms) => { slept.push(ms); } });
+  await startAll(herdr, await herdr.stackLayout({ leader: 't1', space: 'spA', tab: 'tbA', count: 1 }), ['w0']);
+  const keeps = appDos(run).filter(([cmd]) => cmd === 'terminal.keep');
+  assert.equal(keeps.length, 3);
+  assert.deepEqual(slept, [200, 200]);
+  assert.ok(!run.calls.some((c) => c.line.startsWith('hc label')));
+  assert.ok(appDos(run).some(([cmd, a]) => cmd === 'layout.resize' && a.id === 'pL'));
+});
+
+test('stackLayout gives up on an unknown terminal after about 5 s and shows it by its labels', async () => {
+  const run = appWindow();
+  const racy = async (cmd, args, opts) => (cmd === 'herdr-app' && args[1] === 'terminal.keep'
+    ? { code: 1, stdout: '{"error":"no running terminal \\"tw0\\""}', stderr: '' } : run(cmd, args, opts));
+  let waited = 0;
+  const herdr = createHerdrApp({ run: racy, sleep: async (ms) => { waited += ms; } });
+  await startAll(herdr, await herdr.stackLayout({ leader: 't1', space: 'spA', tab: 'tbA', count: 1 }), ['w0']);
+  assert.equal(waited, 5000);
+  assert.ok(run.calls.some((c) => c.line.startsWith('hc label --json tw0')));
 });

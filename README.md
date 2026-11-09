@@ -190,7 +190,7 @@ With herdr in the terminal, type `herdr` and press `Ctrl+B`, then `F`, as above;
 
 Workers write their reports to `.foreman/` inside their own worktree; foreman adds `.foreman/` to the repository's `.git/info/exclude`, so reports never show up in `git status` or a commit.
 
-If a worker asks for permission, the leader asks you once whether you answer such questions yourself or let it answer on your behalf. It never approves a push or a pull request.
+If a worker asks for permission, the leader asks you once whether you answer such questions yourself or let it answer on your behalf. It never approves a push or a pull request. In auto mode claude workers get `--permission-mode auto` (with `git push` and `gh` denied), opencode `--auto`, and agy `--dangerously-skip-permissions`, because agy's own `--mode auto` still asks before every shell command; the workers run in foreman's own worktrees, which have the push guard.
 
 ## Subcommands
 
@@ -244,7 +244,7 @@ Everything lives in `~/.herdr-foreman/` (set `FOREMAN_HOME` to move it):
 
 | Path | Contents |
 |---|---|
-| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl`, `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr and Herdr app shortcuts), `worktreeSetup` (a command run in each new worker worktree, e.g. `"npm ci"`), `copyFiles` (globs of untracked files such as `.env*` copied into each worktree). A `.foreman.json` at the root of a repository can set `worktreeSetup` and `copyFiles` for that repository; it runs commands, so check it in repositories you did not write |
+| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl`, `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr and Herdr app shortcuts), `worktreeSetup` (a command run in each new worker worktree, e.g. `"npm ci"`), `copyFiles` (globs of untracked files such as `.env*` copied into each worktree), `layout` (`"stack"`, the default: the leader keeps about 40% on the left and up to 4 workers are stacked on the right, more go to a new tab; `"grid"`: the earlier equal columns of up to 3 workers). A `.foreman.json` at the root of a repository can set `worktreeSetup` and `copyFiles` for that repository; it runs commands, so check it in repositories you did not write |
 | `knowledge.override.json` | Optional: your corrections to the knowledge file, deep-merged |
 | `journal.jsonl` | Your results |
 | `worktrees/` | Worker worktrees, outside your repository |

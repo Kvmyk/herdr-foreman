@@ -32,12 +32,14 @@ export async function workerStatus({ run, git, exists, herdr = null, now = Date.
     };
     if (!exists(w.worktree)) return { name: w.name, ...live, missing: true, dirty: false, changedFiles: [], added: 0, removed: 0, commitsAhead: 0, pushGuardArmed: false, ...reports };
     const changedFiles = await git.changedFiles(w.worktree);
-    const { added, removed } = git.diffStat ? await git.diffStat(w.worktree, run.base) : { added: 0, removed: 0 };
+    // FILES and LINES come from the same diff against the base, so committed work counts too.
+    const { added, removed, files } = git.diffStat ? await git.diffStat(w.worktree, run.base) : { added: 0, removed: 0, files: changedFiles.length };
     return {
       name: w.name,
       ...live,
       dirty: changedFiles.length > 0,
       changedFiles,
+      files: files ?? changedFiles.length,
       added,
       removed,
       commitsAhead: await git.commitsAhead(w.worktree, run.base),

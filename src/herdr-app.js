@@ -5,8 +5,9 @@
 // space or tab. A "pane" here is an hc terminal, and its address (t7) is the
 // pane id. Failures become HerdrError with hc's error kind as code.
 import { randomBytes } from 'node:crypto';
-import { HerdrError } from './herdr.js';
+import { HerdrError, realSleep, sendKeys, submitIfStuck } from './herdr.js';
 import { appArgv } from './inventory/kinds.js';
+import { appStackSteps } from './layout.js';
 
 function parseJson(text) {
   try {
@@ -27,7 +28,7 @@ function errorOf(res) {
 // Ids shaped like the app's own (sp<hex>, tb<hex>).
 const randomId = (prefix) => `${prefix}${randomBytes(16).toString('hex')}`;
 
-export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = randomId }) {
+export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = randomId, sleep = realSleep }) {
   // Options go before positionals: hc takes none after them.
   async function call(command, args, timeoutMs = 30000) {
     const res = await run(hc, [command, '--json', ...args], { timeoutMs });
@@ -42,6 +43,104 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     } catch {
       return false;
     }
+  }
+
+  // The reply of an app command; null when it failed or the window is closed.
+  // A terminal hc has just started is not known to the window for a moment:
+  // until it is, the command is tried again (every 200 ms, up to 5 s).
+  async function appCall(command, args) {
+    for (let tries = 0; ; tries++) {
+      let res;
+      try {
+        res = await run(app, ['do', command, JSON.stringify(args)], { timeoutMs: 10000 });
+      } catch {
+        return null;
+      }
+      if (res.code === 0) return parseJson(res.stdout) ?? {};
+      if (tries >= 25 || !/no running terminal/.test(`${res.stdout}${res.stderr}`)) return null;
+      await sleep(200);
+    }
+  }
+
+  // Where the open window shows a terminal: { pane, tab }, or null.
+  async function shownAt(terminal) {
+    let res;
+    try {
+      res = await run(app, ['ls'], { timeoutMs: 10000 });
+    } catch {
+      return null;
+    }
+    for (const sp of parseJson(res.code === 0 ? res.stdout : '')?.spaces ?? []) {
+      for (const tab of sp.tabs ?? []) {
+        const t = (tab.terminals ?? []).find((x) => x.terminal === terminal);
+        if (t?.pane) return { pane: t.pane, tab };
+      }
+    }
+    return null;
+  }
+
+  // Runs the steps of appStackSteps as the workers' terminals come up, in
+  // order. A worker that cannot be given its pane gets the labels instead, so
+  // the window still shows it, beside the others.
+  function stacker({ steps, count, leader, leaderPane, space, tab }) {
+    const terms = new Array(count); // undefined until its hc run has returned; null when it failed
+    const panes = new Array(count).fill(null);
+    let pos = 0;
+    let busy = Promise.resolve();
+
+    const label = (i) => call('label', [terms[i], `herdr.space=${space}`, `herdr.tab=${tab}`]).catch(() => {});
+
+    async function step(s) {
+      if ('leader' in s) {
+        if (leaderPane) await appCall('layout.resize', { id: leaderPane, weight: s.leader });
+        return;
+      }
+      const t = terms[s.worker];
+      if (!t) return;
+      if ('weight' in s) {
+        if (panes[s.worker]) await appCall('layout.resize', { id: panes[s.worker], weight: s.weight });
+        return;
+      }
+      if (s.place === null) {
+        // Shown by its labels; the window picks it up a moment later.
+        for (let tries = 0; tries < 20 && !panes[s.worker]; tries++) {
+          panes[s.worker] = (await shownAt(t))?.pane ?? null;
+          if (!panes[s.worker]) await sleep(250);
+        }
+        return;
+      }
+      const anchor = s.anchor === 'leader' ? leader : panes[s.anchor] && terms[s.anchor];
+      const kept = anchor && await appCall('pane.focus', { terminal: anchor })
+        && await appCall('terminal.keep', { terminal: t, place: s.place });
+      if (kept?.pane) panes[s.worker] = kept.pane;
+      else await label(s.worker);
+    }
+
+    async function pump() {
+      while (pos < steps.length) {
+        const s = steps[pos];
+        const needs = [s.worker, typeof s.anchor === 'number' ? s.anchor : undefined].filter((i) => i !== undefined);
+        if (needs.some((i) => terms[i] === undefined)) return;
+        pos++;
+        await step(s).catch(() => {});
+      }
+      if (pos === steps.length && leader) {
+        pos++;
+        await appCall('pane.focus', { terminal: leader });
+      }
+    }
+
+    return {
+      // Worker 0 of a new tab is shown by its labels; the others start hidden.
+      labelled: (i) => steps.some((s) => s.worker === i && s.place === null),
+      // The worker's terminal (null: it did not start); resolves when the
+      // steps that could run so far are done. Never rejects.
+      add(i, terminal) {
+        terms[i] = terminal ?? null;
+        busy = busy.then(pump);
+        return busy;
+      },
+    };
   }
 
   // Tabs whose title already says a worker needs the person.
@@ -70,6 +169,22 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
       const t = await call('get', [terminal]).catch(() => null);
       const space = t?.labels?.['herdr.space'];
       return space ? { space, tab: t.labels['herdr.tab'] ?? null } : null;
+    },
+
+    // Stacks a spawn's workers in the open window: in the leader's tab right
+    // of the leader, or in a new tab (newTab). Null when the window is closed or
+    // does not show the leader; the workers then come up by their labels and
+    // the app puts them side by side.
+    async stackLayout({ leader = null, space, tab, newTab = false, count }) {
+      if (!(await this.appRunning())) return null;
+      let leaderPane = null;
+      if (!newTab) {
+        const at = leader ? await shownAt(leader) : null;
+        if (!at) return null;
+        // The leader's weight is known only when it is alone in its tab.
+        if (at.tab.terminals.length === 1) leaderPane = at.pane;
+      }
+      return stacker({ steps: appStackSteps(count, { newTab }), count, leader, leaderPane, space, tab });
     },
 
     // Spaces and tabs come into being with their first terminal, so these
@@ -109,8 +224,11 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     // until it is ready. Never throws: a worker that is not ready (for example
     // stuck on a folder-trust dialog) must not stop the others.
     // --no-parent: workers must not end with the leader, nor hc type notes into it.
-    async agentStart({ name, kind, cwd, space, tab, label, focus = false, timeoutMs, args = [] }) {
-      const labels = { 'herdr.space': space, 'herdr.tab': tab, 'foreman.name': name };
+    // With stack (from stackLayout) and its index, the terminal is placed in
+    // the stack instead of being shown by its labels.
+    async agentStart({ name, kind, cwd, space, tab, label, focus = false, timeoutMs, args = [], stack = null, index = 0 }) {
+      const shown = !stack || stack.labelled(index);
+      const labels = { 'herdr.space': shown ? space : null, 'herdr.tab': shown ? tab : null, 'foreman.name': name };
       const labelArgs = Object.entries(labels).filter(([, v]) => v).flatMap(([k, v]) => ['--label', `${k}=${v}`]);
       let pane;
       try {
@@ -120,8 +238,10 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
         ]);
         pane = r.address;
       } catch (err) {
+        await stack?.add(index, null);
         return { ok: false, pane: null, code: err.code, message: err.message };
       }
+      await stack?.add(index, pane);
 
       const secs = Math.ceil((timeoutMs ?? 30000) / 1000);
       let res;
@@ -162,10 +282,13 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     // hc refuses to type into a blocked agent: answer its question with keys first.
     async agentPrompt(target, text) {
       await call('send', [target, '--', text]);
+      await submitIfStuck({
+        read: () => this.agentRead(target), press: () => call('keys', [target, 'enter']), sleep, text,
+      });
     },
 
     async agentKeys(target, keys) {
-      await call('keys', [target, ...keys]);
+      await sendKeys((key) => call('keys', [target, key]), keys, sleep);
     },
   };
 }

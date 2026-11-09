@@ -1,10 +1,12 @@
 // Opens workers: one git worktree and one herdr pane per worker, agents
-// started in parallel. Panes sit next to the leader in columns of up to three.
+// started in parallel. Panes are stacked to the right of the leader (or, with
+// layout "grid" in config.json, sit in columns of up to three).
 // In the Herdr app each worker is a terminal in the leader's tab (or a new
-// one), and the app lays them out.
+// one), stacked the same way while the window is open; otherwise (and with
+// layout "grid") the app lays them out.
 import path from 'node:path';
 import { HERDR_KINDS, PROBES, EFFORT_LEVELS } from './inventory/kinds.js';
-import { planLayout, columnRatios, rowRatios, MAX_BESIDE_LEADER } from './layout.js';
+import { planPanes, layoutOf, MAX_BESIDE_LEADER } from './layout.js';
 import { checkStartFlags, flagsOf } from './startflags.js';
 import { classifyScreen, describeBlocked } from './blocked.js';
 import { recordStartResults } from './startfail.js';
@@ -81,15 +83,23 @@ async function validate({ herdr, git, repo, config, task, specs, existing, pane,
 }
 
 // The Herdr app: the space and tab the workers' terminals will show up in.
-async function appPlace({ herdr, pane, newTab, task, workers }) {
+async function appPlace({ herdr, pane, newTab, task, workers, layout }) {
   const here = pane ? await herdr.here(pane) : null;
-  if (!newTab && here?.tab) return { space: here.space, tab: here.tab, label: null };
-  const { workspaceId, tabId } = await herdr.tabCreate({ workspaceId: here?.space, cwd: workers[0].worktree, label: `foreman:${task}`, focus: false });
-  return { space: workspaceId, tab: tabId, label: `foreman:${task}` };
+  let place;
+  if (!newTab && here?.tab) {
+    place = { space: here.space, tab: here.tab, label: null };
+  } else {
+    const { workspaceId, tabId } = await herdr.tabCreate({ workspaceId: here?.space, cwd: workers[0].worktree, label: `foreman:${task}`, focus: false });
+    place = { space: workspaceId, tab: tabId, label: `foreman:${task}` };
+  }
+  if (layout === 'stack' && herdr.stackLayout) {
+    place.stack = await herdr.stackLayout({ leader: pane, space: place.space, tab: place.tab, newTab: place.label !== null, count: workers.length });
+  }
+  return place;
 }
 
-async function openPanes({ herdr, pane, newTab, task, workers }) {
-  const { cols, rows } = planLayout(workers.length);
+async function openPanes({ herdr, pane, newTab, task, workers, layout }) {
+  const { leaderRatio, cols, rows, colRatios, rowRatios } = planPanes(workers.length, { layout, newTab });
   const cwdAt = (c, j) => workers[rows.slice(0, c).reduce((s, n) => s + n, 0) + j].worktree;
   const created = [];
   const split = async (o) => {
@@ -102,19 +112,18 @@ async function openPanes({ herdr, pane, newTab, task, workers }) {
   if (newTab) {
     region = (await herdr.tabCreate({ cwd: cwdAt(0, 0), label: `foreman:${task}`, focus: false })).paneId;
   } else {
-    region = await split({ pane, direction: 'right', ratio: 1 / (cols + 1), cwd: cwdAt(0, 0) });
+    region = await split({ pane, direction: 'right', ratio: leaderRatio, cwd: cwdAt(0, 0) });
   }
 
   try {
     const columns = [region];
-    const colRatios = columnRatios(cols);
     for (let i = 1; i < cols; i++) {
       columns.push(await split({ pane: columns[i - 1], direction: 'right', ratio: colRatios[i - 1], cwd: cwdAt(i, 0) }));
     }
     const panes = [];
     for (let c = 0; c < cols; c++) {
       const cell = [columns[c]];
-      const ratios = rowRatios(rows[c]);
+      const ratios = rowRatios[c];
       for (let j = 1; j < rows[c]; j++) {
         cell.push(await split({ pane: cell[j - 1], direction: 'down', ratio: ratios[j - 1], cwd: cwdAt(c, j) }));
       }
@@ -139,9 +148,9 @@ async function readTail(herdr, targets) {
 }
 
 // Press the answer, then wait for the agent to stop being blocked.
-async function answerTrust({ herdr, w, keys, sleep }) {
+async function answerTrust({ herdr, w, keys, sleep, pressed = false }) {
   try {
-    await herdr.agentKeys(w.name, keys);
+    if (!pressed) await herdr.agentKeys(w.name, keys);
     for (let waited = 0; waited < 30000; waited += 1000) {
       await sleep(1000);
       const status = (await herdr.agentList()).find((a) => a.name === w.name)?.agent_status;
@@ -149,6 +158,21 @@ async function answerTrust({ herdr, w, keys, sleep }) {
     }
   } catch { /* leave it for the user */ }
   return false;
+}
+
+// While an agent starts, answer its folder-trust dialog as soon as it shows,
+// instead of letting the start wait out its whole timeout.
+async function watchTrust({ herdr, w, sleep, isDone, answered }) {
+  for (let waited = 0; !isDone() && waited < 120000; waited += 1500) {
+    await sleep(1500);
+    if (isDone()) return;
+    const c = classifyScreen(w.kind, await readTail(herdr, [w.name, w.paneId]));
+    if (c?.safeToAnswer) {
+      answered.add(w.name);
+      try { await herdr.agentKeys(w.name, c.keys); } catch { /* the start result reports it */ }
+      return;
+    }
+  }
 }
 
 // Worker reports live in <worktree>/.foreman/, inside the worker's own folder
@@ -176,7 +200,8 @@ export async function spawnWorkers({
     throw fail('USAGE', `task "${task}" runs its workers in ${where}; run foreman spawn from there`);
   }
   const warnings = [];
-  if (!newTab && specs.length > MAX_BESIDE_LEADER && specs.length <= config.maxWorkers) {
+  const layout = layoutOf(config);
+  if (!newTab && specs.length > MAX_BESIDE_LEADER[layout] && specs.length <= config.maxWorkers) {
     newTab = true;
     warnings.push(`${specs.length} workers would be too narrow next to the leader; opened them in a new tab`);
   }
@@ -222,10 +247,10 @@ export async function spawnWorkers({
       mkdir(w.reportDir, { recursive: true });
     }
     if (backend === 'app') {
-      const place = await appPlace({ herdr, pane, newTab, task, workers });
+      const place = await appPlace({ herdr, pane, newTab, task, workers, layout });
       workers.forEach((w) => { w.place = place; w.paneId = null; });
     } else {
-      const panes = await openPanes({ herdr, pane, newTab, task, workers });
+      const panes = await openPanes({ herdr, pane, newTab, task, workers, layout });
       workers.forEach((w, i) => { w.paneId = panes[i]; });
     }
   } catch (err) {
@@ -252,10 +277,19 @@ export async function spawnWorkers({
   if (run) warnings.push(...await checkStartFlags({ run, byKind: argsOf }));
 
 
-  const results = await Promise.all(workers.map((w, i) => herdr.agentStart({
-    name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
-    timeoutMs: config.startTimeoutMs, args: startArgs[i],
-  })));
+  const answeredEarly = new Set();
+  const results = await Promise.all(workers.map(async (w, i) => {
+    let done = false;
+    if (sleep) watchTrust({ herdr, w, sleep, isDone: () => done, answered: answeredEarly }).catch(() => {});
+    try {
+      return await herdr.agentStart({
+        name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
+        timeoutMs: config.startTimeoutMs, args: startArgs[i], stack: w.place?.stack ?? null, index: i,
+      });
+    } finally {
+      done = true;
+    }
+  }));
   for (const [i, w] of workers.entries()) {
     const res = results[i];
     w.paneId = res.pane ?? w.paneId;
@@ -269,7 +303,7 @@ export async function spawnWorkers({
     if (screen) w.screen = screen;
     const c = classifyScreen(w.kind, screen);
     // The worktree is foreman's own, so a known trust dialog is answered here.
-    if (c?.safeToAnswer && sleep && await answerTrust({ herdr, w, keys: c.keys, sleep })) {
+    if (c?.safeToAnswer && sleep && await answerTrust({ herdr, w, keys: c.keys, sleep, pressed: answeredEarly.has(w.name) })) {
       w.status = 'ready';
       w.error = null;
       warnings.push(`${w.name}: answered the folder-trust dialog of ${w.kind} for its worktree`);

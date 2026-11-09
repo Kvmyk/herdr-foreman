@@ -75,11 +75,11 @@ test('rejects too many workers and bad task', async () => {
   await assert.rejects(call(f, { specs: ['w1=claude'], task: 'Fix Login' }), (e) => e.code === 'BAD_TASK');
 });
 
-test('three workers: splits and cwd per worktree', async () => {
+test('three workers: stacked right of the leader, cwd per worktree', async () => {
   const f = fakes();
   const { workers } = await call(f, { specs: ['w1=claude', 'w2=agy', 'w3=pi'] });
   const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => o);
-  assert.deepEqual(splits.map((s) => [s.direction, Number(s.ratio.toFixed(4))]), [['right', 0.5], ['down', 0.3333], ['down', 0.5]]);
+  assert.deepEqual(splits.map((s) => [s.direction, Number(s.ratio.toFixed(4))]), [['right', 0.4], ['down', 0.3333], ['down', 0.5]]);
   assert.deepEqual(splits.map((s) => s.cwd), workers.map((w) => w.worktree));
   assert.equal(splits[0].pane, 'w1:p1');
   const root = workers[0].worktree.slice(0, -'w1'.length);
@@ -88,7 +88,28 @@ test('three workers: splits and cwd per worktree', async () => {
   assert.deepEqual(workers.map((w) => w.status), ['ready', 'ready', 'ready']);
 });
 
-test('five workers use two columns, in a new tab of their own', async () => {
+test('grid layout keeps equal columns beside the leader', async () => {
+  const f = fakes();
+  await call(f, { specs: ['a=claude', 'b=claude', 'c=claude'], config: { ...DEFAULT_CONFIG, layout: 'grid' } });
+  const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => [o.direction, Number(o.ratio.toFixed(4))]);
+  assert.deepEqual(splits, [['right', 0.5], ['down', 0.3333], ['down', 0.5]]);
+});
+
+test('grid layout: four workers go to a new tab', async () => {
+  const f = fakes();
+  const { warnings } = await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude'], config: { ...DEFAULT_CONFIG, layout: 'grid' } });
+  assert.equal(f.log.filter(([k]) => k === 'tab').length, 1);
+  assert.ok(warnings.some((w) => /4 workers/.test(w) && /new tab/.test(w)));
+});
+
+test('new tab stacks up to four workers in one column', async () => {
+  const f = fakes();
+  await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude'], newTab: true });
+  const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => [o.direction, Number(o.ratio.toFixed(4))]);
+  assert.deepEqual(splits, [['down', 0.25], ['down', 0.3333], ['down', 0.5]]);
+});
+
+test('five workers use two stacked columns, in a new tab of their own', async () => {
   const f = fakes();
   const { warnings } = await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude', 'e=claude'] });
   const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => [o.direction, Number(o.ratio.toFixed(4))]);
@@ -97,16 +118,18 @@ test('five workers use two columns, in a new tab of their own', async () => {
   assert.ok(warnings.some((w) => /5 workers/.test(w) && /new tab/.test(w)));
 });
 
-test('up to three workers stay beside the leader', async () => {
+test('up to four workers stay beside the leader', async () => {
   const f = fakes();
-  const { warnings } = await call(f, { specs: ['a=claude', 'b=claude', 'c=claude'] });
+  const { warnings } = await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude'] });
+  const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => [o.direction, Number(o.ratio.toFixed(4))]);
+  assert.deepEqual(splits, [['right', 0.4], ['down', 0.25], ['down', 0.3333], ['down', 0.5]]);
   assert.equal(f.log.filter(([k]) => k === 'tab').length, 0);
   assert.ok(!warnings.some((w) => /new tab/.test(w)));
 });
 
-test('more than three workers need no leader pane', async () => {
+test('more than four workers need no leader pane', async () => {
   const f = fakes();
-  await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude'], pane: null });
+  await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude', 'e=claude'], pane: null });
   assert.equal(f.log.filter(([k]) => k === 'tab').length, 1);
 });
 
@@ -279,7 +302,7 @@ test('--auto passes each kind its auto-approve args and records auto', async () 
   const { warnings } = await call(f, { specs: ['c=claude', 'a=agy', 'o=opencode', 'p=pi', 'x=codex'], auto: true });
   const args = Object.fromEntries(f.log.filter(([k]) => k === 'start').map(([, o]) => [o.name, o.args]));
   assert.deepEqual(args.c.slice(0, 4), ['--permission-mode', 'auto', '--disallowedTools', 'Bash(git push:*),Bash(gh:*)']);
-  assert.deepEqual(args.a, ['--mode', 'auto']);
+  assert.deepEqual(args.a, ['--dangerously-skip-permissions']);
   assert.deepEqual(args.o, ['--auto']);
   assert.deepEqual(args.p, []);
   assert.deepEqual(args.x, []);
@@ -305,7 +328,7 @@ test('agy gets no --effort together with --model, only a warning', async () => {
 test('--auto warns when the agent help does not mention its flag', async () => {
   const f = fakes();
   const asked = [];
-  const run = async (cmd, a) => { asked.push([cmd, a]); return { code: 0, stdout: cmd === 'agy' ? '--mode' : 'nothing', stderr: '' }; };
+  const run = async (cmd, a) => { asked.push([cmd, a]); return { code: 0, stdout: cmd === 'agy' ? '--dangerously-skip-permissions' : 'nothing', stderr: '' }; };
   const { warnings } = await call(f, { specs: ['a=agy', 'a2=agy', 'c=claude'], auto: true, run });
   assert.deepEqual(asked, [['agy', ['--help']], ['claude', ['--help']]]);
   assert.ok(warnings.some((w) => /claude --help/.test(w)));
@@ -381,6 +404,29 @@ test('in the Herdr app --new-tab puts workers in a fresh, named tab of the same 
   assert.deepEqual([start.space, start.tab, start.label], ['spA', 'tbNew', 'foreman:fix-login']);
 });
 
+test('in the Herdr app the stack layout asks the app to stack the workers', async () => {
+  const f = appHerdr(fakes());
+  const stack = { labelled: () => false, add: async () => {} };
+  f.herdr.stackLayout = async (o) => { f.log.push(['stack', o]); return stack; };
+  const { workers } = await call(f, { specs: ['w1=claude', 'w2=agy'], pane: 't3' });
+  assert.deepEqual(f.log.find(([k]) => k === 'stack')[1], { leader: 't3', space: 'spA', tab: 'tbA', newTab: false, count: 2 });
+  const starts = f.log.filter(([k]) => k === 'start').map(([, o]) => o);
+  assert.deepEqual(starts.map((o) => [o.stack === stack, o.index]), [[true, 0], [true, 1]]);
+  assert.equal('place' in workers[0], false);
+});
+
+test('in the Herdr app a new tab is stacked as a new tab, and grid leaves the layout to the app', async () => {
+  const f = appHerdr(fakes());
+  f.herdr.stackLayout = async (o) => { f.log.push(['stack', o]); return null; };
+  await call(f, { specs: ['w1=claude'], pane: 't3', newTab: true });
+  assert.equal(f.log.find(([k]) => k === 'stack')[1].newTab, true);
+  assert.equal(f.log.find(([k]) => k === 'start')[1].stack, null);
+  const g = appHerdr(fakes());
+  g.herdr.stackLayout = async (o) => { g.log.push(['stack', o]); return null; };
+  await call(g, { specs: ['w1=claude'], pane: 't3', config: { ...DEFAULT_CONFIG, layout: 'grid' } });
+  assert.equal(g.log.some(([k]) => k === 'stack'), false);
+});
+
 test('a herdr run does not take workers spawned from the Herdr app', async () => {
   const existingRun = { task: 'fix-login', repo, base: 'abc123', branch: 'feat/fix-login', workers: [] };
   const f = appHerdr(fakes({ existingRun }));
@@ -422,12 +468,12 @@ test('a known folder-trust dialog is answered in the worker worktree', async () 
   const f = fakes();
   const keys = [];
   f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_not_ready', message: 'claude is waiting for an answer' });
-  f.herdr.agentRead = async () => 'Do you trust the files in this folder? 1. Yes, I trust this folder';
+  f.herdr.agentRead = async () => 'Do you trust the files in this folder?\n ❯ No, exit\n   Yes, I trust this folder';
   f.herdr.agentKeys = async (name, k) => { keys.push([name, k]); };
   let listed = 0;
   f.herdr.agentList = async () => (listed++ ? [{ name: 'w1', agent_status: 'idle' }] : []);
   const { workers, warnings } = await call(f, { specs: ['w1=claude'], sleep: async () => {} });
-  assert.deepEqual(keys, [['w1', ['enter']]]);
+  assert.deepEqual(keys, [['w1', ['down', 'enter']]]);
   assert.equal(workers[0].status, 'ready');
   assert.ok(warnings.some((w) => /trust/.test(w)));
 });
@@ -435,8 +481,23 @@ test('a known folder-trust dialog is answered in the worker worktree', async () 
 test('an unknown kind blocked on a trust dialog is reported with the keys command', async () => {
   const f = fakes();
   f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_not_ready', message: 'agy is waiting for an answer' });
-  f.herdr.agentRead = async () => 'Do you trust this folder?';
-  const { workers } = await call(f, { specs: ['w1=agy'], sleep: async () => {} });
+  f.herdr.agentRead = async () => 'Do you trust this folder?\n > Yes, I trust this folder\n   No, exit';
+  const { workers } = await call(f, { specs: ['w1=agy'], sleep: null });
   assert.equal(workers[0].status, 'not_ready');
   assert.match(workers[0].error, /foreman keys --task fix-login w1 enter/);
+});
+
+test('a trust dialog is answered while the agent is still starting', async () => {
+  const f = fakes();
+  const keys = [];
+  let answered = false;
+  f.herdr.agentRead = async () => 'Is this a project you trust?\n ❯ No, exit\n   Yes, I trust this folder';
+  f.herdr.agentKeys = async (name, k) => { keys.push([name, k]); answered = true; };
+  f.herdr.agentStart = async () => {
+    for (let i = 0; i < 50 && !answered; i++) await new Promise((r) => setImmediate(r));
+    return answered ? { ok: true } : { ok: false, code: 'agent_not_ready', message: 'waited the whole timeout' };
+  };
+  const { workers } = await call(f, { specs: ['w1=claude'], sleep: async () => {} });
+  assert.deepEqual(keys, [['w1', ['down', 'enter']]]);
+  assert.equal(workers[0].status, 'ready');
 });

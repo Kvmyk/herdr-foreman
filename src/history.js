@@ -4,7 +4,7 @@
 // `foreman show` can tell what happened after the leader is gone.
 import path from 'node:path';
 import { loadRun, saveRun } from './runs.js';
-import { formatUsage, formatTokens } from './usage.js';
+import { formatUsage, formatTokens, costText } from './usage.js';
 import { createUi, table } from './ui.js';
 
 // spawned -> investigate -> implement -> merged -> landed -> cleaned
@@ -144,16 +144,24 @@ export function describeRun(run, { paths, readFile, exists, agents = [] }) {
   };
 }
 
+const OUTCOMES = { landed: 'landed', 'branch-kept': 'branch kept', discarded: 'discarded' };
+
+// The phase once; the outcome only when it says more, in plain words.
+export function phaseText(phase, outcome) {
+  if (!outcome || outcome === phase) return phase;
+  const words = OUTCOMES[outcome] ?? outcome;
+  return phase === 'cleaned' ? (outcome === 'landed' ? 'landed, cleaned up' : `cleaned up, ${words}`) : `${phase}, ${words}`;
+}
+
 const when = (s) => (s ? s.slice(0, 16).replace('T', ' ') : '-');
 
 export function formatRuns(rows, ui = createUi()) {
   if (!rows.length) return 'no foreman runs yet\n';
   const lines = rows.map((r) => {
     const live = r.liveWorkers.length ? `, ${r.liveWorkers.length} live` : '';
-    const end = r.outcome ? ` (${r.outcome})` : '';
-    const cost = r.usage?.total ? `${formatTokens(r.usage.total)} ${r.usage.costUsd === null ? '' : `~$${r.usage.costUsd.toFixed(2)}`}`.trim() : '-';
-    const phase = `${r.phase}${end}`;
-    return [r.task, r.liveWorkers.length ? ui.cyan(phase) : phase, String(r.branch ?? '-'), `${r.workers} workers${live}`, cost, when(r.createdAt), r.repo];
+    const cost = r.usage?.total ? `${formatTokens(r.usage.total)} ${costText(r.usage)}` : '-';
+    const phase = phaseText(r.phase, r.outcome);
+    return [r.task, r.liveWorkers.length ? ui.cyan(phase) : phase, String(r.branch ?? '-'), `${r.workers} ${r.workers === 1 ? 'worker' : 'workers'}${live}`, cost, when(r.createdAt), r.repo];
   });
   const text = table({ headers: ['TASK', 'PHASE', 'BRANCH', 'WORKERS', 'TOKENS', 'STARTED', 'REPO'], rows: lines, ui });
   return `${text}\nDetails: foreman show --task <slug>\n`;
@@ -165,7 +173,7 @@ export function formatShow(d, ui = createUi()) {
     ...(d.text ? [`asked    ${d.text.split(/\r?\n/)[0].slice(0, 200)}`] : []),
     `repo     ${d.repo}`,
     `branch   ${d.branch ?? '-'} (base ${String(d.base).slice(0, 10)}${d.snapshot ? ', with your uncommitted changes' : ''})`,
-    `phase    ${ui.bold(d.phase)}${d.outcome ? `, ${d.outcome}` : ''}`,
+    `phase    ${ui.bold(phaseText(d.phase, d.outcome))}`,
     `started  ${when(d.createdAt)}   last change ${when(d.updatedAt)}`,
   ];
   if (d.merged.length) out.push(`merged   ${d.merged.join(', ')} (${when(d.mergedAt)})`);

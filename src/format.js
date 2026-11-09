@@ -46,7 +46,7 @@ export function formatStatus(list, ui) {
     s.state ?? '-',
     dur(s.ageS),
     s.missing ? ui.red('missing') : s.dirty ? 'changed' : 'clean',
-    `${s.changedFiles?.length ?? 0}`,
+    `${s.files ?? s.changedFiles?.length ?? 0}`,
     `${ui.green(`+${s.added ?? 0}`)} ${ui.red(`-${s.removed ?? 0}`)}`,
     String(s.commitsAhead),
     s.report ? 'report' : s.proposals ? 'proposals' : '-',
@@ -88,7 +88,7 @@ const pct = (x) => (x === null || x === undefined ? '-' : `${Math.round(x * 100)
 
 export function formatStats(stats, ui) {
   const cats = Object.keys(stats);
-  if (!cats.length) return 'No results recorded yet. The leader adds them with "foreman journal add".';
+  if (!cats.length) return 'no results yet; the leader adds them with "foreman journal add"';
   const out = [];
   for (const cat of cats) {
     out.push(ui.bold(cat));

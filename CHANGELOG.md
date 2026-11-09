@@ -4,6 +4,26 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- New default pane layout `stack`: the leader keeps a full-height column of about 40% on the left and the workers are stacked one under another on the right. Up to 4 workers fit beside the leader; more (or `--new-tab`) go to a new tab, stacked as well, in two columns only past 4 workers. The old layout stays available as `"layout": "grid"` in `config.json`.
+- The `stack` layout works in the Herdr desktop app too: while its window is open, workers are placed one under another right of the leader (or stacked in their new tab) with equal heights and the leader at about 40%; with the window closed, or `"layout": "grid"`, the app puts them side by side as before.
+
+### Fixed
+
+- Claude Code's folder-trust dialog has "No, exit" preselected, but foreman answered it (and told you to answer it) with Enter, which closed the worker. The answer is now read off the screen: foreman picks the "Yes" option for claude, codex and agy, and answers the dialog while the worker starts instead of waiting 90 seconds.
+- `foreman keys <name> down enter` sent the keys so fast that Enter landed on the old option; keys are now pressed one at a time.
+- A message sent with `foreman prompt` right after a worker started sometimes stayed typed in its input without being sent; foreman now presses Enter once when the text is still there.
+- codex was listed as ready although its sign-in had run out (it then exits with "Your access token could not be refreshed"); the probe now treats a token that expired long ago without a refresh as signed out, and such a start failure carries the hint `run "codex login"`.
+- agy workers in auto mode still asked permission for every shell command; they now start with `--dangerously-skip-permissions` instead of `--mode auto` (the README auto-mode note says so).
+- A cost that includes a model without a known price (for example claude haiku) showed `~$0.00`; `show`, `runs` and the journal now say "cost unknown" then.
+- `foreman runs` printed "1 workers"; it now prints "1 worker".
+- `foreman runs` and `foreman show` printed "landed (landed)" or "cleaned (landed)"; the phase is printed once and the outcome only when it adds something, in plain words ("landed, cleaned up").
+- `foreman journal stats` with no results now says "no results yet" on a terminal (JSON output stays `{}`).
+- `foreman status` counts FILES from the same diff as LINES, so committed work no longer shows 0 files next to changed lines; TIME counts from the worker's start.
+- `foreman config` showed `autoSetup true` while `FOREMAN_NO_SETUP=1` was set; it now shows the value in effect and says the environment set it.
+- `foreman wait` no longer counts a `proposals.md` or `report.md` left from an earlier round: after `foreman prompt` briefs a worker again, only a report written after that brief makes the worker done.
+
 ## [0.5.0] - 2026-11-09
 
 ### Added

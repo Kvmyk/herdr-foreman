@@ -52,3 +52,10 @@ test('the run subcommands have usage lines and are offered for near misses', () 
   assert.equal(nearSubcommand('resum'), 'resume');
   assert.match(usageOf('diff'), /--stat/);
 });
+
+test('config shows the value the environment decides', () => {
+  const read = () => { throw Object.assign(new Error('x'), { code: 'ENOENT' }); };
+  const c = describeConfig({ paths: { config: '/h/config.json' }, readFile: read, env: { FOREMAN_NO_SETUP: '1' } });
+  assert.equal(c.config.autoSetup, false);
+  assert.match(formatConfig(c, createUi()), /autoSetup\s+false\s+\(set by the environment: FOREMAN_NO_SETUP\)/);
+});
