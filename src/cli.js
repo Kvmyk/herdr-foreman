@@ -27,6 +27,10 @@ Usage:
   foreman -- <task words...>           same, when the task starts with a subcommand name
   foreman --backend app|herdr ...      start in the Herdr app or in herdr (default: where you run it;
                                        also FOREMAN_BACKEND)
+  foreman --auto-answer --include-uncommitted "<task>"
+                                       answer the leader's two usual questions in advance: workers get
+                                       --auto, and a copy of the changes not committed yet
+                                       (the Herdr app prompt has these as checkboxes)
   foreman setup                        check herdr, git and your agents, add the herdr shortcut,
                                        and say what to do next (also: foreman doctor, or just foreman)
 
@@ -57,7 +61,15 @@ Subcommands (used by the leader; add --json for machine-readable output):
   journal add <file.json>              record how each worker did
   journal stats                        results per category and agent
 
+Where to start: Ctrl+B then F in herdr, Ctrl+Shift+Y in the Herdr app, or foreman "<task>" in any terminal.
+Examples:
+  foreman "fix the login page so it shows an error for a wrong password, see @src/login.js"
+  foreman -f task.md                   a longer task written in a file
+  foreman agents                       which agents are installed and signed in
+  foreman cleanup --all                remove what an interrupted run left behind
+
 Foreman never pushes and creates no pull request. It arms a push guard (a tripwire) on each worker worktree.
+More: README.md ("If something does not work", FAQ) and https://github.com/Kvmyk/herdr-foreman
 `;
 
 // Each subcommand: flags it accepts (true = takes a value), required flags,
