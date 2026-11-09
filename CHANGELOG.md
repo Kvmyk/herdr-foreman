@@ -4,6 +4,8 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-09
+
 ### Added
 
 - Herdr app prompt (Ctrl+Shift+Y), reworked: `Enter` adds a line and `Ctrl+Enter` starts, with the hint "Ctrl+Enter start · Esc cancel"; the folder is shown cut from the left; a draft is kept when you cancel and comes back next time; your last tasks are listed for reuse; `@` offers file names of the project; the configured leader is shown; Start is dimmed while the task is empty or something is wrong.
@@ -11,10 +13,12 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 - Two options in the Herdr app prompt, "Workers answer permission questions automatically" and "Include uncommitted changes", and the matching command line flags `--auto-answer` and `--include-uncommitted` (in front of a task). The leader no longer asks the questions you already answered.
 - In the Herdr app, a worker that is stuck (a trust dialog, a question) or has stopped puts its name in its tab's title (`⚠ w2 needs you`) and brings the tab forward.
 - Start failures are explained in plain words, and a leader or workers open in a new tab by themselves when there is no room in the current one; hints for trust and permission dialogs say which keys to press.
-- `foreman status` and a live watch of a run; `foreman runs` and `foreman show` list and describe earlier runs; `foreman resume` and `foreman respawn` continue a run or restart a worker; `foreman diff` shows what a worker changed; `foreman cost` estimates what a run used.
-- `foreman --version`, and usage help for a wrong command or option (what was expected and an example) instead of a bare error.
-- New settings in `config.json`: `worktreeSetup` (a command run in each new worktree, for example an install) and `copyFiles` (ignored files such as `.env` copied into each worktree).
-- Output in color on a terminal (plain when piped or with `NO_COLOR`).
+- `foreman status` and a live watch of a run; `foreman runs` and `foreman show` list and describe earlier runs; `foreman resume` and `foreman respawn` continue a run or restart a worker; `foreman diff` shows what a run or a worker changed; `foreman show` and `foreman runs` give tokens and an estimated cost per worker and run.
+- `foreman --version`, `foreman config` (settings in use and file paths), `foreman <command> --help`, "did you mean" for a mistyped command, and usage help for a wrong command or option (what was expected and an example) instead of a bare error.
+- New settings in `config.json` or a repository's `.foreman.json`: `worktreeSetup` (a command run in each new worktree, for example an install) and `copyFiles` (ignored files such as `.env` copied into each worktree).
+- Output in color on a terminal (plain when piped or with `NO_COLOR`), with aligned tables in `agents`, `status` and `runs`.
+- The herdr task prompt (Ctrl+B, then F) is redrawn: a framed header with the folder and branch, key hints, a summary of the task and the `@` files found, and progress with check marks.
+- The Herdr app prompt has a new look: folder and branch pills, switches with a short description, recent tasks as chips, key caps for Ctrl+Enter and Esc, and an error banner.
 - README: a Quick start with a terminal path and a desktop path at the top, the desktop section next to Install, `npm install -g` plus `foreman setup` as a normal install step, a troubleshooting table, an FAQ (cost, what is changed, what is never done, how to undo), and each prompt tip marked as herdr prompt or desktop prompt. `foreman --help` lists where to start and examples.
 
 ### Fixed
@@ -87,7 +91,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.3.0...v0.4.0
