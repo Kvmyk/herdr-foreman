@@ -34,7 +34,7 @@ test('agentStart adds the flags a kind needs under hc', async () => {
   const run = fakeRun([[/^hc run/, out({ address: 't2' })], [/^hc wait/, out({ ended: true, status: 'idle' })]]);
   await createHerdrApp({ run }).agentStart({ name: 'c1', kind: 'codex', cwd: '/wt' });
   const argv = run.calls[0].args;
-  assert.deepEqual(argv.slice(argv.indexOf('--') + 1), ['codex', '--no-daemon']);
+  assert.deepEqual(argv.slice(argv.indexOf('--') + 1), ['codex']);
 });
 
 test('agentStart reports a blocked agent as not ready, with its terminal', async () => {
@@ -116,4 +116,32 @@ test('appRunning is false when the window is closed or herdr-app is missing', as
   assert.equal(await createHerdrApp({ run: fakeRun({ 'herdr-app status': { code: 2 } }) }).appRunning(), false);
   assert.equal(await createHerdrApp({ run: fakeRun([]) }).appRunning(), false);
   assert.equal(await createHerdrApp({ run: fakeRun({ 'herdr-app status': { code: 0 } }) }).appRunning(), true);
+});
+
+test('agentStart names a worker that needs the person in its tab and brings the tab forward', async () => {
+  const run = fakeRun([
+    [/^hc run/, out({ address: 't3' })],
+    [/^hc wait/, out({ ended: true, reason: 'status', status: 'blocked' })],
+    [/^herdr-app do/, { code: 0 }],
+  ]);
+  await createHerdrApp({ run }).agentStart({ name: 'w2', kind: 'agy', cwd: '/wt', tab: 'tb1', label: 'foreman:x' });
+  const dos = run.calls.filter((c) => c.cmd === 'herdr-app').map((c) => c.args.slice(1));
+  assert.deepEqual(dos, [
+    ['tab.rename', JSON.stringify({ id: 'tb1', name: '⚠ w2 needs you · foreman:x' })],
+    ['tab.select', JSON.stringify({ id: 'tb1' })],
+  ]);
+});
+
+test('agentStart keeps the warning in the tab when a later worker of that tab is ready', async () => {
+  const run = fakeRun([
+    [/^hc run/, out({ address: 't3' })],
+    [/^hc wait/, () => out({ ended: true, reason: 'status', status: run.calls.filter((c) => c.args[0] === 'wait').length === 1 ? 'blocked' : 'idle' })],
+    [/^herdr-app do/, { code: 0 }],
+  ]);
+  const herdr = createHerdrApp({ run });
+  await herdr.agentStart({ name: 'w1', kind: 'agy', tab: 'tb1', label: 'foreman:x' });
+  const before = run.calls.length;
+  const ok = await herdr.agentStart({ name: 'w2', kind: 'claude', tab: 'tb1', label: 'foreman:x', focus: true });
+  assert.equal(ok.ok, true);
+  assert.equal(run.calls.slice(before).filter((c) => c.cmd === 'herdr-app').length, 0);
 });

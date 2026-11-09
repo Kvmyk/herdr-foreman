@@ -17,18 +17,29 @@ function isInside(child, parent) {
 export const mergeBranch = (run) => run.branch ?? `foreman/${run.task}`;
 const mergeWorktree = (run, paths) => path.join(worktreeRoot({ paths, repo: run.repo, task: run.task }), '_merge');
 
-export async function workerStatus({ run, git, exists }) {
+// What each worker has done: its agent's state, how long it has run, what it changed, what it reported.
+export async function workerStatus({ run, git, exists, herdr = null, now = Date.now }) {
+  const agents = herdr ? await herdr.agentList().catch(() => null) : null;
   return Promise.all(run.workers.map(async (w) => {
+    const started = Date.parse(w.startedAt ?? run.createdAt);
+    const live = {
+      state: agents ? agents.find((a) => a.name === w.name)?.agent_status ?? 'gone' : null,
+      ageS: Number.isFinite(started) ? Math.max(0, Math.round((now() - started) / 1000)) : null,
+    };
     const reports = {
       proposals: exists(path.join(w.reportDir, 'proposals.md')),
       report: exists(path.join(w.reportDir, 'report.md')),
     };
-    if (!exists(w.worktree)) return { name: w.name, missing: true, dirty: false, changedFiles: [], commitsAhead: 0, pushGuardArmed: false, ...reports };
+    if (!exists(w.worktree)) return { name: w.name, ...live, missing: true, dirty: false, changedFiles: [], added: 0, removed: 0, commitsAhead: 0, pushGuardArmed: false, ...reports };
     const changedFiles = await git.changedFiles(w.worktree);
+    const { added, removed } = git.diffStat ? await git.diffStat(w.worktree, run.base) : { added: 0, removed: 0 };
     return {
       name: w.name,
+      ...live,
       dirty: changedFiles.length > 0,
       changedFiles,
+      added,
+      removed,
       commitsAhead: await git.commitsAhead(w.worktree, run.base),
       pushGuardArmed: await git.pushGuardArmed(w.worktree),
       ...reports,

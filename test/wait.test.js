@@ -6,8 +6,8 @@ import { waitForWorkers, screenTail } from '../src/wait.js';
 const run = {
   task: 't',
   workers: [
-    { name: 'w1', reportDir: path.resolve('/wt/w1/.foreman') },
-    { name: 'w2', reportDir: path.resolve('/wt/w2/.foreman') },
+    { name: 'w1', kind: 'claude', reportDir: path.resolve('/wt/w1/.foreman') },
+    { name: 'w2', kind: 'agy', reportDir: path.resolve('/wt/w2/.foreman') },
   ],
 };
 
@@ -45,7 +45,7 @@ test('a stable blocked screen needs attention and carries the screen tail', asyn
   const res = await waitForWorkers({ run, ...w, phase: 'investigate', pollMs: 3000, stableMs: 6000 });
   assert.equal(res.result, 'attention');
   assert.equal(res.workers.w1, 'working');
-  assert.deepEqual(res.workers.w2, { state: 'blocked', screen: 'Allow running dir?\n❯ 1. Yes\n  2. No' });
+  assert.deepEqual(res.workers.w2, { state: 'blocked', screen: 'Allow running dir?\n❯ 1. Yes\n  2. No', hint: 'agy asks for permission; answer it with: foreman keys --task t w2 enter' });
   assert.equal(w.polls(), 2, 'waits until the screen was stable for stableMs');
 });
 

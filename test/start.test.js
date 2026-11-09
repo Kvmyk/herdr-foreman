@@ -157,6 +157,23 @@ test('a task with several lines goes to a task file the prompt points at', async
   assert.ok(text.includes(written[0][0]));
 });
 
+test('a one-line task is saved for history but stays in the prompt', async () => {
+  const { deps, log } = fakes();
+  const written = [];
+  const r = await startForeman({ ...deps, paths: { runs: path.resolve('/s/runs'), home: path.resolve('/s') }, mkdir: () => {}, writeFile: (f, t) => written.push([f, t]), task: 'fix login' });
+  assert.equal(r.ok, true);
+  assert.deepEqual(written, [[path.resolve('/s/tasks/fix-login.md'), 'fix login\n']]);
+  const text = log.find(([k]) => k === 'prompt')[1].text;
+  assert.match(text, /: fix login$/);
+});
+
+test('a saved task file also makes the slug unique', async () => {
+  const { deps } = fakes();
+  const taken = path.resolve('/s/tasks/fix-login.md');
+  const r = await startForeman({ ...deps, paths: { runs: path.resolve('/s/runs'), home: path.resolve('/s') }, exists: (p) => p === taken, task: 'fix login' });
+  assert.equal(r.slug, 'fix-login-2');
+});
+
 test('@file mentions are listed for the leader; uncommitted ones are flagged', async () => {
   const { deps, log } = fakes();
   deps.exists = (p) => p.endsWith('login.js') || p.endsWith('README.md');
@@ -251,4 +268,34 @@ test('a leader that never got a terminal fails with hc\'s reason', async () => {
   const r = await startForeman({ ...deps, task: 'fix it' });
   assert.equal(r.ok, false);
   assert.match(r.message, /claude not found/);
+});
+
+test('a leader stuck on a trust dialog is told which keys answer it', async () => {
+  const { deps } = fakes({ startResult: { ok: false, code: 'agent_not_ready', message: 'claude is waiting for an answer' } });
+  deps.herdr.agentRead = async () => 'Do you trust the files in this folder?';
+  const r = await startForeman({ ...deps, task: 'fix it' });
+  assert.match(r.message, /asks to trust this folder; answer it with: foreman keys --task fix-it lead enter/);
+  assert.match(r.message, /foreman prompt --task fix-it lead/);
+});
+
+test('progress lines tell what foreman is doing, and the result names the leader tab', async () => {
+  const { deps } = fakes();
+  const lines = [];
+  const r = await startForeman({ ...deps, task: 'fix it', progress: (m) => lines.push(m) });
+  assert.equal(r.tab, 'foreman');
+  assert.equal(lines.length, 3);
+  assert.match(lines[0], /Checking the project/);
+  assert.match(lines[2], /Starting claude/);
+});
+
+test('prompt tells the leader what the user already answered', async () => {
+  const { takePrefs, prefsText } = await import('../src/start-prefs.js');
+  assert.deepEqual(takePrefs(['--auto-answer', '--include-uncommitted', '--', 'x']), { prefs: { autoAnswer: true, includeUncommitted: true }, rest: ['--', 'x'] });
+  assert.deepEqual(takePrefs(['fix it']), { prefs: {}, rest: ['fix it'] });
+  assert.equal(prefsText({}), '');
+  const p = buildLeaderPrompt({ task: 't', slug: 't', instructionsPath: '/i', prefs: { autoAnswer: true, includeUncommitted: true } });
+  assert.ok(!p.includes('\n'));
+  assert.match(p, /answer the workers' permission questions on their behalf/);
+  assert.match(p, /add --include-uncommitted to the first spawn/);
+  assert.doesNotMatch(buildLeaderPrompt({ task: 't', slug: 't', instructionsPath: '/i' }), /already chose/);
 });

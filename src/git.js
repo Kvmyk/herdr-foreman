@@ -136,12 +136,35 @@ export function createGit({ run }) {
     async branchExists(repo, branch) {
       return (await git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).code === 0;
     },
+    // Lines added and removed in tracked files since base, commits and working tree together.
+    async diffStat(dir, base) {
+      const res = await git(dir, ['diff', '--numstat', base]);
+      let added = 0;
+      let removed = 0;
+      if (res.code === 0) {
+        for (const l of res.stdout.split(/\r?\n/)) {
+          const [a, r] = l.split('\t');
+          if (/^\d+$/.test(a ?? '')) { added +=Number(a); removed += Number(r); }
+        }
+      }
+      return { added, removed };
+    },
     async commitsAhead(dir, base) {
       return Number(await ok(dir, ['rev-list', '--count', `${base}..HEAD`]));
     },
     // True when git accepts the name as a branch name.
     async validBranchName(repo, name) {
       return (await git(repo, ['check-ref-format', '--branch', name])).code === 0;
+    },
+    // Plain `git diff <args>` output, untrimmed.
+    async diff(dir, args) {
+      const res = await git(dir, ['diff', '--no-color', ...args]);
+      if (res.code !== 0) throw new Error(`git diff ${args.join(' ')} failed: ${(res.stderr || res.stdout).trim()}`);
+      return res.stdout;
+    },
+    // New files not added to git yet (ignored ones left out).
+    async untracked(dir) {
+      return (await ok(dir, ['ls-files', '--others', '--exclude-standard'])).split(/\r?\n/).filter(Boolean);
     },
     async merge(dir, branch, message = null) {
       const res = await git(dir, ['merge', '--no-ff', ...(message ? ['-m', message] : ['--no-edit']), branch]);

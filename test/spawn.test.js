@@ -88,11 +88,26 @@ test('three workers: splits and cwd per worktree', async () => {
   assert.deepEqual(workers.map((w) => w.status), ['ready', 'ready', 'ready']);
 });
 
-test('five workers use two columns', async () => {
+test('five workers use two columns, in a new tab of their own', async () => {
   const f = fakes();
-  await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude', 'e=claude'] });
+  const { warnings } = await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude', 'e=claude'] });
   const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => [o.direction, Number(o.ratio.toFixed(4))]);
-  assert.deepEqual(splits, [['right', 0.3333], ['right', 0.5], ['down', 0.3333], ['down', 0.5], ['down', 0.5]]);
+  assert.deepEqual(splits, [['right', 0.5], ['down', 0.3333], ['down', 0.5], ['down', 0.5]]);
+  assert.equal(f.log.filter(([k]) => k === 'tab').length, 1);
+  assert.ok(warnings.some((w) => /5 workers/.test(w) && /new tab/.test(w)));
+});
+
+test('up to three workers stay beside the leader', async () => {
+  const f = fakes();
+  const { warnings } = await call(f, { specs: ['a=claude', 'b=claude', 'c=claude'] });
+  assert.equal(f.log.filter(([k]) => k === 'tab').length, 0);
+  assert.ok(!warnings.some((w) => /new tab/.test(w)));
+});
+
+test('more than three workers need no leader pane', async () => {
+  const f = fakes();
+  await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude'], pane: null });
+  assert.equal(f.log.filter(([k]) => k === 'tab').length, 1);
 });
 
 test('new tab puts workers in a fresh tab', async () => {
@@ -181,6 +196,21 @@ test('adding workers to an existing run keeps its base', async () => {
   assert.equal(saved.base, 'old999');
   assert.deepEqual(saved.workers.map((w) => w.name), ['w1', 'w2']);
   assert.equal(f.log.find(([k]) => k === 'worktree')[1].base, 'old999');
+});
+
+test('the run record keeps history fields and stamps worker start times', async () => {
+  const existingRun = { task: 'fix-login', repo, base: 'old999', branch: 'feat/fix-login', createdAt: 'x', phase: 'investigate', merged: ['w1'], workers: [{ name: 'w1', kind: 'claude', startedAt: 'old' }] };
+  const f = fakes({ existingRun });
+  await call(f, { specs: ['w2=agy'], branch: null });
+  const saved = JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]);
+  assert.equal(saved.phase, 'investigate');
+  assert.deepEqual(saved.merged, ['w1']);
+  assert.equal(saved.workers[0].startedAt, 'old');
+  assert.match(saved.workers[1].startedAt, /^\d{4}-\d\d-\d\dT/);
+  assert.ok(saved.updatedAt);
+  const fresh = fakes();
+  await call(fresh, { specs: ['w1=claude'] });
+  assert.equal(JSON.parse(fresh.files[path.join(paths.runs, 'fix-login.json')]).phase, 'spawned');
 });
 
 test('an existing run keeps its snapshot base even when dirty again', async () => {
@@ -355,4 +385,58 @@ test('a herdr run does not take workers spawned from the Herdr app', async () =>
   const existingRun = { task: 'fix-login', repo, base: 'abc123', branch: 'feat/fix-login', workers: [] };
   const f = appHerdr(fakes({ existingRun }));
   await assert.rejects(call(f, { specs: ['w1=claude'], pane: 't3' }), (e) => e.code === 'USAGE' && /herdr/.test(e.message));
+});
+
+test('a failed start carries the pane tail and an exited agent is flagged', async () => {
+  const f = fakes();
+  f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_exited', message: 'codex exited (code 2)' });
+  f.herdr.agentRead = async (t) => (t === 'w1' ? '' : 'error: unexpected argument --no-daemon');
+  const { workers } = await call(f, { specs: ['w1=codex'] });
+  assert.equal(workers[0].status, 'not_ready');
+  assert.equal(workers[0].exited, true);
+  assert.ok(workers[0].error.startsWith('agent_exited: codex exited (code 2)'));
+  assert.match(workers[0].error, /unexpected argument --no-daemon/);
+  assert.equal(workers[0].paneId, 'w1:p9');
+});
+
+test('a start failure of a crashed kind is recorded, and cleared after a good start', async () => {
+  const f = fakes();
+  const p = { ...paths, home: path.resolve('/s'), startFailures: path.resolve('/s/start-failures.json') };
+  f.herdr.agentStart = async (o) => (o.kind === 'codex' ? { ok: false, code: 'agent_exited', message: 'codex exited (code 2)' } : { ok: true });
+  await call(f, { paths: p, specs: ['w1=codex', 'w2=agy'] });
+  assert.match(JSON.parse(f.files[p.startFailures]).codex.message, /exited/);
+  f.herdr.agentStart = async () => ({ ok: true });
+  await call(f, { paths: p, specs: ['w3=codex'] });
+  assert.deepEqual(JSON.parse(f.files[p.startFailures]), {});
+});
+
+test('start flags are checked against the agent help even without --auto', async () => {
+  const f = fakes();
+  const run = async (cmd) => ({ code: 0, stdout: cmd === 'agy' ? '--model' : 'nothing', stderr: '' });
+  const { warnings } = await call(f, { specs: ['a=agy:flash', 'c=claude'], run });
+  assert.ok(warnings.some((w) => /claude --help/.test(w) && /--tools/.test(w)));
+  assert.ok(!warnings.some((w) => /agy --help/.test(w)));
+});
+
+test('a known folder-trust dialog is answered in the worker worktree', async () => {
+  const f = fakes();
+  const keys = [];
+  f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_not_ready', message: 'claude is waiting for an answer' });
+  f.herdr.agentRead = async () => 'Do you trust the files in this folder? 1. Yes, I trust this folder';
+  f.herdr.agentKeys = async (name, k) => { keys.push([name, k]); };
+  let listed = 0;
+  f.herdr.agentList = async () => (listed++ ? [{ name: 'w1', agent_status: 'idle' }] : []);
+  const { workers, warnings } = await call(f, { specs: ['w1=claude'], sleep: async () => {} });
+  assert.deepEqual(keys, [['w1', ['enter']]]);
+  assert.equal(workers[0].status, 'ready');
+  assert.ok(warnings.some((w) => /trust/.test(w)));
+});
+
+test('an unknown kind blocked on a trust dialog is reported with the keys command', async () => {
+  const f = fakes();
+  f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_not_ready', message: 'agy is waiting for an answer' });
+  f.herdr.agentRead = async () => 'Do you trust this folder?';
+  const { workers } = await call(f, { specs: ['w1=agy'], sleep: async () => {} });
+  assert.equal(workers[0].status, 'not_ready');
+  assert.match(workers[0].error, /foreman keys --task fix-login w1 enter/);
 });

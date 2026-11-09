@@ -5,19 +5,23 @@ import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
 import { PROBES } from './inventory/kinds.js';
 import { EXAMPLE, resolveMentions } from './task.js';
+import { describeBlocked } from './blocked.js';
+import { screenTail } from './wait.js';
+import { taskFile as taskPath } from './history.js';
+import { prefsText } from './start-prefs.js';
 
 export const INSTRUCTIONS_PATH = fileURLToPath(new URL('../leader/INSTRUCTIONS.md', import.meta.url));
 
 // The prompt is one line, because a newline would send it early. A task with
 // several lines goes in taskFile and the prompt points at it.
-export function buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd = 'foreman', files = [], taskFile = null }) {
+export function buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd = 'foreman', files = [], taskFile = null, prefs = {} }) {
   const cmd = foremanCmd === 'foreman' ? '' : ` Run foreman commands as: ${foremanCmd}.`;
   const oneLine = task.replace(/\s*[\r\n]+\s*/g, ' ').trim();
   const body = taskFile ? ` is written in ${taskFile}; read it first.` : `: ${oneLine}`;
   const pointed = files.length
     ? ` Files the user pointed to (read them first): ${files.map((f) => (f.dirty ? `${f.path} (has uncommitted changes)` : f.path)).join(', ')}.`
     : '';
-  return `You are the foreman leader for task "${slug}". Read ${instructionsPath} and follow it exactly.${cmd} The user's task${body}${pointed}`;
+  return `You are the foreman leader for task "${slug}". Read ${instructionsPath} and follow it exactly.${cmd} The user's task${body}${pointed}${prefsText(prefs)}`;
 }
 
 const samePath = (a, b) => {
@@ -48,11 +52,13 @@ async function waitForServer({ herdr, spawnDetached, sleep }) {
 
 export async function startForeman({
   task, cwd, env, herdr, git, which, config, paths, homedir, exists, spawnDetached, attach, sleep, writeFile, mkdir,
-  foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {}, platform = process.platform,
+  foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {}, progress = () => {}, platform = process.platform, prefs = {},
+  slug: fixedSlug = null, prompt: fixedPrompt = null,
 }) {
   if (!task?.trim()) return failed(`Tell me what you want done, for example:
   foreman "${EXAMPLE}"`);
 
+  progress('Checking the project...');
   const repo = await git.toplevel(cwd);
   if (!repo) return failed('foreman works inside a project folder that uses git, and this folder is not one. Open your project folder and try again.');
   if (samePath(repo, homedir)) {
@@ -65,17 +71,19 @@ export async function startForeman({
   }
   if (!which(config.leader)) return failed(`${config.leader} is not installed on this computer, so foreman cannot start. Install it and sign in, then try again.`);
 
-  const { files, missing } = await resolveMentions({ task, cwd, repo, exists, git });
+  // A resumed run brings its own slug and prompt; its files were checked when it started.
+  const { files, missing } = fixedPrompt ? { files: [], missing: [] } : await resolveMentions({ task, cwd, repo, exists, git });
   if (missing.length) {
     return failed(`I could not find ${missing.length > 1 ? 'these files' : 'this file'}: ${missing.join(', ')}. Check the name (it is relative to ${cwd}), or remove the @ if it is not a file.`);
   }
 
-  const slug = uniqueSlug(slugify(task), (s) => exists(path.join(paths.runs, `${s}.json`)));
+  const slug = fixedSlug ?? uniqueSlug(slugify(task), (s) => exists(path.join(paths.runs, `${s}.json`)) || exists(taskPath(paths, s)));
   // In the Herdr app the leader gets a new tab next to the caller's, or a new
   // space when foreman was started outside the app (for example by a mod).
   const app = herdr.kind === 'app';
   const inside = app ? Boolean(env.HC_TERMINAL_ID) : env.HERDR_ENV === '1';
 
+  progress('Opening a tab for the leader...');
   let place;
   if (inside) {
     const workspaceId = app ? (await herdr.here(env.HC_TERMINAL_ID))?.space : env.HERDR_WORKSPACE_ID;
@@ -89,15 +97,24 @@ export async function startForeman({
   let leader = 'lead';
   for (let n = 2; live.has(leader); n++) leader = `lead${n}`;
 
+  // Every task is kept for `foreman show` and `foreman resume`; the prompt
+  // points at the file only when the task has several lines.
   let taskFile = null;
-  if (/[\r\n]/.test(task.trim()) && writeFile) {
-    taskFile = path.join(paths.home ?? path.dirname(paths.runs), 'tasks', `${slug}.md`);
-    mkdir?.(path.dirname(taskFile), { recursive: true });
-    writeFile(taskFile, `${task.trim()}\n`);
+  const multiline = /[\r\n]/.test(task.trim());
+  if (writeFile && !fixedPrompt) {
+    const file = taskPath(paths, slug);
+    try {
+      mkdir?.(path.dirname(file), { recursive: true });
+      writeFile(file, `${task.trim()}\n`);
+      if (multiline) taskFile = file;
+    } catch (err) {
+      if (multiline) throw err;
+    }
   }
-  const prompt = buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile });
+  const prompt = fixedPrompt ?? buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile, prefs });
   const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];
   const args = [...lean, ...(config.leaderArgs ?? [])];
+  progress(`Starting ${config.leader}, the lead agent (up to ${Math.round((config.startTimeoutMs ?? 0) / 1000)}s)...`);
   const started = await herdr.agentStart({
     name: leader, kind: config.leader, pane: place.paneId, cwd: repo, space: place.workspaceId, tab: place.tabId,
     label: 'foreman', focus: true, timeoutMs: config.startTimeoutMs, args,
@@ -110,7 +127,11 @@ export async function startForeman({
     message = `Leader "${leader}" (${config.leader}) started in pane ${paneId} for task "${slug}".`;
   } else {
     const backendFlag = app && !inside ? ' --backend app' : '';
-    message = `The leader is waiting for an answer in pane ${paneId} (${started.message}). Answer it there, then run: ${foremanCmd} prompt --task ${slug}${backendFlag} ${leader} ${shellQuote(prompt, platform)}`;
+    // The leader runs in the user's own project, so a trust question is theirs to answer.
+    const screen = screenTail(await Promise.resolve().then(() => herdr.agentRead(leader)).catch(() => ''));
+    const asks = describeBlocked({ kind: config.leader, screen, task: slug, name: leader, foremanCmd });
+    const answer = asks ? ` The leader ${asks}. Then run:` : ' Answer it there, then run:';
+    message = `The leader is waiting for an answer in pane ${paneId} (${started.message}).${answer} ${foremanCmd} prompt --task ${slug}${backendFlag} ${leader} ${shellQuote(prompt, platform)}`;
   }
 
   report(message);
@@ -119,5 +140,5 @@ export async function startForeman({
   // The Herdr app is a window, not a terminal to attach to: open it if it is closed.
   if (!inside && !app) attach();
   if (!inside && app && !(await herdr.appRunning())) spawnDetached(herdr.appBin, []);
-  return { ok: true, slug, leader, paneId, message };
+  return { ok: true, slug, leader, paneId, message, tab: 'foreman' };
 }

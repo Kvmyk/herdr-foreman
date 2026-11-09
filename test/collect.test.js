@@ -317,3 +317,14 @@ test('cleanup deletes recorded wip branches and the named run branch on request'
   const res = await cleanup({ run, git, herdr: fakeHerdr([]), paths, exists: existsSync, deleteBranch: true });
   assert.deepEqual(res.deletedBranches.sort(), ['feat/thing', 'wip/thing/w1', 'wip/thing/w2']);
 });
+
+test('status adds the agent state, time since start and lines changed', async () => {
+  const { run } = await setup();
+  commitFile(run.workers[0].worktree, 'b.txt', 'one\ntwo\n');
+  writeFileSync(path.join(run.workers[1].worktree, 'a.txt'), 'edited\n');
+  const herdr = { agentList: async () => [{ name: 'w1', agent_status: 'working' }] };
+  const st = await workerStatus({ run: { ...run, createdAt: new Date(1000).toISOString() }, git, exists: existsSync, herdr, now: () => 126000 });
+  assert.deepEqual(st.map((s) => [s.name, s.state, s.ageS]), [['w1', 'working', 125], ['w2', 'gone', 125]]);
+  assert.deepEqual([st[0].added, st[0].removed], [2, 0]);
+  assert.equal(st[1].removed > 0 || st[1].added > 0, true);
+});
