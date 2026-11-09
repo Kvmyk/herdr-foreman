@@ -15,6 +15,7 @@ import { startForeman } from './start.js';
 import { runSetup, formatSetup } from './setup.js';
 import { fail } from './errors.js';
 import { EXAMPLE } from './task.js';
+import { takePrefs } from './start-prefs.js';
 
 const HELP = `foreman: describe a task; a lead agent splits it across your coding agents in herdr or the Herdr app.
 
@@ -118,6 +119,12 @@ export function route(argv) {
     return { kind: 'usage', message: 'foreman --backend goes with a task, e.g. foreman --backend app "fix the login"' };
   }
   if (argv[0] === '--backend') return { kind: 'usage', message: `foreman --backend is ${BACKENDS.join(' or ')}` };
+  // --auto-answer and --include-uncommitted in front of a task answer the leader's questions in advance.
+  const { prefs, rest } = takePrefs(argv);
+  if (rest.length < argv.length) {
+    const r = route(rest);
+    return r.kind === 'start' ? { ...r, prefs } : { kind: 'usage', message: 'foreman --auto-answer and --include-uncommitted go in front of a task, e.g. foreman --auto-answer "fix the login"' };
+  }
   if (argv.length === 0) return { kind: 'help', code: 2 };
   if (argv[0] === '--') return { kind: 'start', task: argv.slice(1).join(' ') };
   if (['-f', '--file'].includes(argv[0])) {
@@ -251,11 +258,11 @@ function defaultOps(deps) {
     cleanup: async ({ task, deleteBranch }) => cleanup({
       run: needRun(task), git: git(), herdr: backendOf(needRun(task)), paths: deps.paths, exists: deps.exists, deleteBranch, sleep: deps.sleep, removeDir: deps.removeDir,
     }),
-    start: async ({ task, backend: flag }) => startForeman({
+    start: async ({ task, backend: flag, prefs }) => startForeman({
       task, cwd: deps.cwd, env: deps.env, herdr: backend(here(flag)), git: git(), which: deps.which, config: config(), paths: deps.paths,
       homedir: deps.homedir, exists: deps.exists, spawnDetached: deps.spawnDetached, attach: deps.attach, sleep: deps.sleep,
       foremanCmd: deps.foremanCmd, writeFile: deps.writeFile, mkdir: deps.mkdir, report: (m) => deps.stdout.write(`${m}\n`),
-      platform: deps.platform,
+      platform: deps.platform, prefs,
     }),
   };
 }
@@ -310,7 +317,7 @@ export async function main(argv, deps) {
       const setup = await ops.ensureSetup?.();
       if (setup?.changes.length) stdout.write(`${formatSetup(setup)}
 `);
-      const res = await ops.start({ task, ...(r.backend ? { backend: r.backend } : {}) });
+      const res = await ops.start({ task, ...(r.backend ? { backend: r.backend } : {}), ...(r.prefs ? { prefs: r.prefs } : {}) });
       if (!res.ok) {
         stderr.write(`${res.message}\n`);
         return 1;

@@ -252,3 +252,15 @@ test('a leader that never got a terminal fails with hc\'s reason', async () => {
   assert.equal(r.ok, false);
   assert.match(r.message, /claude not found/);
 });
+
+test('prompt tells the leader what the user already answered', async () => {
+  const { takePrefs, prefsText } = await import('../src/start-prefs.js');
+  assert.deepEqual(takePrefs(['--auto-answer', '--include-uncommitted', '--', 'x']), { prefs: { autoAnswer: true, includeUncommitted: true }, rest: ['--', 'x'] });
+  assert.deepEqual(takePrefs(['fix it']), { prefs: {}, rest: ['fix it'] });
+  assert.equal(prefsText({}), '');
+  const p = buildLeaderPrompt({ task: 't', slug: 't', instructionsPath: '/i', prefs: { autoAnswer: true, includeUncommitted: true } });
+  assert.ok(!p.includes('\n'));
+  assert.match(p, /answer the workers' permission questions on their behalf/);
+  assert.match(p, /add --include-uncommitted to the first spawn/);
+  assert.doesNotMatch(buildLeaderPrompt({ task: 't', slug: 't', instructionsPath: '/i' }), /already chose/);
+});

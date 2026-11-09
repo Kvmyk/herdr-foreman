@@ -5,19 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
 import { PROBES } from './inventory/kinds.js';
 import { EXAMPLE, resolveMentions } from './task.js';
+import { prefsText } from './start-prefs.js';
 
 export const INSTRUCTIONS_PATH = fileURLToPath(new URL('../leader/INSTRUCTIONS.md', import.meta.url));
 
 // The prompt is one line, because a newline would send it early. A task with
 // several lines goes in taskFile and the prompt points at it.
-export function buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd = 'foreman', files = [], taskFile = null }) {
+export function buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd = 'foreman', files = [], taskFile = null, prefs = {} }) {
   const cmd = foremanCmd === 'foreman' ? '' : ` Run foreman commands as: ${foremanCmd}.`;
   const oneLine = task.replace(/\s*[\r\n]+\s*/g, ' ').trim();
   const body = taskFile ? ` is written in ${taskFile}; read it first.` : `: ${oneLine}`;
   const pointed = files.length
     ? ` Files the user pointed to (read them first): ${files.map((f) => (f.dirty ? `${f.path} (has uncommitted changes)` : f.path)).join(', ')}.`
     : '';
-  return `You are the foreman leader for task "${slug}". Read ${instructionsPath} and follow it exactly.${cmd} The user's task${body}${pointed}`;
+  return `You are the foreman leader for task "${slug}". Read ${instructionsPath} and follow it exactly.${cmd} The user's task${body}${pointed}${prefsText(prefs)}`;
 }
 
 const samePath = (a, b) => {
@@ -48,7 +49,7 @@ async function waitForServer({ herdr, spawnDetached, sleep }) {
 
 export async function startForeman({
   task, cwd, env, herdr, git, which, config, paths, homedir, exists, spawnDetached, attach, sleep, writeFile, mkdir,
-  foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {}, platform = process.platform,
+  foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {}, platform = process.platform, prefs = {},
 }) {
   if (!task?.trim()) return failed(`Tell me what you want done, for example:
   foreman "${EXAMPLE}"`);
@@ -95,7 +96,7 @@ export async function startForeman({
     mkdir?.(path.dirname(taskFile), { recursive: true });
     writeFile(taskFile, `${task.trim()}\n`);
   }
-  const prompt = buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile });
+  const prompt = buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile, prefs });
   const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];
   const args = [...lean, ...(config.leaderArgs ?? [])];
   const started = await herdr.agentStart({

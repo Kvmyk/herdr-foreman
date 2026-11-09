@@ -283,3 +283,12 @@ test('close-leader in the Herdr app ends the calling hc terminal', async () => {
   const outside = harness({}, { deps: { run, which: () => null, exists: () => false, env: {} } });
   assert.equal(await main(['close-leader'], outside.deps), 2);
 });
+
+test('route: answers given in front of a task go to the leader', () => {
+  assert.deepEqual(route(['--backend', 'app', '--auto-answer', '--include-uncommitted', '--', 'fix', 'it']),
+    { kind: 'start', task: 'fix it', backend: 'app', prefs: { autoAnswer: true, includeUncommitted: true } });
+  assert.deepEqual(route(['--auto-answer', 'fix it']), { kind: 'start', task: 'fix it', prefs: { autoAnswer: true } });
+  assert.equal(route(['--auto-answer', 'status', '--task', 'x']).kind, 'usage');
+  // spawn keeps its own --include-uncommitted
+  assert.equal(route(['spawn', '--task', 'x', '--include-uncommitted', 'a=claude']).name, 'spawn');
+});
