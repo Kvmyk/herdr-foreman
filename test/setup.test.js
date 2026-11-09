@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  parseKeys, addBinding, humanKey, versionAtLeast, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey,
+  parseKeys, addBinding, humanKey, versionAtLeast, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey, PACKAGE_ROOT,
 } from '../src/setup.js';
 import { fakeRun } from './helpers.js';
 
@@ -337,7 +337,17 @@ test('app/foreman template: placeholders for node and foreman, the backend flag,
   const main = readFileSync(new URL('../app/foreman/main.js', import.meta.url), 'utf8');
   assert.match(main, /const NODE = "__NODE__";/);
   assert.match(main, /const BIN = "__BIN__";/);
-  assert.match(main, /\[NODE, BIN, "--backend", "app", "--", task\]/);
+  assert.match(main, /\[NODE, BIN, "--backend", "app", [^\n]*"--", task\]/);
   assert.doesNotMatch(main, /node:|require\(|process\./);
   assert.equal(JSON.parse(readFileSync(new URL('../app/foreman/mod.json', import.meta.url), 'utf8')).place, 'none');
+});
+
+test('the real app mod keeps its placeholders and the keys the prompt documents', () => {
+  const main = readFileSync(path.join(PACKAGE_ROOT, 'app', 'foreman', 'main.js'), 'utf8');
+  assert.equal(main.split('"__NODE__"').length, 2);
+  assert.equal(main.split('"__BIN__"').length, 2);
+  assert.match(main, /Ctrl\+Enter start · Esc cancel/);
+  for (const flag of ['--auto-answer', '--include-uncommitted']) assert.ok(main.includes(`"${flag}"`), flag);
+  const mod = JSON.parse(readFileSync(path.join(PACKAGE_ROOT, 'app', 'foreman', 'mod.json'), 'utf8'));
+  assert.ok(mod.overlay.height >= 420);
 });
