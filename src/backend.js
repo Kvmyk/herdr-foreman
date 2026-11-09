@@ -50,6 +50,6 @@ export function installed(name, deps) {
 }
 
 export function createBackend(name, deps) {
-  if (name !== 'app') return createHerdr({ run: deps.run });
-  return createHerdrApp({ run: deps.run, hc: findTool('hc', deps) ?? 'hc', app: findTool('herdr-app', deps) ?? 'herdr-app' });
+  if (name !== 'app') return createHerdr({ run: deps.run, sleep: deps.sleep });
+  return createHerdrApp({ run: deps.run, sleep: deps.sleep, hc: findTool('hc', deps) ?? 'hc', app: findTool('herdr-app', deps) ?? 'herdr-app' });
 }

@@ -422,12 +422,12 @@ test('a known folder-trust dialog is answered in the worker worktree', async () 
   const f = fakes();
   const keys = [];
   f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_not_ready', message: 'claude is waiting for an answer' });
-  f.herdr.agentRead = async () => 'Do you trust the files in this folder? 1. Yes, I trust this folder';
+  f.herdr.agentRead = async () => 'Do you trust the files in this folder?\n ❯ No, exit\n   Yes, I trust this folder';
   f.herdr.agentKeys = async (name, k) => { keys.push([name, k]); };
   let listed = 0;
   f.herdr.agentList = async () => (listed++ ? [{ name: 'w1', agent_status: 'idle' }] : []);
   const { workers, warnings } = await call(f, { specs: ['w1=claude'], sleep: async () => {} });
-  assert.deepEqual(keys, [['w1', ['enter']]]);
+  assert.deepEqual(keys, [['w1', ['down', 'enter']]]);
   assert.equal(workers[0].status, 'ready');
   assert.ok(warnings.some((w) => /trust/.test(w)));
 });
@@ -435,8 +435,23 @@ test('a known folder-trust dialog is answered in the worker worktree', async () 
 test('an unknown kind blocked on a trust dialog is reported with the keys command', async () => {
   const f = fakes();
   f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_not_ready', message: 'agy is waiting for an answer' });
-  f.herdr.agentRead = async () => 'Do you trust this folder?';
-  const { workers } = await call(f, { specs: ['w1=agy'], sleep: async () => {} });
+  f.herdr.agentRead = async () => 'Do you trust this folder?\n > Yes, I trust this folder\n   No, exit';
+  const { workers } = await call(f, { specs: ['w1=agy'], sleep: null });
   assert.equal(workers[0].status, 'not_ready');
   assert.match(workers[0].error, /foreman keys --task fix-login w1 enter/);
+});
+
+test('a trust dialog is answered while the agent is still starting', async () => {
+  const f = fakes();
+  const keys = [];
+  let answered = false;
+  f.herdr.agentRead = async () => 'Is this a project you trust?\n ❯ No, exit\n   Yes, I trust this folder';
+  f.herdr.agentKeys = async (name, k) => { keys.push([name, k]); answered = true; };
+  f.herdr.agentStart = async () => {
+    for (let i = 0; i < 50 && !answered; i++) await new Promise((r) => setImmediate(r));
+    return answered ? { ok: true } : { ok: false, code: 'agent_not_ready', message: 'waited the whole timeout' };
+  };
+  const { workers } = await call(f, { specs: ['w1=claude'], sleep: async () => {} });
+  assert.deepEqual(keys, [['w1', ['down', 'enter']]]);
+  assert.equal(workers[0].status, 'ready');
 });

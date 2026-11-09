@@ -139,9 +139,9 @@ async function readTail(herdr, targets) {
 }
 
 // Press the answer, then wait for the agent to stop being blocked.
-async function answerTrust({ herdr, w, keys, sleep }) {
+async function answerTrust({ herdr, w, keys, sleep, pressed = false }) {
   try {
-    await herdr.agentKeys(w.name, keys);
+    if (!pressed) await herdr.agentKeys(w.name, keys);
     for (let waited = 0; waited < 30000; waited += 1000) {
       await sleep(1000);
       const status = (await herdr.agentList()).find((a) => a.name === w.name)?.agent_status;
@@ -149,6 +149,21 @@ async function answerTrust({ herdr, w, keys, sleep }) {
     }
   } catch { /* leave it for the user */ }
   return false;
+}
+
+// While an agent starts, answer its folder-trust dialog as soon as it shows,
+// instead of letting the start wait out its whole timeout.
+async function watchTrust({ herdr, w, sleep, isDone, answered }) {
+  for (let waited = 0; !isDone() && waited < 120000; waited += 1500) {
+    await sleep(1500);
+    if (isDone()) return;
+    const c = classifyScreen(w.kind, await readTail(herdr, [w.name, w.paneId]));
+    if (c?.safeToAnswer) {
+      answered.add(w.name);
+      try { await herdr.agentKeys(w.name, c.keys); } catch { /* the start result reports it */ }
+      return;
+    }
+  }
 }
 
 // Worker reports live in <worktree>/.foreman/, inside the worker's own folder
@@ -252,10 +267,19 @@ export async function spawnWorkers({
   if (run) warnings.push(...await checkStartFlags({ run, byKind: argsOf }));
 
 
-  const results = await Promise.all(workers.map((w, i) => herdr.agentStart({
-    name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
-    timeoutMs: config.startTimeoutMs, args: startArgs[i],
-  })));
+  const answeredEarly = new Set();
+  const results = await Promise.all(workers.map(async (w, i) => {
+    let done = false;
+    if (sleep) watchTrust({ herdr, w, sleep, isDone: () => done, answered: answeredEarly }).catch(() => {});
+    try {
+      return await herdr.agentStart({
+        name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
+        timeoutMs: config.startTimeoutMs, args: startArgs[i],
+      });
+    } finally {
+      done = true;
+    }
+  }));
   for (const [i, w] of workers.entries()) {
     const res = results[i];
     w.paneId = res.pane ?? w.paneId;
@@ -269,7 +293,7 @@ export async function spawnWorkers({
     if (screen) w.screen = screen;
     const c = classifyScreen(w.kind, screen);
     // The worktree is foreman's own, so a known trust dialog is answered here.
-    if (c?.safeToAnswer && sleep && await answerTrust({ herdr, w, keys: c.keys, sleep })) {
+    if (c?.safeToAnswer && sleep && await answerTrust({ herdr, w, keys: c.keys, sleep, pressed: answeredEarly.has(w.name) })) {
       w.status = 'ready';
       w.error = null;
       warnings.push(`${w.name}: answered the folder-trust dialog of ${w.kind} for its worktree`);

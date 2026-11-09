@@ -266,13 +266,13 @@ test('prompt, read and keys reach the agent', async () => {
 });
 
 test('prompt goes through the backend of the run; read and keys follow the terminal foreman runs in', async () => {
-  const run = fakeRun([[/^hc send/, { stdout: '{"turn":1}' }], [/^hc keys/, { stdout: '{}' }], [/^herdr agent read/, { stdout: 'herdr screen' }]]);
+  const run = fakeRun([[/^hc send/, { stdout: '{"turn":1}' }], [/^hc keys/, { stdout: '{}' }], [/^hc read/, { stdout: 'app screen' }], [/^herdr agent read/, { stdout: 'herdr screen' }]]);
   const files = { [path.join('/s/runs', 'fix-login.json')]: JSON.stringify({ task: 'fix-login', backend: 'app', workers: [] }) };
   const h = harness({}, { files, deps: { run, which: () => null, exists: () => false, env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p1' } } });
   assert.equal(await main(['prompt', '--task', 'fix-login', 'w1', 'go'], h.deps), 0);
   assert.equal(await main(['read', '--task', 'other', 'w1'], h.deps), 0);
   assert.equal(await main(['keys', '--task', 'other', '--backend', 'app', 'w1', 'esc'], h.deps), 0);
-  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'send'], ['herdr', 'agent'], ['hc', 'keys']]);
+  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'send'], ['hc', 'read'], ['herdr', 'agent'], ['hc', 'keys']]);
 });
 
 test('close-leader in the Herdr app ends the calling hc terminal', async () => {

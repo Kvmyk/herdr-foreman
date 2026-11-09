@@ -1,5 +1,6 @@
 // Thin client over the herdr CLI. Every call parses herdr's JSON reply;
 // failures become HerdrError with herdr's own error code.
+import { screenTail } from './wait.js';
 
 export class HerdrError extends Error {
   constructor(code, message) {
@@ -25,11 +26,38 @@ function errorOf(res) {
   return new HerdrError('herdr_failed', text);
 }
 
+export const KEY_PAUSE_MS = 150;
+export const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Keys go one at a time: sent together, enter can land before the selection moved.
+export async function sendKeys(send, keys, sleep) {
+  for (const [i, key] of keys.entries()) {
+    if (i) await sleep(KEY_PAUSE_MS);
+    await send(key);
+  }
+}
+
+// A prompt typed right after a dialog can stay in the input line unsent. True
+// when its text is still on the last lines of the screen.
+export function promptStuck(screen, text) {
+  const snippet = String(text).trim().split(/\r?\n/)[0].slice(0, 40).trim();
+  if (!snippet) return false;
+  return screenTail(screen, 3).includes(snippet);
+}
+
+// After a prompt: press enter once if its text still sits in the input.
+export async function submitIfStuck({ read, press, sleep, text }) {
+  await sleep(500);
+  try {
+    if (promptStuck(await read(), text)) await press();
+  } catch { /* the screen is only a safety check */ }
+}
+
 export function formatRatio(ratio) {
   return String(Number(ratio.toFixed(4)));
 }
 
-export function createHerdr({ run, bin = 'herdr' }) {
+export function createHerdr({ run, bin = 'herdr', sleep = realSleep }) {
   async function call(args, timeoutMs = 30000) {
     const res = await run(bin, args, { timeoutMs });
     if (res.code !== 0) throw errorOf(res);
@@ -110,10 +138,13 @@ export function createHerdr({ run, bin = 'herdr' }) {
 
     async agentPrompt(target, text) {
       await call(['agent', 'prompt', target, text]);
+      await submitIfStuck({
+        read: () => this.agentRead(target), press: () => call(['agent', 'send-keys', target, 'enter']), sleep, text,
+      });
     },
 
     async agentKeys(target, keys) {
-      await call(['agent', 'send-keys', target, ...keys]);
+      await sendKeys((key) => call(['agent', 'send-keys', target, key]), keys, sleep);
     },
   };
 }

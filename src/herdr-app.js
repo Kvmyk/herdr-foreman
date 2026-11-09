@@ -5,7 +5,7 @@
 // space or tab. A "pane" here is an hc terminal, and its address (t7) is the
 // pane id. Failures become HerdrError with hc's error kind as code.
 import { randomBytes } from 'node:crypto';
-import { HerdrError } from './herdr.js';
+import { HerdrError, realSleep, sendKeys, submitIfStuck } from './herdr.js';
 import { appArgv } from './inventory/kinds.js';
 
 function parseJson(text) {
@@ -27,7 +27,7 @@ function errorOf(res) {
 // Ids shaped like the app's own (sp<hex>, tb<hex>).
 const randomId = (prefix) => `${prefix}${randomBytes(16).toString('hex')}`;
 
-export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = randomId }) {
+export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = randomId, sleep = realSleep }) {
   // Options go before positionals: hc takes none after them.
   async function call(command, args, timeoutMs = 30000) {
     const res = await run(hc, [command, '--json', ...args], { timeoutMs });
@@ -162,10 +162,13 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     // hc refuses to type into a blocked agent: answer its question with keys first.
     async agentPrompt(target, text) {
       await call('send', [target, '--', text]);
+      await submitIfStuck({
+        read: () => this.agentRead(target), press: () => call('keys', [target, 'enter']), sleep, text,
+      });
     },
 
     async agentKeys(target, keys) {
-      await call('keys', [target, ...keys]);
+      await sendKeys((key) => call('keys', [target, key]), keys, sleep);
     },
   };
 }
