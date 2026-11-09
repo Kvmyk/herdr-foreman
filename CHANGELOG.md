@@ -4,6 +4,10 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- New default pane layout `stack`: the leader keeps a full-height column of about 40% on the left and the workers are stacked one under another on the right. Up to 4 workers fit beside the leader; more (or `--new-tab`) go to a new tab, stacked as well, in two columns only past 4 workers. The old layout stays available as `"layout": "grid"` in `config.json`.
+
 ## [0.5.0] - 2026-11-09
 
 ### Added

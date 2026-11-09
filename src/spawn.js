@@ -1,10 +1,11 @@
 // Opens workers: one git worktree and one herdr pane per worker, agents
-// started in parallel. Panes sit next to the leader in columns of up to three.
+// started in parallel. Panes are stacked to the right of the leader (or, with
+// layout "grid" in config.json, sit in columns of up to three).
 // In the Herdr app each worker is a terminal in the leader's tab (or a new
 // one), and the app lays them out.
 import path from 'node:path';
 import { HERDR_KINDS, PROBES, EFFORT_LEVELS } from './inventory/kinds.js';
-import { planLayout, columnRatios, rowRatios, MAX_BESIDE_LEADER } from './layout.js';
+import { planPanes, layoutOf, MAX_BESIDE_LEADER } from './layout.js';
 import { checkStartFlags, flagsOf } from './startflags.js';
 import { classifyScreen, describeBlocked } from './blocked.js';
 import { recordStartResults } from './startfail.js';
@@ -88,8 +89,8 @@ async function appPlace({ herdr, pane, newTab, task, workers }) {
   return { space: workspaceId, tab: tabId, label: `foreman:${task}` };
 }
 
-async function openPanes({ herdr, pane, newTab, task, workers }) {
-  const { cols, rows } = planLayout(workers.length);
+async function openPanes({ herdr, pane, newTab, task, workers, layout }) {
+  const { leaderRatio, cols, rows, colRatios, rowRatios } = planPanes(workers.length, { layout, newTab });
   const cwdAt = (c, j) => workers[rows.slice(0, c).reduce((s, n) => s + n, 0) + j].worktree;
   const created = [];
   const split = async (o) => {
@@ -102,19 +103,18 @@ async function openPanes({ herdr, pane, newTab, task, workers }) {
   if (newTab) {
     region = (await herdr.tabCreate({ cwd: cwdAt(0, 0), label: `foreman:${task}`, focus: false })).paneId;
   } else {
-    region = await split({ pane, direction: 'right', ratio: 1 / (cols + 1), cwd: cwdAt(0, 0) });
+    region = await split({ pane, direction: 'right', ratio: leaderRatio, cwd: cwdAt(0, 0) });
   }
 
   try {
     const columns = [region];
-    const colRatios = columnRatios(cols);
     for (let i = 1; i < cols; i++) {
       columns.push(await split({ pane: columns[i - 1], direction: 'right', ratio: colRatios[i - 1], cwd: cwdAt(i, 0) }));
     }
     const panes = [];
     for (let c = 0; c < cols; c++) {
       const cell = [columns[c]];
-      const ratios = rowRatios(rows[c]);
+      const ratios = rowRatios[c];
       for (let j = 1; j < rows[c]; j++) {
         cell.push(await split({ pane: cell[j - 1], direction: 'down', ratio: ratios[j - 1], cwd: cwdAt(c, j) }));
       }
@@ -176,7 +176,8 @@ export async function spawnWorkers({
     throw fail('USAGE', `task "${task}" runs its workers in ${where}; run foreman spawn from there`);
   }
   const warnings = [];
-  if (!newTab && specs.length > MAX_BESIDE_LEADER && specs.length <= config.maxWorkers) {
+  const layout = layoutOf(config);
+  if (!newTab && specs.length > MAX_BESIDE_LEADER[layout] && specs.length <= config.maxWorkers) {
     newTab = true;
     warnings.push(`${specs.length} workers would be too narrow next to the leader; opened them in a new tab`);
   }
@@ -225,7 +226,7 @@ export async function spawnWorkers({
       const place = await appPlace({ herdr, pane, newTab, task, workers });
       workers.forEach((w) => { w.place = place; w.paneId = null; });
     } else {
-      const panes = await openPanes({ herdr, pane, newTab, task, workers });
+      const panes = await openPanes({ herdr, pane, newTab, task, workers, layout });
       workers.forEach((w, i) => { w.paneId = panes[i]; });
     }
   } catch (err) {

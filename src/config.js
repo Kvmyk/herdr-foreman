@@ -18,6 +18,9 @@ export const DEFAULT_CONFIG = Object.freeze({
   // Untracked files copied from your checkout into each worktree, e.g. [".env*"].
   copyFiles: [],
   worktreeSetupTimeoutMs: 600000,
+  // Worker panes: "stack" (leader on the left, workers stacked on the right)
+  // or "grid" (equal columns of up to three).
+  layout: 'stack',
 });
 
 export function paths({ env = process.env, homedir = os.homedir() } = {}) {
