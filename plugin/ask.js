@@ -11,7 +11,7 @@ import { waitForKey } from '../src/pause.js';
 import { createUi } from '../src/ui.js';
 import { createSteps, header, hints, marker, settingsLine, summary } from '../src/ask-view.js';
 import { loadConfig } from '../src/config.js';
-import { inventory } from '../src/inventory/index.js';
+import { inventory, saveAgents } from '../src/inventory/index.js';
 import { applySetting, initialSettings, isSettingCommand, leaderKinds, settingsArgs } from '../src/start-settings.js';
 
 const { stdin, stdout, env } = process;
@@ -38,9 +38,10 @@ function listBranches() {
   return res.status === 0 ? res.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('(')) : null;
 }
 let leaders = null;
+// The list is kept for the desktop prompt too; versions are not needed here.
 const leadersLoaded = inventory({
-  run: base.run, which: base.which, env, readJson: base.readJson, exists: base.exists, home: base.homedir, exclude: config.excludeKinds,
-}).then((agents) => { leaders = leaderKinds(agents, config.leader); }, () => {});
+  run: base.run, which: base.which, env, readJson: base.readJson, exists: base.exists, home: base.homedir, exclude: config.excludeKinds, versions: false,
+}).then((agents) => { leaders = leaderKinds(saveAgents({ writeFile: base.writeFile, file: base.paths.agentsCache }, agents), config.leader); }, () => {});
 
 const settingsText = () => settingsLine(ui, settings, { branch, columns });
 
