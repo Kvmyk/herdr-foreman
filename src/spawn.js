@@ -116,7 +116,7 @@ async function excludeReports({ git, repo, readFile, appendFile, mkdir }) {
 }
 
 export async function spawnWorkers({
-  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, includeUncommitted = false, run = null, writeFile, readFile, appendFile, mkdir,
+  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, includeUncommitted = false, run = null, prepare = null, writeFile, readFile, appendFile, mkdir,
 }) {
   const existing = loadRun(task, { paths, readFile });
   const backend = herdr.kind ?? 'herdr';
@@ -180,6 +180,10 @@ export async function spawnWorkers({
     }
     throw err;
   }
+
+  // Copy untracked files and run the setup command before the agents start.
+  const setup = prepare ? await prepare(workers) : { results: [], warnings: [] };
+  warnings.push(...setup.warnings);
 
   // The first auto spawn of a kind checks that the installed agent still knows its flag.
   const helpChecked = new Set();
@@ -245,5 +249,5 @@ ${help.stderr}`.includes(flagName)) {
     ],
   };
   saveRun(record, { paths, writeFile, mkdir });
-  return { workers, warnings, snapshot };
+  return { workers, warnings, snapshot, setup: setup.results };
 }

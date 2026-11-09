@@ -16,6 +16,7 @@ import { runSetup, formatSetup } from './setup.js';
 import { fail } from './errors.js';
 import { EXAMPLE } from './task.js';
 import { RUN_COMMANDS, runOps, runCommand } from './run-commands.js';
+import { setupSettings, prepareWorktrees, formatSetup as formatWorktreeSetup } from './worktree-setup.js';
 import { afterWait, afterMerge, afterLand, afterCleanup } from './history.js';
 
 const HELP = `foreman: describe a task; a lead agent splits it across your coding agents in herdr or the Herdr app.
@@ -212,8 +213,10 @@ function defaultOps(deps) {
       const repo = await g.toplevel(deps.cwd);
       if (!repo) throw fail('USAGE', 'run foreman spawn inside the git repository');
       const name = here();
+      const cfg = config();
+      const prepare = (workers) => prepareWorktrees({ repo, workers, settings: setupSettings({ config: cfg, repo, readFile: deps.readFile }) });
       return spawnWorkers({
-        herdr: backend(name), git: g, paths: deps.paths, config: config(), repo, task, specs, newTab, effort, full, auto, includeUncommitted, branch, run: deps.run,
+        herdr: backend(name), git: g, paths: deps.paths, config: cfg, prepare, repo, task, specs, newTab, effort, full, auto, includeUncommitted, branch, run: deps.run,
         pane: callerPane(name, deps.env), writeFile: deps.writeFile, readFile: deps.readFile, appendFile: deps.appendFile, mkdir: deps.mkdir,
       });
     },
@@ -372,6 +375,7 @@ export async function main(argv, deps) {
         });
         print(res, (v) => {
           for (const w of v.workers) stdout.write(`${w.name.padEnd(12)}${w.kind.padEnd(10)}${String(w.paneId ?? '-').padEnd(10)}${w.status}${w.error ? ` (${w.error})` : ''}\n`);
+          for (const s of v.setup ?? []) stdout.write(`${formatWorktreeSetup(s)}\n`);
           if (v.snapshot) stdout.write('workers start from a copy that includes your uncommitted changes\n');
           for (const warning of v.warnings) stdout.write(`warning: ${warning}\n`);
         });
