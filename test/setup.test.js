@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  parseKeys, addBinding, humanKey, versionAtLeast, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey, PACKAGE_ROOT,
+  parseKeys, addBinding, humanKey, versionAtLeast, compareVersions, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey, PACKAGE_ROOT,
 } from '../src/setup.js';
 import { fakeRun } from './helpers.js';
 
@@ -283,6 +283,45 @@ test('setupApp: an unedited mod of an older version is updated, an edited one is
   assert.equal(r.mod.status, 'skipped');
   assert.equal(r.key.status, 'skipped');
   assert.equal(w.fs[MOD_MAIN], edited);
+});
+
+test('setupApp: an older foreman leaves a newer one\'s mod alone while that foreman is still there', async () => {
+  const w = appWorld();
+  const bin = path.join(w.d.root, 'bin', 'foreman.js');
+  w.fs[bin] = '';
+  await setupApp(w.d, '0.7.0-dev');
+  const newer = w.fs[MOD_MAIN];
+  w.fs[path.join(w.d.root, 'app', 'foreman', 'main.js')] = `${TEMPLATE}// old\n`;
+  w.checks.length = 0;
+  const r = await setupApp(w.d, '0.6.0');
+  assert.deepEqual([r.mod.status, r.mod.version, r.key.status], ['newer', '0.7.0-dev', 'already']);
+  assert.equal(w.checks.length, 0);
+  assert.equal(w.fs[MOD_MAIN], newer);
+  delete w.fs[bin];
+  assert.equal((await setupApp(w.d, '0.6.0')).mod.status, 'updated');
+  assert.match(w.fs[MOD_MAIN], /foreman-managed 0\.6\.0 [\s\S]*\/\/ old\n$/);
+});
+
+test('setupApp: a copy of the same version with other paths keeps the installed mod', async () => {
+  const w = appWorld();
+  w.fs[path.join(w.d.root, 'bin', 'foreman.js')] = '';
+  await setupApp(w.d, '1.2.3');
+  const installed = w.fs[MOD_MAIN];
+  w.d.nodePath = 'D:\\other\\node.exe';
+  assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'already');
+  assert.equal(w.fs[MOD_MAIN], installed);
+  w.fs[path.join(w.d.root, 'app', 'foreman', 'main.js')] = `${TEMPLATE}// changed\n`;
+  assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'updated');
+  assert.match(w.fs[MOD_MAIN], /D:\/other\/node\.exe[\s\S]*\/\/ changed\n$/);
+});
+
+test('compareVersions: numbers, then a release after its pre-release', () => {
+  assert.equal(compareVersions('0.7.0', '0.6.9'), 1);
+  assert.equal(compareVersions('0.6.0', '0.6.0'), 0);
+  assert.equal(compareVersions('0.10.0', '0.9.0'), 1);
+  assert.equal(compareVersions('0.7.0-dev', '0.6.0'), 1);
+  assert.equal(compareVersions('0.7.0-dev', '0.7.0'), -1);
+  assert.equal(compareVersions('1', '1.0.0'), 0);
 });
 
 test('setupApp: a mod folder that is not from foreman is never overwritten', async () => {

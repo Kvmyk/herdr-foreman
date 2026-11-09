@@ -12,6 +12,7 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ### Fixed
 
+- Two copies of foreman on one computer (the herdr plugin and `npm install -g`, or a clone) no longer take turns rewriting the Herdr desktop prompt: "foreman setup" leaves a prompt installed by a newer foreman alone, and one of the same version that differs only in the node and foreman paths. A prompt whose foreman is gone is still replaced.
 - The two switch rows of the Herdr desktop prompt ("Workers answer permission questions automatically", "Include uncommitted changes") did nothing when clicked: the handler redrew with the context of the render pass, which is not valid in a click. They now use the click's own context; clicking anywhere on the row flips the switch, and Space or Enter does too when the row has the keyboard.
 
 ## [0.6.0] - 2026-11-09

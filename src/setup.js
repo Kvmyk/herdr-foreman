@@ -88,6 +88,21 @@ export function versionAtLeast(version, min) {
   return true;
 }
 
+// Order of two package versions such as 0.6.0 and 0.7.0-dev: -1, 0 or 1. A
+// pre-release sorts before its release.
+export function compareVersions(a, b) {
+  const [coreA, preA = ''] = String(a).split('-', 2);
+  const [coreB, preB = ''] = String(b).split('-', 2);
+  const x = coreA.split('.').map((n) => Number.parseInt(n, 10) || 0);
+  const y = coreB.split('.').map((n) => Number.parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0) ? 1 : -1;
+  }
+  if (preA === preB) return 0;
+  if (!preA || !preB) return preA ? -1 : 1;
+  return preA > preB ? 1 : -1;
+}
+
 // Where herdr reads config.toml: the env override, else what herdr --help
 // reports, else herdr's documented default.
 export async function configPath({ run, env, platform = process.platform, homedir }) {
@@ -190,6 +205,9 @@ export function renderAppMod(d, version) {
   };
 }
 
+// A rendered main.js without its marker and this machine's paths.
+const withoutPaths = (main) => main.replace(APP_MARKER, '').replace(/^const (NODE|BIN) = "[^"\n]*";/gm, 'const $1 = "";');
+
 async function appCheck(d, main, modJson, logo) {
   const dir = path.join(d.tmpdir, 'foreman-app-mod-check', APP_MOD);
   const files = [path.join(dir, 'main.js'), path.join(dir, 'mod.json'), path.join(dir, 'logo.svg')];
@@ -243,6 +261,20 @@ export async function installAppMod(d, version) {
     const marker = have.match(APP_MARKER);
     if (!marker || sha(have.slice(marker[0].length)) !== marker[2]) {
       return { status: 'skipped', dir, reason: `${mainFile} was not written by foreman or was changed, so it is left alone` };
+    }
+    // Several copies of foreman (the herdr plugin, npm, a clone) each run
+    // setup. The mod stays with the copy it runs while that copy exists: an
+    // older copy never puts its prompt back, and one of the same version only
+    // differs in where node and foreman are, which is no reason to rewrite it.
+    const bin = have.match(/^const BIN = ("[^"\n]*");/m);
+    if (bin && d.exists(path.normalize(JSON.parse(bin[1])))) {
+      const order = compareVersions(marker[1], version);
+      if (order > 0) return { status: 'newer', dir, version: marker[1] };
+      if (order === 0 && withoutPaths(have) === withoutPaths(want.main)) {
+        if (haveLogo === want.logo) return { status: 'already', dir };
+        d.writeFile(logoFile, want.logo);
+        return { status: 'updated', dir };
+      }
     }
   } else if (d.exists(dir)) {
     return { status: 'skipped', dir, reason: `${dir} exists and is not foreman's, so it is left alone` };
@@ -301,7 +333,7 @@ export async function setupApp(d, version) {
   const home = appHome(d);
   if (!d.exists(home)) return { status: 'absent', home };
   const mod = await installAppMod(d, version);
-  const key = ['added', 'updated', 'already'].includes(mod.status) ? await bindAppKey(d) : { status: 'skipped' };
+  const key = ['added', 'updated', 'already', 'newer'].includes(mod.status) ? await bindAppKey(d) : { status: 'skipped' };
   return { status: 'found', home, mod, key };
 }
 
@@ -438,7 +470,7 @@ export async function runSetup(d, { quiet = false, postinstall = false } = {}) {
     r.changes.push(`chose ${choice.leader} as the lead agent`);
   }
 
-  const appOk = r.app.status === 'found' && ['added', 'updated', 'already'].includes(r.app.mod.status) && ['added', 'already'].includes(r.app.key.status);
+  const appOk = r.app.status === 'found' && ['added', 'updated', 'already', 'newer'].includes(r.app.mod.status) && ['added', 'already'].includes(r.app.key.status);
   const herdrOk = r.herdr.ok && r.plugin === 'enabled' && ['added', 'already'].includes(r.key.status);
   if (['added', 'already'].includes(r.key.status) || appOk) {
     const state = { at: new Date().toISOString() };
@@ -513,6 +545,7 @@ export function formatSetup(r, ui = createUi()) {
     const { mod, key } = r.app;
     if (mod.status === 'failed') todo(`foreman could not add its task prompt to the Herdr app: ${mod.reason}`);
     else if (mod.status === 'skipped') todo(`Herdr app: ${mod.reason}`);
+    else if (mod.status === 'newer') ok(`Herdr app: task prompt is installed by a newer foreman (${mod.version}), so it is left as is`);
     else ok(`Herdr app: task prompt ${mod.status === 'already' ? 'is installed' : `${mod.status} (${mod.dir})`}`);
     if (key.status === 'already') ok(`Herdr app shortcut: ${humanAppKey(key.key)}`);
     else if (key.status === 'added') ok(`Herdr app shortcut: ${humanAppKey(key.key)} (just added to ${key.file}; your old keys are saved as ${key.backup})`);
