@@ -7,6 +7,7 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 ### Changed
 
 - New default pane layout `stack`: the leader keeps a full-height column of about 40% on the left and the workers are stacked one under another on the right. Up to 4 workers fit beside the leader; more (or `--new-tab`) go to a new tab, stacked as well, in two columns only past 4 workers. The old layout stays available as `"layout": "grid"` in `config.json`.
+- The `stack` layout works in the Herdr desktop app too: while its window is open, workers are placed one under another right of the leader (or stacked in their new tab) with equal heights and the leader at about 40%; with the window closed, or `"layout": "grid"`, the app puts them side by side as before.
 
 ### Fixed
 
