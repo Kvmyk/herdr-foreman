@@ -182,7 +182,7 @@ With herdr in the terminal, type `herdr` and press `Ctrl+B`, then `F`, as above;
 
 1. `foreman "<task>"` in a git repository. Outside herdr it starts the herdr server if needed, opens a workspace and attaches; inside herdr it opens a new tab.
 2. The leader (default: `claude`) runs `foreman brief --json`: installed agents, whether they are signed in, their models, what is known about each harness and model family, and your own past results per task category.
-3. It shows the plan, then opens workers with `foreman spawn`, each in its own git worktree and pane.
+3. It shows the plan, then opens workers with `foreman spawn`, each in its own git worktree and pane. Workers are stacked one under another to the right of the leader (up to 4; more go to a tab of their own); `"layout": "grid"` in `config.json` puts them side by side instead.
 4. Workers investigate without changing anything and write proposals. The leader merges them into one numbered list; you answer, for example, "1 and 3 yes, 2 no".
 5. Approved items are implemented and committed in the workers' worktrees. `foreman merge` collects them on the run branch `<type>/<name>` (for example `feat/auto-accept-workers`; workers use `wip/<name>/<worker>`) in a separate worktree; the leader builds, tests and reviews.
 6. You choose: merge into your current branch (`foreman land`), leave the branch for later, or send comments back.
