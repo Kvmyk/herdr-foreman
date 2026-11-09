@@ -12,7 +12,7 @@ export const HINT = `Describe what you want done, in your own words.
 // Read lines until an empty line (after some text) or the end of input. An
 // empty first line gives an empty task. Returns the lines joined by newlines.
 // With editKey, a first line that is just that key finishes at once and returns it.
-export function readTaskLines(input, output = null, { editKey = null } = {}) {
+export function readTaskLines(input, output = null, { editKey = null, afterLine = null } = {}) {
   return new Promise((resolve) => {
     const rl = createInterface({ input, output: output ?? undefined, terminal: false });
     const lines = [];
@@ -30,6 +30,7 @@ export function readTaskLines(input, output = null, { editKey = null } = {}) {
         return finish();
       }
       lines.push(line.replace(/\s+$/, ''));
+      afterLine?.();
     });
     rl.on('close', finish);
   });

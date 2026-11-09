@@ -315,7 +315,7 @@ function defaultOps(deps) {
       task, cwd, slug, prompt, env: deps.env, herdr: backend(here(flag)), git: git(), which: deps.which, config: config(), paths: deps.paths,
       homedir: deps.homedir, exists: deps.exists, spawnDetached: deps.spawnDetached, attach: deps.attach, sleep: deps.sleep,
       foremanCmd: deps.foremanCmd, writeFile: deps.writeFile, mkdir: deps.mkdir, report: (m) => deps.stdout.write(`${m}\n`),
-      progress: deps.progress ? (m) => deps.stdout.write(`  ${m}\n`) : undefined,
+      progress: typeof deps.progress === 'function' ? deps.progress : deps.progress ? (m) => deps.stdout.write(`  ${m}\n`) : undefined,
       platform: deps.platform, prefs,
     }),
   };
