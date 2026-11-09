@@ -94,5 +94,6 @@ test('install and server start run the quiet setup, which never fails the instal
   assert.match(manifest, /id = "setup"[\s\S]*command = \["node", "plugin\/setup\.js"\]/);
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   for (const f of ['plugin', 'herdr-plugin.toml']) assert.ok(pkg.files.includes(f), `${f} ships with npm`);
-  assert.equal(pkg.scripts.postinstall, 'node bin/foreman.js setup --postinstall');
+  // An install script makes npm prepare a git install in a temp clone and link the global package to it (Windows: a junction to a deleted folder).
+  assert.equal(pkg.scripts.postinstall, undefined);
 });

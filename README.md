@@ -67,7 +67,7 @@ As a command, for use in any terminal:
 npm install -g github:Kvmyk/herdr-foreman
 ```
 
-Then run `foreman "<task>"` in any git repository: outside herdr it starts the herdr server if needed and attaches; inside herdr it opens a new tab. The npm install also adds foreman to herdr and binds the shortcut (npm hides that output; run `foreman` to see the state). You can also clone the repository and run `npm link` in it; a clone is set up only when you run `foreman setup`. The plugin and the command run the same code. If `foreman` is not on your PATH, the leader is told to run its subcommands as `node /path/to/herdr-foreman/bin/foreman.js`.
+Then run `foreman "<task>"` in any git repository: outside herdr it starts the herdr server if needed and attaches; inside herdr it opens a new tab. Run `foreman setup` (or just `foreman`) once after the npm install to add foreman to herdr and bind the shortcut. You can also clone the repository and run `npm link` in it; a clone is set up only when you run `foreman setup`. The plugin and the command run the same code. If `foreman` is not on your PATH, the leader is told to run its subcommands as `node /path/to/herdr-foreman/bin/foreman.js`.
 
 What setup changes: it appends this block to herdr's `config.toml` (`herdr --help` prints its path; on Windows it is usually `%APPDATA%\herdr\config.toml`), after checking the result with `herdr config check`, and runs `herdr server reload-config`:
 
@@ -108,7 +108,7 @@ What setup changes, checked first and never forced:
 - one line in `keys.json`, `"ctrl-shift-y": "mod.open:foreman"` (the first of `ctrl-shift-y`, `ctrl-alt-shift-f`, `ctrl-shift-f10` that you have not bound). Your old keys are saved as `keys.json.foreman-backup`, and if the app rejects the new file (`keys.error`) your keys are put back. A missing or invalid `keys.json` is never created or replaced; open the app once and type `foreman setup` again.
 - the + menu is not changed: the app replaces its own menus at every start. To use another key, change the line in `keys.json`.
 
-Setup reruns quietly after an npm install and whenever herdr starts. `"autoSetup": false` in `~/.herdr-foreman/config.json` (or `FOREMAN_NO_SETUP=1`) stops that; `foreman setup` still works. To remove foreman from the app, delete `mods/foreman` and that line.
+Setup reruns quietly whenever herdr starts. `"autoSetup": false` in `~/.herdr-foreman/config.json` (or `FOREMAN_NO_SETUP=1`) stops that; `foreman setup` still works. To remove foreman from the app, delete `mods/foreman` and that line.
 
 The prompt starts foreman as `node <foreman>/bin/foreman.js --backend app -- "<task>"` in a terminal tab of the app, in the folder of the focused terminal.
 

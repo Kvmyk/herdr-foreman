@@ -4,6 +4,10 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- `npm install -g github:Kvmyk/herdr-foreman` no longer fails with "Cannot find module ...\bin\foreman.js". The install script made npm link the global package to a temporary clone that it then deleted. The npm install no longer runs setup, so run `foreman setup` (or `foreman`) once afterwards.
+
 ## [0.4.1] - 2026-11-08
 
 ### Removed

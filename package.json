@@ -37,8 +37,7 @@
     "herdr-plugin.toml"
   ],
   "scripts": {
-    "test": "node --test",
-    "postinstall": "node bin/foreman.js setup --postinstall"
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"
