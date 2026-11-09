@@ -75,11 +75,11 @@ test('rejects too many workers and bad task', async () => {
   await assert.rejects(call(f, { specs: ['w1=claude'], task: 'Fix Login' }), (e) => e.code === 'BAD_TASK');
 });
 
-test('three workers: splits and cwd per worktree', async () => {
+test('three workers: stacked right of the leader, cwd per worktree', async () => {
   const f = fakes();
   const { workers } = await call(f, { specs: ['w1=claude', 'w2=agy', 'w3=pi'] });
   const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => o);
-  assert.deepEqual(splits.map((s) => [s.direction, Number(s.ratio.toFixed(4))]), [['right', 0.5], ['down', 0.3333], ['down', 0.5]]);
+  assert.deepEqual(splits.map((s) => [s.direction, Number(s.ratio.toFixed(4))]), [['right', 0.4], ['down', 0.3333], ['down', 0.5]]);
   assert.deepEqual(splits.map((s) => s.cwd), workers.map((w) => w.worktree));
   assert.equal(splits[0].pane, 'w1:p1');
   const root = workers[0].worktree.slice(0, -'w1'.length);
@@ -88,7 +88,28 @@ test('three workers: splits and cwd per worktree', async () => {
   assert.deepEqual(workers.map((w) => w.status), ['ready', 'ready', 'ready']);
 });
 
-test('five workers use two columns, in a new tab of their own', async () => {
+test('grid layout keeps equal columns beside the leader', async () => {
+  const f = fakes();
+  await call(f, { specs: ['a=claude', 'b=claude', 'c=claude'], config: { ...DEFAULT_CONFIG, layout: 'grid' } });
+  const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => [o.direction, Number(o.ratio.toFixed(4))]);
+  assert.deepEqual(splits, [['right', 0.5], ['down', 0.3333], ['down', 0.5]]);
+});
+
+test('grid layout: four workers go to a new tab', async () => {
+  const f = fakes();
+  const { warnings } = await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude'], config: { ...DEFAULT_CONFIG, layout: 'grid' } });
+  assert.equal(f.log.filter(([k]) => k === 'tab').length, 1);
+  assert.ok(warnings.some((w) => /4 workers/.test(w) && /new tab/.test(w)));
+});
+
+test('new tab stacks up to four workers in one column', async () => {
+  const f = fakes();
+  await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude'], newTab: true });
+  const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => [o.direction, Number(o.ratio.toFixed(4))]);
+  assert.deepEqual(splits, [['down', 0.25], ['down', 0.3333], ['down', 0.5]]);
+});
+
+test('five workers use two stacked columns, in a new tab of their own', async () => {
   const f = fakes();
   const { warnings } = await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude', 'e=claude'] });
   const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => [o.direction, Number(o.ratio.toFixed(4))]);
@@ -97,16 +118,18 @@ test('five workers use two columns, in a new tab of their own', async () => {
   assert.ok(warnings.some((w) => /5 workers/.test(w) && /new tab/.test(w)));
 });
 
-test('up to three workers stay beside the leader', async () => {
+test('up to four workers stay beside the leader', async () => {
   const f = fakes();
-  const { warnings } = await call(f, { specs: ['a=claude', 'b=claude', 'c=claude'] });
+  const { warnings } = await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude'] });
+  const splits = f.log.filter(([k]) => k === 'split').map(([, o]) => [o.direction, Number(o.ratio.toFixed(4))]);
+  assert.deepEqual(splits, [['right', 0.4], ['down', 0.25], ['down', 0.3333], ['down', 0.5]]);
   assert.equal(f.log.filter(([k]) => k === 'tab').length, 0);
   assert.ok(!warnings.some((w) => /new tab/.test(w)));
 });
 
-test('more than three workers need no leader pane', async () => {
+test('more than four workers need no leader pane', async () => {
   const f = fakes();
-  await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude'], pane: null });
+  await call(f, { specs: ['a=claude', 'b=claude', 'c=claude', 'd=claude', 'e=claude'], pane: null });
   assert.equal(f.log.filter(([k]) => k === 'tab').length, 1);
 });
 
