@@ -191,7 +191,7 @@ async function excludeReports({ git, repo, readFile, appendFile, mkdir }) {
 }
 
 export async function spawnWorkers({
-  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, includeUncommitted = false, run = null, prepare = null, writeFile, readFile, appendFile, mkdir, sleep = null, now = Date.now, foremanCmd = 'foreman',
+  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, baseBranch = null, includeUncommitted = false, run = null, prepare = null, writeFile, readFile, appendFile, mkdir, sleep = null, now = Date.now, foremanCmd = 'foreman',
 }) {
   const existing = loadRun(task, { paths, readFile });
   const backend = herdr.kind ?? 'herdr';
@@ -209,6 +209,18 @@ export async function spawnWorkers({
   const parsed = checked.parsed;
   const runBranch = existing ? existing.branch : checked.branch;
 
+  // --base: the branch the run starts from and lands on, instead of HEAD and the current branch.
+  if (baseBranch && existing && existing.baseBranch !== baseBranch) {
+    throw fail('BAD_BASE', existing.baseBranch ? `this task already uses base ${existing.baseBranch}; do not pass a different --base` : 'this task already started from the current branch; do not pass --base later');
+  }
+  if (baseBranch && !existing) {
+    if (!(await git.branchExists(repo, baseBranch))) throw fail('BAD_BASE', `base branch "${baseBranch}" does not exist in ${repo}`);
+  }
+  const usedBase = existing ? existing.baseBranch ?? null : baseBranch;
+  // The checkout holds the uncommitted work; it belongs to the base only when that is the checked-out branch.
+  const current = usedBase ? await git.currentBranch(repo).catch(() => null) : null;
+  const onCheckout = !usedBase || current === usedBase;
+
   // Uncommitted work: on the first spawn the user can have it copied into a
   // snapshot commit the workers start from (--include-uncommitted); otherwise
   // the workers never see it, so say so. A dirty repo on a later spawn keeps
@@ -217,14 +229,16 @@ export async function spawnWorkers({
   let base = existing?.base ?? null;
   const dirty = await git.isDirty(repo);
   if (dirty) {
-    if (!existing?.base && includeUncommitted) {
+    if (!onCheckout) {
+      warnings.push(`uncommitted changes in ${repo} belong to ${current}, not to the base ${usedBase}, so they are not copied to the workers`);
+    } else if (!existing?.base && includeUncommitted) {
       snapshot = await git.createSnapshot(repo, snapshotMessage(task));
       base = snapshot;
     } else {
       warnings.push(`uncommitted changes in ${repo} are not copied to the workers; spawn again with --include-uncommitted to include them`);
     }
   }
-  base ??= await git.head(repo);
+  base ??= usedBase ? await git.commitOf(repo, usedBase) : await git.head(repo);
   await excludeReports({ git, repo, readFile, appendFile, mkdir });
 
   const root = worktreeRoot({ paths, repo, task });
@@ -331,6 +345,7 @@ ${screen}`;
     base,
     ...(snapshot ? { snapshot } : {}),
     ...(runBranch ? { branch: runBranch } : {}),
+    ...(usedBase ? { baseBranch: usedBase } : {}),
     ...(backend === 'app' ? { backend } : {}),
     createdAt: existing?.createdAt ?? startedAt,
     updatedAt: startedAt,

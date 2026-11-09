@@ -1,6 +1,8 @@
 // After workers report: check what they changed, collect committed work on
 // <type>/<name> (foreman/<task> for old runs) in a separate worktree, land it on the user's branch, clean up.
 import path from 'node:path';
+import os from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { worktreeRoot } from './runs.js';
 
 function isInside(child, parent) {
@@ -79,8 +81,37 @@ export async function mergeWorkers({ run, git, paths, exists, only = null }) {
   return result;
 }
 
-export async function land({ run, git, title = null }) {
+// Merge the run branch into a branch that is not checked out, in a temporary
+// worktree of that branch, so the user's checkout is never touched.
+async function landElsewhere({ run, git, branch, title, tmpdir, makeTempDir }) {
+  const base = run.baseBranch;
+  const dir = makeTempDir(tmpdir);
+  try {
+    try {
+      await git.addWorktree(run.repo, dir, base);
+    } catch (err) {
+      return { ok: false, reason: `cannot update ${base} without touching your checkout: ${err.message.split(/\r?\n/)[0]}` };
+    }
+    const res = await git.merge(dir, branch, title ? `Merge ${branch}: ${title}` : `Merge ${branch}`);
+    return res.ok ? { ok: true, branch, into: base } : { ok: false, reason: `merge conflict with ${base}; ${base} is unchanged`, files: res.files };
+  } finally {
+    await git.removeWorktree(run.repo, dir).catch(() => {});
+    await git.pruneWorktrees(run.repo).catch(() => {});
+    try {
+      if (path.basename(path.dirname(dir)).startsWith('foreman-land-')) rmSync(path.dirname(dir), { recursive: true, force: true });
+    } catch {
+      // a leftover empty temp folder is harmless
+    }
+  }
+}
+
+export async function land({ run, git, title = null, tmpdir = os.tmpdir(), makeTempDir = (t) => path.join(mkdtempSync(path.join(t, 'foreman-land-')), 'wt') }) {
   const branch = mergeBranch(run);
+  if (run.baseBranch && (await git.currentBranch(run.repo).catch(() => null)) !== run.baseBranch) {
+    if (!(await git.branchExists(run.repo, branch))) return { ok: false, reason: `nothing to land: ${branch} does not exist; run foreman merge first` };
+    if (!(await git.branchExists(run.repo, run.baseBranch))) return { ok: false, reason: `the base branch ${run.baseBranch} no longer exists` };
+    return landElsewhere({ run, git, branch, title, tmpdir, makeTempDir });
+  }
   // A dirty checkout again: if the run captured a snapshot of the user's
   // uncommitted work and the working tree still matches it, saving those
   // changes as a commit now merges cleanly (the run branch already carries
@@ -114,7 +145,7 @@ export async function land({ run, git, title = null }) {
     return { ok: false, reason: `nothing to land: ${branch} does not exist; run foreman merge first` };
   }
   const res = await git.merge(run.repo, branch, title ? `Merge ${branch}: ${title}` : `Merge ${branch}`);
-  return res.ok ? { ok: true, branch } : { ok: false, reason: 'merge conflict', files: res.files };
+  return res.ok ? { ok: true, branch, ...(run.baseBranch ? { into: run.baseBranch } : {}) } : { ok: false, reason: 'merge conflict', files: res.files };
 }
 
 // On Windows a process that just lost its pane can hold its folder for a

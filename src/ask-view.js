@@ -27,6 +27,20 @@ export function header(ui, { cwd, branch = null, columns = 80 }) {
   ].join('\n');
 }
 
+// "leader claude · branch ⎇ main · auto-answer off · uncommitted off": what the task will start with.
+export function settingsLine(ui, settings, { branch = null, columns = 80 } = {}) {
+  const on = (v) => (v ? ui.green('on') : ui.dim('off'));
+  const base = settings.base ?? branch;
+  const parts = [
+    `${ui.dim('leader')} ${ui.bold(settings.leader)}`,
+    `${ui.dim('branch')} ${ui.bold(base ? `⎇ ${base}` : 'current')}`,
+    `${ui.dim('auto-answer')} ${on(settings.auto)}`,
+    `${ui.dim('uncommitted')} ${on(settings.uncommitted)}`,
+  ];
+  const line = parts.join(ui.dim(' · '));
+  return visibleLength(line) + INDENT.length <= columns ? `${INDENT}${line}` : parts.map((p) => `${INDENT}${p}`).join('\n');
+}
+
 const key = (ui, k, text) => `${INDENT}${ui.cyan(k.padEnd(18))}${ui.dim(text)}`;
 
 export function hints(ui, columns = 80) {
@@ -39,6 +53,12 @@ export function hints(ui, columns = 80) {
     key(ui, 'e + Enter', 'write it in an editor instead'),
     key(ui, '@file', 'point at files; links work too'),
     key(ui, 'Empty first line', 'cancel'),
+    '',
+    `${INDENT}${ui.dim('Change before you type the task, each on its own line:')}`,
+    key(ui, '/leader <kind>', 'which agent leads this task'),
+    key(ui, '/branch <name>', 'start from this branch, and land on it'),
+    key(ui, '/auto', 'workers answer permission questions (on/off)'),
+    key(ui, '/uncommitted', 'workers get your uncommitted changes (on/off)'),
     '',
   ].join('\n');
 }

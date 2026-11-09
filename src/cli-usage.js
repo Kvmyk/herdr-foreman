@@ -4,7 +4,7 @@
 const USAGE = {
   agents: 'foreman agents [--json]',
   brief: 'foreman brief [--json]',
-  spawn: 'foreman spawn --task <slug> [--branch <type>/<name>] [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--include-uncommitted] [--json] <name>=<kind>[:<model>]...',
+  spawn: 'foreman spawn --task <slug> [--branch <type>/<name>] [--base <branch>] [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--include-uncommitted] [--json] <name>=<kind>[:<model>]...',
   wait: 'foreman wait --task <slug> [--phase investigate|implement] [--only a,b] [--timeout ms] [--json]',
   status: 'foreman status --task <slug> [--json]',
   watch: 'foreman watch --task <slug> [--interval seconds]',
@@ -28,7 +28,7 @@ const USAGE = {
 };
 
 // Starting a leader: not a subcommand, so it is not offered by nearSubcommand.
-export const START_USAGE = 'foreman [--backend app|herdr] [--auto-answer] [--include-uncommitted] "<task>" | -f task.md';
+export const START_USAGE = 'foreman [--backend app|herdr] [--leader <kind>] [--base <branch>] [--auto-answer] [--include-uncommitted] "<task>" | -f task.md';
 
 export const usageOf = (name) => USAGE[name] ?? null;
 

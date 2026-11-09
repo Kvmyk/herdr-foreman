@@ -1,7 +1,7 @@
 // foreman: describe a task, a lead agent splits it across your coding agents.
 // Installed and updated by "foreman setup"; edit a copy under another name,
 // a changed file is left alone. Ctrl+Enter starts, Enter adds a line, Esc cancels.
-import { View, div } from "gpui-kit";
+import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { run, props, closeOverlay, theme, spaces, focused, panes, notify, exec, readTextFile, writeTextFile, home, shared, setShared } from "herdr";
 
@@ -36,7 +36,12 @@ export default class Foreman extends View {
     this.text = "";
     this.started = false;
     this.problem = null;      // why Start cannot work, shown inline
-    this.leader = "claude";
+    this.leader = "claude";   // the leader for this task; configLeader is what foreman uses anyway
+    this.configLeader = "claude";
+    this.kinds = null;        // agents that can lead (ready ones), once listed
+    this.branches = null;     // local branches of the folder, once listed
+    this.base = null;         // chosen base branch; null: the current branch
+    this.menu = null;         // which pill's choices are open: "leader" or "branch"
     this.recent = [];
     this.files = null;        // tracked files of the folder, for @ hints
     this.drafted = null;      // what the draft file holds now (null: no file)
@@ -56,7 +61,11 @@ export default class Foreman extends View {
     this.input.focus();
     cx.timer.after(600, () => this.input.focus());
     this.handle = cx.focus_handle();
+    // A switch row takes the keyboard when clicked or tabbed to; Space or Enter flips it.
+    this.rowFocus = { answer: cx.focus_handle(), uncommitted: cx.focus_handle() };
+    this.acx = cx;
     cx.spawn(async (cx) => { await this.load(); cx.notify(); });
+    cx.spawn(async (cx) => { await this.loadChoices(); cx.notify(); });
   }
 
   // Draft, recent tasks, the leader, and whether a task can start at all.
@@ -66,9 +75,25 @@ export default class Foreman extends View {
     this.drafted = draft;
     this.recentText = recent;
     try { this.recent = JSON.parse(recent ?? "[]").filter((t) => typeof t === "string").slice(0, RECENT); } catch { /* start over */ }
-    try { this.leader = JSON.parse(config ?? "{}").leader || "claude"; } catch { /* keep the default */ }
+    try { this.configLeader = JSON.parse(config ?? "{}").leader || "claude"; } catch { /* keep the default */ }
+    this.leader = this.configLeader;
     if (draft?.trim() && !this.text) { this.input.set_value(draft); this.text = draft; }
     this.problem = await this.check();
+  }
+
+  // What the pills can offer: agents that are ready to lead, and the local branches.
+  // Either may stay empty (an old foreman, no git); the pills then just show the current value.
+  async loadChoices() {
+    if (NODE.startsWith("__") || BIN.startsWith("__") || !this.where) return;
+    const [agents, branches] = await Promise.all([
+      exec(NODE, [BIN, "agents", "--json"], { cwd: this.where }).catch(() => null),
+      exec("git", ["branch", "--format=%(refname:short)"], { cwd: this.where }).catch(() => null),
+    ]);
+    try {
+      const ready = JSON.parse(agents?.stdout ?? "[]").filter((a) => a.status === "ready").map((a) => a.kind);
+      this.kinds = ready.includes(this.configLeader) ? ready : [this.configLeader, ...ready];
+    } catch { this.kinds = [this.configLeader]; }
+    this.branches = branches?.code === 0 ? branches.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("(")) : [];
   }
 
   async check() {
@@ -97,7 +122,7 @@ export default class Foreman extends View {
   hints() {
     const word = mention(this.text);
     if (word === null) return [];
-    if (!this.files) { this.loadFiles().then(() => this.cx?.notify()); return []; }
+    if (!this.files) { this.acx.spawn(async (cx) => { await this.loadFiles(); cx.notify(); }); return []; }
     const q = word.toLowerCase();
     return this.files.filter((f) => f.toLowerCase().includes(q)).slice(0, HINTS);
   }
@@ -143,7 +168,7 @@ export default class Foreman extends View {
     this.remember(task);
     this.saveDraft("");
     closeOverlay(props().overlay);
-    const argv = [NODE, BIN, "--backend", "app", ...(this.prefs.answer ? ["--auto-answer"] : []), ...(this.prefs.uncommitted ? ["--include-uncommitted"] : []), "--", task];
+    const argv = [NODE, BIN, "--backend", "app", ...(this.leader !== this.configLeader ? ["--leader", this.leader] : []), ...(this.base ? ["--base", this.base] : []), ...(this.prefs.answer ? ["--auto-answer"] : []), ...(this.prefs.uncommitted ? ["--include-uncommitted"] : []), "--", task];
     try {
       // A terminal of its own: no time limit, and foreman opens the leader tab, then ends.
       run("tab.new", { name: "foreman", space: f?.space, folder: where, argv });
@@ -165,7 +190,6 @@ export default class Foreman extends View {
   }
 
   render(cx) {
-    this.cx = cx;
     const t = theme();
     const ready = Boolean(this.text.trim()) && !this.problem;
     const lines = this.text.trim() ? this.text.split(/\r?\n/).length : 0;
@@ -180,19 +204,29 @@ export default class Foreman extends View {
       .text_color(primary ? t.solid_foreground : t.foreground).text_size(12.5).font_medium()
       .opacity(enabled ? 1 : 0.4).cursor_pointer().hover((s) => (enabled ? s.opacity(0.88) : s))
       .on_click(() => { if (enabled) action(); }).child(text);
-    // A switch row: track and knob, a title, and one line saying what it does.
+    // A switch row: track and knob, a title, and one line saying what it does. The
+    // handlers redraw with the context they are given: the one render() got is only
+    // good while rendering. Clicking anywhere on the row flips it, so does Space or Enter.
+    const flip = (name, hcx) => { this.prefs = { ...this.prefs, [name]: !this.prefs[name] }; hcx.notify(); };
     const toggle = (id, title, detail, name) => {
       const on = Boolean(this.prefs[name]);
-      return h_flex().id(id).items_center().gap(12).py(4).cursor_pointer()
-        .on_click(() => { this.prefs = { ...this.prefs, [name]: !on }; cx.notify(); })
+      return h_flex().id(id).track_focus(this.rowFocus[name]).items_center().gap(12).py(4).px(6).rounded(6).cursor_pointer()
+        .hover((s) => s.bg(t.hover)).focus((s) => s.bg(t.hover))
+        .on_click((_e, hcx) => flip(name, hcx))
+        .on_key_down((e, hcx) => { if (e.key === "space" || e.key === " " || e.key === "enter") { flip(name, hcx); hcx.stop_propagation(); } })
         .child((on ? h_flex().justify_end() : h_flex().justify_start()).w(32).h(18).p(2).flex_shrink_0().rounded_full().items_center().bg(on ? t.solid : t.input).border_1().border_color(on ? t.solid : t.border)
           .child(div().w(12).h(12).rounded_full().bg(on ? t.solid_foreground : t.muted)))
         .child(v_flex().flex_1().min_w(0)
           .child(div().text_size(12.5).text_color(t.foreground).child(title))
           .child(div().text_size(11).text_color(t.dim).child(detail)));
     };
-    const chip = (id, text, color, action) => div().id(id).px(10).py(4).rounded_full().bg(t.raised).border_1().border_color(t.border)
+    const chip = (id, text, color, action, chosen = false) => div().id(id).px(10).py(4).rounded_full().bg(t.raised).border_1().border_color(chosen ? t.accent : t.border)
       .text_size(11.5).text_color(color).truncate().cursor_pointer().hover((s) => s.bg(t.hover)).on_click(action).child(text);
+    // A pill that opens its choices below: a label, the value, a caret.
+    const open = (name) => (_e, hcx) => { this.menu = this.menu === name ? null : name; hcx.notify(); };
+    const pick = (apply) => (_e, hcx) => { apply(); this.menu = null; hcx.notify(); this.input.focus(); };
+    const choice = (id, label, value, name) => pill(div().text_color(t.dim).child(label), div().text_color(t.foreground).child(value), div().text_size(9).text_color(t.dim).child(this.menu === name ? "\u25b4" : "\u25be"))
+      .id(id).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(open(name));
 
     const branch = this.branch();
     const hints = this.hints();
@@ -201,19 +235,33 @@ export default class Foreman extends View {
 
     // Header: mark, title with subtitle, and the leader that will run the task.
     body.child(h_flex().items_center().gap(12)
-      .child(div().w(32).h(32).flex_shrink_0().rounded(8).bg(t.solid).flex().items_center().justify_center()
-        .text_size(17).font_semibold().text_color(t.solid_foreground).child("f"))
+      .child(image("mods/foreman/logo.svg").w(32).h(32).flex_none())
       .child(v_flex().flex_1().min_w(0)
         .child(div().text_size(15).font_semibold().child("New task"))
         .child(div().text_size(11.5).text_color(t.dim).child("A lead agent splits it across your coding agents.")))
-      .child(pill(div().text_size(11).text_color(t.dim).child("leader"), div().text_color(t.foreground).child(this.leader))));
+      .child(choice("fm-leader", "leader", this.leader, "leader")));
 
     // Where it will run: the folder is cut from the left, its end says which project it is.
     body.child(h_flex().items_center().gap(8)
       .child(h_flex().flex_1().min_w(0).items_center().gap(6).px(8).py(4).rounded(6).bg(t.raised).border_1().border_color(this.where ? t.border : t.blocked)
         .child(div().flex_shrink_0().text_size(11.5).text_color(t.dim).child("in"))
         .child(div().flex_1().min_w(0).overflow_hidden().whitespace_nowrap().text_ellipsis_start().text_size(11.5).text_color(this.where ? t.muted : t.blocked).child(this.where ?? "no folder")))
-      .children(branch ? [pill(div().text_color(t.dim).child("branch"), div().text_color(t.foreground).child(clip(branch, 28)))] : []));
+      .child(choice("fm-branch", "branch", clip(this.base ?? branch ?? "current", 28), "branch")));
+
+    // The open pill's choices, as chips: the leader's agent, or the branch the run starts from and lands on.
+    if (this.menu === "leader") {
+      const kinds = this.kinds ?? [this.leader];
+      body.child(v_flex().gap(6)
+        .child(div().text_size(11).text_color(t.dim).child(this.kinds ? "Which agent leads this task" : "Which agent leads this task (looking for ready agents...)"))
+        .child(h_flex().flex_wrap().gap(6).children(kinds.map((k, i) => chip(`fm-kind-${i}`, k, k === this.leader ? t.foreground : t.muted, pick(() => { this.leader = k; }), k === this.leader)))));
+    } else if (this.menu === "branch") {
+      const current = this.base ?? branch;
+      const names = [...new Set([...(current ? [current] : []), ...(this.branches ?? [])])];
+      body.child(v_flex().gap(6)
+        .child(div().text_size(11).text_color(t.dim).child(names.length ? "Workers start from this branch, and the result is merged back into it" : "No local branches found"))
+        .child(h_flex().flex_wrap().gap(6).children(names.slice(0, 24).map((b, i) => chip(`fm-base-${i}`, clip(b, 32), b === current ? t.foreground : t.muted, pick(() => { this.base = b === branch ? null : b; }), b === current))))
+        .children(names.length > 24 ? [div().text_size(11).text_color(t.dim).child(`${names.length - 24} more branches not shown`)] : []));
+    }
 
     if (this.problem) {
       body.child(h_flex().items_start().gap(10).px(12).py(10).rounded(8).bg(t.raised).border_1().border_color(t.blocked)

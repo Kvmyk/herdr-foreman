@@ -37,6 +37,10 @@ Usage:
   foreman -- <task words...>           same, when the task starts with a subcommand name
   foreman --backend app|herdr ...      start in the Herdr app or in herdr (default: where you run it;
                                        also FOREMAN_BACKEND)
+  foreman --leader <kind> --base <branch> "<task>"
+                                       this task only: lead with another agent (default: the config
+                                       leader), start the run from <branch> and land it there instead
+                                       of on the current branch (the Herdr app prompt has these as pills)
   foreman --auto-answer --include-uncommitted "<task>"
                                        answer the leader's two usual questions in advance: workers get
                                        --auto, and a copy of the changes not committed yet
@@ -47,12 +51,13 @@ Usage:
 Subcommands (used by the leader; add --json for machine-readable output):
   agents                               agents installed here: signed in? which models?
   brief                                everything the leader needs to plan, as JSON
-  spawn --task <slug> [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--branch <type>/<name>] [--include-uncommitted] <name>=<kind>[:<model>]...
+  spawn --task <slug> [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--branch <type>/<name>] [--base <branch>] [--include-uncommitted] <name>=<kind>[:<model>]...
                                        open workers in their own worktrees and panes
                                        (claude workers start lean unless --full;
                                        --auto starts workers in their auto-approve mode;
                                        --include-uncommitted starts workers from a copy
-                                       that also holds the changes not committed yet)
+                                       that also holds the changes not committed yet;
+                                       --base starts the run from that branch and land merges into it)
   wait --task <slug> [--phase investigate|implement] [--only a,b] [--timeout ms]
                                        block until workers finish or one needs attention
   status --task <slug>                 what each worker changed and reported
@@ -60,7 +65,7 @@ Subcommands (used by the leader; add --json for machine-readable output):
                                        status, refreshed until you press Ctrl+C
   merge --task <slug> [--only a,b]     collect committed work on the run branch
   land --task <slug> [--title <summary>]
-                                       merge the run branch into your current branch
+                                       merge the run branch into your current branch (or the run's --base)
   cleanup --task <slug> [--delete-branch]
                                        close worker panes, remove worktrees and worker branches
   cleanup [--all]                      list runs left behind (open workers, worktrees); --all cleans them
@@ -100,7 +105,7 @@ More: README.md ("If something does not work", FAQ) and https://github.com/Kvmyk
 const COMMANDS = {
   agents: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   brief: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
-  spawn: { flags: { '--task': true, '--new-tab': false, '--effort': true, '--full': false, '--auto': false, '--include-uncommitted': false, '--branch': true, '--json': false }, required: ['--task'], positionals: (p) => p.length > 0 && p.every((s) => SPEC_PATTERN.test(s)) },
+  spawn: { flags: { '--task': true, '--new-tab': false, '--effort': true, '--full': false, '--auto': false, '--include-uncommitted': false, '--branch': true, '--base': true, '--json': false }, required: ['--task'], positionals: (p) => p.length > 0 && p.every((s) => SPEC_PATTERN.test(s)) },
   wait: { flags: { '--task': true, '--phase': true, '--only': true, '--timeout': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   status: { flags: { '--task': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
   merge: { flags: { '--task': true, '--only': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
@@ -120,7 +125,7 @@ const COMMANDS = {
   ...RUN_COMMANDS,
 };
 
-const USAGE_CODES = new Set(['USAGE', 'BAD_SPEC', 'TOO_MANY', 'BAD_TASK', 'BAD_EFFORT', 'BAD_BRANCH', 'BRANCH_REQUIRED', 'UNKNOWN_KIND', 'NAME_TAKEN', 'NO_PANE', 'INVALID_ENTRY', 'NO_RUN']);
+const USAGE_CODES = new Set(['USAGE', 'BAD_SPEC', 'TOO_MANY', 'BAD_TASK', 'BAD_EFFORT', 'BAD_BRANCH', 'BAD_BASE', 'BRANCH_REQUIRED', 'UNKNOWN_KIND', 'NAME_TAKEN', 'NO_PANE', 'INVALID_ENTRY', 'NO_RUN']);
 
 function parseFlags(args, spec) {
   const flags = {};
@@ -158,10 +163,11 @@ export function route(argv) {
   }
   if (argv[0] === '--backend') return { kind: 'usage', message: `foreman --backend is ${BACKENDS.join(' or ')}` };
   // --auto-answer and --include-uncommitted in front of a task answer the leader's questions in advance.
-  const { prefs, rest } = takePrefs(argv);
+  const { prefs, rest, error } = takePrefs(argv);
+  if (error) return { kind: 'usage', message: `foreman ${error}, e.g. foreman --leader codex "fix the login"\nUsage: ${START_USAGE}` };
   if (rest.length < argv.length) {
     const r = route(rest);
-    return r.kind === 'start' ? { ...r, prefs } : { kind: 'usage', message: `foreman --auto-answer and --include-uncommitted go in front of a task, e.g. foreman --auto-answer "fix the login"\nUsage: ${START_USAGE}` };
+    return r.kind === 'start' ? { ...r, prefs } : { kind: 'usage', message: `foreman --auto-answer, --include-uncommitted, --leader and --base go in front of a task, e.g. foreman --auto-answer "fix the login"\nUsage: ${START_USAGE}` };
   }
   if (argv.length === 0) return { kind: 'help', code: 2 };
   if (argv[0] === '--') return { kind: 'start', task: argv.slice(1).join(' ') };
@@ -256,7 +262,7 @@ function defaultOps(deps) {
       note(task, (r) => afterWait(r, { phase, result, now: deps.now }));
       return result;
     },
-    async spawn({ task, specs, newTab, effort, full, auto, includeUncommitted, branch }) {
+    async spawn({ task, specs, newTab, effort, full, auto, includeUncommitted, branch, baseBranch = null }) {
       const g = git();
       const repo = await g.toplevel(deps.cwd);
       if (!repo) throw fail('USAGE', 'run foreman spawn inside the git repository');
@@ -264,7 +270,7 @@ function defaultOps(deps) {
       const cfg = config();
       const prepare = (workers) => prepareWorktrees({ repo, workers, settings: setupSettings({ config: cfg, repo, readFile: deps.readFile }) });
       return spawnWorkers({
-        herdr: backend(name), git: g, paths: deps.paths, config: cfg, prepare, repo, task, specs, newTab, effort, full, auto, includeUncommitted, branch, run: deps.run, sleep: deps.sleep, now: deps.now, foremanCmd: deps.foremanCmd,
+        herdr: backend(name), git: g, paths: deps.paths, config: cfg, prepare, repo, task, specs, newTab, effort, full, auto, includeUncommitted, branch, baseBranch, run: deps.run, sleep: deps.sleep, now: deps.now, foremanCmd: deps.foremanCmd,
         pane: callerPane(name, deps.env), writeFile: deps.writeFile, readFile: deps.readFile, appendFile: deps.appendFile, mkdir: deps.mkdir,
       });
     },
@@ -278,7 +284,7 @@ function defaultOps(deps) {
       return result;
     },
     async land({ task, title }) {
-      const result = await land({ run: needRun(task), git: git(), title });
+      const result = await land({ run: needRun(task), git: git(), title, tmpdir: deps.tmpdir });
       note(task, (r) => afterLand(r, { result, now: deps.now }));
       return result;
     },
@@ -421,7 +427,7 @@ export async function main(argv, deps) {
         return 0;
       case 'spawn': {
         const res = await ops.spawn({
-          task, specs: r.positionals, newTab: Boolean(r.flags['--new-tab']), effort: r.flags['--effort'] ?? null, full: Boolean(r.flags['--full']), auto: Boolean(r.flags['--auto']), includeUncommitted: Boolean(r.flags['--include-uncommitted']), branch: r.flags['--branch'] ?? null,
+          task, specs: r.positionals, newTab: Boolean(r.flags['--new-tab']), effort: r.flags['--effort'] ?? null, full: Boolean(r.flags['--full']), auto: Boolean(r.flags['--auto']), includeUncommitted: Boolean(r.flags['--include-uncommitted']), branch: r.flags['--branch'] ?? null, baseBranch: r.flags['--base'] ?? null,
         });
         print(res, (v) => {
           stdout.write(`${fmt.formatSpawn(v, ui)}\n`);
@@ -446,7 +452,7 @@ export async function main(argv, deps) {
       }
       case 'land': {
         const res = await ops.land({ task, title: r.flags['--title'] ?? null });
-        print(res, (v) => stdout.write(v.ok ? `merged ${v.branch} into your current branch\n` : `not merged: ${v.reason}${v.files ? ` (${v.files.join(', ')})` : ''}\n`));
+        print(res, (v) => stdout.write(v.ok ? `merged ${v.branch} into ${v.into ? `${v.into} (your checkout was not touched unless it is on ${v.into})` : 'your current branch'}\n` : `not merged: ${v.reason}${v.files ? ` (${v.files.join(', ')})` : ''}\n`));
         return res.ok ? 0 : 1;
       }
       case 'wait': {

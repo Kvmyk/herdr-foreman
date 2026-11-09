@@ -5,11 +5,28 @@ export const PREF_FLAGS = Object.freeze({
   '--include-uncommitted': 'includeUncommitted',
 });
 
-// Takes the preference flags off the front of argv.
+// Flags with a value: the leader's agent kind and the base branch, for this task only.
+export const PREF_VALUE_FLAGS = Object.freeze({
+  '--leader': 'leader',
+  '--base': 'base',
+});
+
+// Takes the preference flags off the front of argv. error: a value flag without its value.
 export function takePrefs(argv) {
   const prefs = {};
   let i = 0;
-  while (i < argv.length && argv[i] in PREF_FLAGS) prefs[PREF_FLAGS[argv[i++]]] = true;
+  while (i < argv.length) {
+    if (argv[i] in PREF_FLAGS) {
+      prefs[PREF_FLAGS[argv[i++]]] = true;
+    } else if (argv[i] in PREF_VALUE_FLAGS) {
+      const value = argv[i + 1];
+      if (value === undefined || value === '--') return { prefs, rest: argv.slice(i), error: `${argv[i]} needs a value` };
+      prefs[PREF_VALUE_FLAGS[argv[i]]] = value;
+      i += 2;
+    } else {
+      break;
+    }
+  }
   return { prefs, rest: argv.slice(i) };
 }
 
@@ -21,6 +38,9 @@ export function prefsText(prefs = {}) {
   }
   if (prefs.includeUncommitted) {
     parts.push('The user already chose that workers get a copy of the changes not committed yet: do not ask again, add --include-uncommitted to the first spawn.');
+  }
+  if (prefs.base) {
+    parts.push(`The user already chose the base branch ${prefs.base}: add --base ${prefs.base} to the first spawn, and tell the user that land will merge into ${prefs.base}.`);
   }
   return parts.length ? ` ${parts.join(' ')}` : '';
 }
