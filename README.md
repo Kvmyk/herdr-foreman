@@ -201,6 +201,7 @@ If a worker asks for permission, the leader asks you once whether you answer suc
 | `foreman spawn --task <slug> [--new-tab] [--effort <level>] [--full] [--auto] [--branch <type>/<name>] [--include-uncommitted] <name>=<kind>[:<model>]...` | Open workers in worktrees and panes. `--branch` (required on a task's first spawn) names the run, e.g. `feat/auto-accept-workers`; `--auto` starts workers in their auto-approve mode; `--include-uncommitted` starts workers from a copy that also holds your uncommitted changes. `--effort low\|medium\|high\|xhigh\|max` (claude, agy); `--full` keeps MCP servers and all tools for claude workers |
 | `foreman wait --task <slug> [--phase investigate\|implement] [--only a,b] [--timeout ms]` | Block until every worker finished (its report written) or one needs attention; returns within 9 minutes |
 | `foreman status --task <slug> [--json]` | Changes, commits and reports per worker |
+| `foreman watch --task <slug> [--interval seconds]` | `status`, refreshed until you press Ctrl+C |
 | `foreman merge --task <slug> [--only a,b] [--json]` | Collect committed work on the run branch |
 | `foreman land --task <slug> [--title <summary>]` | Merge the run branch into your current branch as `Merge <type>/<name>: <summary>` (refuses with uncommitted changes) |
 | `foreman cleanup --task <slug> [--delete-branch]` | Close worker panes, remove worktrees and worker branches |
@@ -210,6 +211,12 @@ If a worker asks for permission, the leader asks you once whether you answer suc
 | `foreman keys --task <slug> <name> <key>...` | Press keys in an agent's pane: `enter`, `esc`, `up`, `down`, `1`, ... `prompt`, `read` and `keys` also take `--backend app\|herdr` |
 | `foreman close-leader` | Close the calling leader's pane; the leader's last step when you agree |
 | `foreman journal add <file.json>` / `foreman journal stats` | Record and view results per category and agent |
+| `foreman runs [--json]` | Earlier and current runs: phase, branch, workers, estimated cost |
+| `foreman show --task <slug> [--json]` | One run: the task, workers, reports, tokens and estimated cost (claude and codex logs) |
+| `foreman diff --task <slug> [--stat] [<worker>]` | What the run, or one worker, changed against its base; check it before `land` |
+| `foreman resume --task <slug>` | Start a new leader that continues an interrupted run from its record and reports |
+| `foreman respawn --task <slug> <name>[=<kind>[:<model>]]` | Restart a worker that stopped, in its existing worktree, optionally with another agent |
+| `foreman config [--json]` / `foreman --version` | The settings in use with their defaults and file paths; the installed version |
 
 A task that starts with a subcommand name still starts a leader (`foreman status page is broken` is a task). `foreman -- <words>` forces it.
 
@@ -237,7 +244,7 @@ Everything lives in `~/.herdr-foreman/` (set `FOREMAN_HOME` to move it):
 
 | Path | Contents |
 |---|---|
-| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl`, `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr and Herdr app shortcuts) |
+| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl`, `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr and Herdr app shortcuts), `worktreeSetup` (a command run in each new worker worktree, e.g. `"npm ci"`), `copyFiles` (globs of untracked files such as `.env*` copied into each worktree). A `.foreman.json` at the root of a repository can set `worktreeSetup` and `copyFiles` for that repository; it runs commands, so check it in repositories you did not write |
 | `knowledge.override.json` | Optional: your corrections to the knowledge file, deep-merged |
 | `journal.jsonl` | Your results |
 | `worktrees/` | Worker worktrees, outside your repository |

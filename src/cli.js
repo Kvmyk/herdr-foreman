@@ -56,6 +56,8 @@ Subcommands (used by the leader; add --json for machine-readable output):
   wait --task <slug> [--phase investigate|implement] [--only a,b] [--timeout ms]
                                        block until workers finish or one needs attention
   status --task <slug>                 what each worker changed and reported
+  watch --task <slug> [--interval seconds]
+                                       status, refreshed until you press Ctrl+C
   merge --task <slug> [--only a,b]     collect committed work on the run branch
   land --task <slug> [--title <summary>]
                                        merge the run branch into your current branch
@@ -70,6 +72,17 @@ Subcommands (used by the leader; add --json for machine-readable output):
                                        (prompt, read and keys also take --backend app|herdr)
   journal add <file.json>              record how each worker did
   journal stats                        results per category and agent
+
+Runs (for you):
+  runs                                 earlier and current runs: phase, branch, workers, cost
+  show --task <slug>                   one run: the task, workers, reports, tokens and estimated cost
+  diff --task <slug> [--stat] [<worker>]
+                                       what the run (or one worker) changed against its base
+  resume --task <slug>                 start a new leader that continues an interrupted run
+  respawn --task <slug> <name>[=<kind>[:<model>]]
+                                       restart a worker that stopped, in its own worktree
+  config                               the settings in use, with defaults, and where foreman keeps its files
+  --version                            the installed version
 
 Where to start: Ctrl+B then F in herdr, Ctrl+Shift+Y in the Herdr app, or foreman "<task>" in any terminal.
 Examples:
