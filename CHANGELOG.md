@@ -4,6 +4,8 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-09
+
 ### Changed
 
 - The Herdr desktop prompt: the leader pill and the branch pill can be clicked to choose another ready agent for this task and the branch the run starts from and lands on. New start flags `foreman --leader <kind>` (overrides `config.leader` for this task) and `foreman --base <branch>`; `foreman spawn --base <branch>` creates the worktrees and the run branch from that branch and records it in the run, and `foreman land` merges into it: as before when it is the checked-out branch, otherwise in a temporary worktree of the base branch, leaving your checkout alone and refusing on a conflict.
@@ -124,7 +126,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.1...v0.4.2
