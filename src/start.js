@@ -50,11 +50,12 @@ async function waitForServer({ herdr, spawnDetached, sleep }) {
 
 export async function startForeman({
   task, cwd, env, herdr, git, which, config, paths, homedir, exists, spawnDetached, attach, sleep, writeFile, mkdir,
-  foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {}, platform = process.platform,
+  foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {}, progress = () => {}, platform = process.platform,
 }) {
   if (!task?.trim()) return failed(`Tell me what you want done, for example:
   foreman "${EXAMPLE}"`);
 
+  progress('Checking the project...');
   const repo = await git.toplevel(cwd);
   if (!repo) return failed('foreman works inside a project folder that uses git, and this folder is not one. Open your project folder and try again.');
   if (samePath(repo, homedir)) {
@@ -78,6 +79,7 @@ export async function startForeman({
   const app = herdr.kind === 'app';
   const inside = app ? Boolean(env.HC_TERMINAL_ID) : env.HERDR_ENV === '1';
 
+  progress('Opening a tab for the leader...');
   let place;
   if (inside) {
     const workspaceId = app ? (await herdr.here(env.HC_TERMINAL_ID))?.space : env.HERDR_WORKSPACE_ID;
@@ -100,6 +102,7 @@ export async function startForeman({
   const prompt = buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile });
   const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];
   const args = [...lean, ...(config.leaderArgs ?? [])];
+  progress(`Starting ${config.leader}, the lead agent (up to ${Math.round((config.startTimeoutMs ?? 0) / 1000)}s)...`);
   const started = await herdr.agentStart({
     name: leader, kind: config.leader, pane: place.paneId, cwd: repo, space: place.workspaceId, tab: place.tabId,
     label: 'foreman', focus: true, timeoutMs: config.startTimeoutMs, args,
@@ -125,5 +128,5 @@ export async function startForeman({
   // The Herdr app is a window, not a terminal to attach to: open it if it is closed.
   if (!inside && !app) attach();
   if (!inside && app && !(await herdr.appRunning())) spawnDetached(herdr.appBin, []);
-  return { ok: true, slug, leader, paneId, message };
+  return { ok: true, slug, leader, paneId, message, tab: 'foreman' };
 }
