@@ -21,6 +21,29 @@ export function parseSpec(s) {
   return { name: m[1], kind: m[2], model: m[3] ?? null };
 }
 
+// The command-line arguments a worker's agent starts with (model, effort,
+// auto mode, lean start), and warnings for what its kind cannot take.
+export function agentArgs({ name, kind, model = null, effort = null, auto = false, full = false, config }) {
+  const probe = PROBES[kind];
+  const args = [];
+  const warnings = [];
+  let isAuto = false;
+  if (model && probe) args.push(...probe.modelArgs(model));
+  else if (model) warnings.push(`no model flag known for ${kind}; ${name} starts with its default model`);
+  if (effort && probe?.effortFromModel && model) warnings.push(`${name}: ${kind} takes effort from the model id; --effort not passed with --model ${model}`);
+  else if (effort && probe?.effortArgs) args.push(...probe.effortArgs(effort));
+  else if (effort) warnings.push(`no effort setting known for ${kind}; ${name} uses its default effort`);
+  // Lean start: fewer tool definitions re-sent on every turn; the user's skills stay.
+  // --full keeps MCP servers and all tools, e.g. for a worker that tests a web app in the browser.
+  if (auto && probe?.autoArgs) {
+    args.push(...probe.autoArgs);
+    isAuto = true;
+  }
+  else if (auto) warnings.push(`no auto-approve mode known for ${kind}; ${name} may still ask for permission`);
+  if (config.lean !== false && !full && probe?.leanArgs) args.push(...probe.leanArgs.worker);
+  return { args, auto: isAuto, warnings };
+}
+
 async function validate({ herdr, git, repo, config, task, specs, existing, pane, newTab, effort, branch }) {
   if (specs.length < 1 || specs.length > config.maxWorkers) {
     throw fail('TOO_MANY', `between 1 and ${config.maxWorkers} workers per spawn (got ${specs.length})`);
@@ -201,22 +224,10 @@ ${help.stderr}`.includes(flagName)) {
   }
 
   const results = await Promise.all(workers.map((w) => {
-    const probe = PROBES[w.kind];
-    w.auto = false;
-    const args = [];
-    if (w.model && probe) args.push(...probe.modelArgs(w.model));
-    else if (w.model) warnings.push(`no model flag known for ${w.kind}; ${w.name} starts with its default model`);
-    if (effort && probe?.effortFromModel && w.model) warnings.push(`${w.name}: ${w.kind} takes effort from the model id; --effort not passed with --model ${w.model}`);
-    else if (effort && probe?.effortArgs) args.push(...probe.effortArgs(effort));
-    else if (effort) warnings.push(`no effort setting known for ${w.kind}; ${w.name} uses its default effort`);
-    // Lean start: fewer tool definitions re-sent on every turn; the user's skills stay.
-    // --full keeps MCP servers and all tools, e.g. for a worker that tests a web app in the browser.
-    if (auto && probe?.autoArgs) {
-      args.push(...probe.autoArgs);
-      w.auto = true;
-    }
-    else if (auto) warnings.push(`no auto-approve mode known for ${w.kind}; ${w.name} may still ask for permission`);
-    if (config.lean !== false && !full && probe?.leanArgs) args.push(...probe.leanArgs.worker);
+    const start = agentArgs({ name: w.name, kind: w.kind, model: w.model, effort, auto, full, config });
+    w.auto = start.auto;
+    warnings.push(...start.warnings);
+    const { args } = start;
     return herdr.agentStart({
       name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
       timeoutMs: config.startTimeoutMs, args,

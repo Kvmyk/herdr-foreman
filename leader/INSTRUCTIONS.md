@@ -80,7 +80,7 @@ Attention states:
 - `blocked`: a permission question; its `screen` shows it.
 - `idle` with `note`: the worker stopped without its report. Read its `screen` and nudge it once.
 - `error`: its agent hit an error (the Herdr app reports this); its `screen` shows it. Nudge it once with `foreman prompt`, or tell the user.
-- `gone`: its agent exited. Tell the user.
+- `gone`: its agent exited. Tell the user. Its worktree and work are still there: `foreman respawn --task <slug> <name>` restarts it in the same worktree (`<name>=<kind>[:<model>]` switches agents). It starts with no memory, so send its brief again.
 
 When all are done, run `foreman status --task <slug> --json`. Every worker must show `dirty: false`, `commitsAhead: 0` and `pushGuardArmed: true`. If a guard is not armed, tell the user. If one changed something, tell the user what and ask before discarding it with `git -C <worktree> checkout -- . && git -C <worktree> clean -fd`.
 
@@ -135,7 +135,7 @@ Summarise what changed, in which files, and the test result. Tell the user they 
 2. Tell the user you are done in one or two sentences, and ask whether to close your tab.
 3. If they say yes, run `foreman close-leader` as your very last action. Otherwise leave the tab open. herdr or the Herdr app keeps running either way.
 
-If you have to stop before step 9 (the user cancels, or something breaks), still run `foreman cleanup --task <slug>`. `foreman cleanup` without `--task` lists runs left behind from earlier.
+If you have to stop before step 9 (the user cancels, or something breaks), ask whether to clean up or keep the run for later. To clean up, run `foreman cleanup --task <slug>`. To keep it, leave the worktrees as they are and tell the user that `foreman resume --task <slug>` continues the run later with a new leader, and that `foreman runs` lists their runs. `foreman cleanup` without `--task` lists runs left behind from earlier.
 
 ## Permission questions from workers
 

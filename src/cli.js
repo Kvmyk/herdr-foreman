@@ -272,8 +272,9 @@ function defaultOps(deps) {
       note(task, (r) => afterCleanup(r, { deleteBranch, now: deps.now }));
       return result;
     },
-    start: async ({ task, backend: flag }) => startForeman({
-      task, cwd: deps.cwd, env: deps.env, herdr: backend(here(flag)), git: git(), which: deps.which, config: config(), paths: deps.paths,
+    // cwd, slug and prompt are set by `foreman resume` for a run that already exists.
+    start: async ({ task, backend: flag, cwd = deps.cwd, slug = null, prompt = null }) => startForeman({
+      task, cwd, slug, prompt, env: deps.env, herdr: backend(here(flag)), git: git(), which: deps.which, config: config(), paths: deps.paths,
       homedir: deps.homedir, exists: deps.exists, spawnDetached: deps.spawnDetached, attach: deps.attach, sleep: deps.sleep,
       foremanCmd: deps.foremanCmd, writeFile: deps.writeFile, mkdir: deps.mkdir, report: (m) => deps.stdout.write(`${m}\n`),
       platform: deps.platform,

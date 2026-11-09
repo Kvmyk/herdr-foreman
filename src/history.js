@@ -19,12 +19,12 @@ const norm = (p) => {
   return process.platform === 'win32' ? r.toLowerCase() : r;
 };
 
+export const isInside = (child, parent) => norm(child) === norm(parent) || norm(child).startsWith(norm(parent) + path.sep);
+
 // Names such as "w1" come back in every run: an agent is this worker only if
 // it also sits in the worker's pane or works inside its worktree.
 export function isLive(w, agents) {
-  return agents.some((a) => a.name === w.name && (a.cwd
-    ? norm(a.cwd) === norm(w.worktree) || norm(a.cwd).startsWith(norm(w.worktree) + path.sep)
-    : a.pane_id === w.paneId));
+  return agents.some((a) => a.name === w.name && (a.cwd ? isInside(a.cwd, w.worktree) : a.pane_id === w.paneId));
 }
 
 // Applies change(run) -> fields to the saved record. History is a side note:
