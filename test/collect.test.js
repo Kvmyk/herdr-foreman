@@ -335,3 +335,54 @@ test('status counts files from the same diff as the lines, committed work includ
   const st = await workerStatus({ run, git, exists: existsSync });
   assert.deepEqual([st[0].files, st[0].added, st[0].changedFiles.length], [1, 2, 0]);
 });
+
+test('land into a base branch that is not checked out merges in a temporary worktree and leaves the checkout alone', async () => {
+  const { run: old, paths } = await setup();
+  rawGit(old.repo, 'branch', 'develop');
+  const run = { ...old, branch: 'feat/thing', baseBranch: 'develop' };
+  commitFile(run.workers[0].worktree, 'b.txt', 'b\n');
+  await mergeWorkers({ run, git, paths, exists: existsSync });
+  const head = rawGit(run.repo, 'rev-parse', 'HEAD');
+  const landed = await land({ run, git, title: 'add thing' });
+  assert.deepEqual(landed, { ok: true, branch: 'feat/thing', into: 'develop' });
+  assert.equal(rawGit(run.repo, 'log', '-1', '--format=%s', 'develop'), 'Merge feat/thing: add thing');
+  assert.equal(rawGit(run.repo, 'rev-parse', 'HEAD'), head, 'the checked-out branch did not move');
+  assert.equal(existsSync(path.join(run.repo, 'b.txt')), false, 'the checkout has no new file');
+  assert.equal(rawGit(run.repo, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).length, 1 + run.workers.length + 1, 'the temporary worktree is gone');
+});
+
+test('land into another base is refused on conflict and leaves the base unchanged', async () => {
+  const { run: old, paths } = await setup();
+  rawGit(old.repo, 'branch', 'develop');
+  const dev = path.join(mkdtempSync(path.join(tmpdir(), 'foreman-dev-')), 'wt');
+  await git.addWorktree(old.repo, dev, 'develop');
+  commitFile(dev, 'shared.txt', 'develop\n');
+  await git.removeWorktree(old.repo, dev);
+  const run = { ...old, branch: 'feat/thing', baseBranch: 'develop' };
+  commitFile(run.workers[0].worktree, 'shared.txt', 'worker\n');
+  await mergeWorkers({ run, git, paths, exists: existsSync });
+  const before = rawGit(run.repo, 'rev-parse', 'develop');
+  const landed = await land({ run, git });
+  assert.equal(landed.ok, false);
+  assert.match(landed.reason, /merge conflict with develop/);
+  assert.deepEqual(landed.files, ['shared.txt']);
+  assert.equal(rawGit(run.repo, 'rev-parse', 'develop'), before);
+});
+
+test('land with a base that is the checked-out branch works as before', async () => {
+  const { run: old, paths } = await setup();
+  const current = rawGit(old.repo, 'rev-parse', '--abbrev-ref', 'HEAD');
+  const run = { ...old, branch: 'feat/thing', baseBranch: current };
+  commitFile(run.workers[0].worktree, 'b.txt', 'b\n');
+  await mergeWorkers({ run, git, paths, exists: existsSync });
+  assert.deepEqual(await land({ run, git }), { ok: true, branch: 'feat/thing', into: current });
+  assert.equal(existsSync(path.join(run.repo, 'b.txt')), true);
+});
+
+test('land says so when the base branch is gone', async () => {
+  const { run: old, paths } = await setup();
+  const run = { ...old, branch: 'feat/thing', baseBranch: 'develop' };
+  commitFile(run.workers[0].worktree, 'b.txt', 'b\n');
+  await mergeWorkers({ run, git, paths, exists: existsSync });
+  assert.match((await land({ run, git })).reason, /base branch develop no longer exists/);
+});

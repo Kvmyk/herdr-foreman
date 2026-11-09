@@ -4,6 +4,16 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- The Herdr desktop prompt: the leader pill and the branch pill can be clicked to choose another ready agent for this task and the branch the run starts from and lands on. New start flags `foreman --leader <kind>` (overrides `config.leader` for this task) and `foreman --base <branch>`; `foreman spawn --base <branch>` creates the worktrees and the run branch from that branch and records it in the run, and `foreman land` merges into it: as before when it is the checked-out branch, otherwise in a temporary worktree of the base branch, leaving your checkout alone and refusing on a conflict.
+- The terminal prompt shows the same settings line (leader, branch, auto-answer, uncommitted) and takes `/leader <kind>`, `/branch <name>`, `/auto` and `/uncommitted` on their own line before the task, with a clear message for an unknown agent or branch.
+- The Herdr desktop prompt shows the foreman hat logo in its header instead of the letter f; "foreman setup" installs it as `mods/foreman/logo.svg` next to `main.js`.
+
+### Fixed
+
+- The two switch rows of the Herdr desktop prompt ("Workers answer permission questions automatically", "Include uncommitted changes") did nothing when clicked: the handler redrew with the context of the render pass, which is not valid in a click. They now use the click's own context; clicking anywhere on the row flips the switch, and Space or Enter does too when the row has the keyboard.
+
 ## [0.6.0] - 2026-11-09
 
 ### Changed

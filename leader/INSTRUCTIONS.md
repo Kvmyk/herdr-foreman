@@ -49,6 +49,8 @@ First, once per task, ask the user the question from "Permission questions" belo
 
 Second, also once per task before the first spawn: when the brief shows `repoDirty: true`, ask the user in plain words: "Your project still has changes you have not saved into git yet. Should the workers get a copy of them too? Nothing is moved and nothing is lost, so this is recommended." If they say yes, add `--include-uncommitted` to the first spawn; foreman then saves those changes into a snapshot commit and the workers start from it. If they say no, leave the flag out. If a spawn warns about uncommitted changes anyway, relay it in plain words.
 
+When the prompt says the user chose a base branch, add `--base <branch>` to the first spawn: the workers then start from that branch and `foreman land` merges into it (when it is not the branch their checkout is on, land updates it without touching their checkout and refuses on a conflict). Later spawns leave `--base` out. Without a chosen base, nothing changes: the run starts from HEAD and lands on the current branch.
+
 Name the run once, with the first spawn: `--branch <type>/<name>`, a Conventional Commits type (`feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`) and a short English kebab-case name of at most 40 characters, for example `feat/auto-accept-workers`. Later spawns of the same task leave `--branch` out. Workers get branches `wip/<name>/<worker>`.
 
 Run `foreman spawn --task <slug> --branch <type>/<name> [--auto] [--effort <level>] <name>=<kind>[:<model>] ...`; spawn groups that need different efforts in separate calls. Use short lowercase names (`sec1`, `test1`). Claude workers start lean (no MCP servers, but with the user's skills); add `--full` only for a worker that needs them, for example to test a web app in the browser.
@@ -116,7 +118,7 @@ In the merge worktree, run the build and the tests, and review `git -C <worktree
 
 Summarise what changed, in which files, and the test result. Tell the user they can look at the changes themselves before choosing: `foreman diff --task <slug> --stat` lists the files, `foreman diff --task <slug>` shows the full diff against the start, and `foreman diff --task <slug> <name>` shows one worker's part. Give three choices; in Polish, call the first two "scal" and "zostaw":
 
-1. **Merge into their current branch:** `foreman land --task <slug> --title '<summary>'` (a few words, for the merge commit: `Merge <type>/<name>: <summary>`). When the run captured a snapshot of uncommitted changes and the user has not touched them since, land saves them as a commit (`chore: include the changes you had not committed yet`) before merging; otherwise land refuses, and the user needs to commit or stash the newer changes first.
+1. **Merge into their current branch** (or into the run's `--base` branch): `foreman land --task <slug> --title '<summary>'` (a few words, for the merge commit: `Merge <type>/<name>: <summary>`). When the run captured a snapshot of uncommitted changes and the user has not touched them since, land saves them as a commit (`chore: include the changes you had not committed yet`) before merging; otherwise land refuses, and the user needs to commit or stash the newer changes first.
 2. **Leave it:** `<type>/<name>` stays; it can be merged later with `git merge <type>/<name>`.
 3. **Comments:** turn them into fixes for the workers and go back to step 7.
 

@@ -299,3 +299,35 @@ test('prompt tells the leader what the user already answered', async () => {
   assert.match(p, /add --include-uncommitted to the first spawn/);
   assert.doesNotMatch(buildLeaderPrompt({ task: 't', slug: 't', instructionsPath: '/i' }), /already chose/);
 });
+
+test('--leader starts that agent for this task only; an unknown kind or a missing program is refused', async () => {
+  const { deps, log } = fakes();
+  const which = (name) => (['claude', 'codex'].includes(name) ? `/bin/${name}` : null);
+  const r = await startForeman({ ...deps, which, task: 'fix it', prefs: { leader: 'codex' } });
+  assert.equal(r.ok, true);
+  assert.equal(log.find(([k]) => k === 'start')[1].kind, 'codex');
+  assert.match(r.message, /\(codex\)/);
+  const unknown = await startForeman({ ...deps, which, task: 'fix it', prefs: { leader: 'nope' } });
+  assert.match(unknown.message, /"nope" is not an agent foreman can start/);
+  const missing = await startForeman({ ...deps, task: 'fix it', prefs: { leader: 'codex' } });
+  assert.match(missing.message, /codex is not installed/);
+});
+
+test('--base must be a local branch and is passed on to the leader', async () => {
+  const { deps, log } = fakes();
+  deps.git.branchExists = async (r, b) => b === 'develop';
+  const bad = await startForeman({ ...deps, task: 'fix it', prefs: { base: 'nope' } });
+  assert.equal(bad.ok, false);
+  assert.match(bad.message, /branch "nope" does not exist/);
+  const ok = await startForeman({ ...deps, task: 'fix it', prefs: { base: 'develop' } });
+  assert.equal(ok.ok, true);
+  assert.match(log.find(([k]) => k === 'prompt')[1].text, /base branch develop: add --base develop to the first spawn/);
+});
+
+test('takePrefs reads --leader and --base with their values', async () => {
+  const { takePrefs } = await import('../src/start-prefs.js');
+  assert.deepEqual(takePrefs(['--leader', 'codex', '--base', 'develop', '--auto-answer', '--', 'x']),
+    { prefs: { leader: 'codex', base: 'develop', autoAnswer: true }, rest: ['--', 'x'] });
+  assert.equal(takePrefs(['--leader']).error, '--leader needs a value');
+  assert.equal(takePrefs(['--base', '--', 'x']).error, '--base needs a value');
+});

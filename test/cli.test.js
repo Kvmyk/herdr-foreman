@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { main, route } from '../src/cli.js';
 import { fakeRun } from './helpers.js';
+import { usageOf, START_USAGE } from '../src/cli-usage.js';
 
 function harness(ops = {}, extra = {}) {
   let out = '';
@@ -405,4 +406,28 @@ test('--help lists every subcommand of the README table, the shortcuts and examp
   assert.match(h.out(), /Ctrl\+Shift\+Y/);
   assert.match(h.out(), /^Examples:/m);
   assert.match(h.out(), /--auto-answer/);
+});
+
+test('route: --leader and --base in front of a task; spawn takes --base too', () => {
+  assert.deepEqual(route(['--backend', 'app', '--leader', 'codex', '--base', 'develop', '--', 'fix', 'it']),
+    { kind: 'start', task: 'fix it', backend: 'app', prefs: { leader: 'codex', base: 'develop' } });
+  assert.equal(route(['--leader']).kind, 'usage');
+  assert.match(route(['--base']).message, /--base needs a value/);
+  assert.equal(route(['--leader', 'codex', 'status', '--task', 'x']).kind, 'usage');
+  const r = route(['spawn', '--task', 'x', '--branch', 'feat/x', '--base', 'develop', 'a=claude']);
+  assert.deepEqual([r.kind, r.name, r.flags['--base']], ['command', 'spawn', 'develop']);
+  assert.match(usageOf('spawn'), /--base <branch>/);
+  assert.match(START_USAGE, /--leader <kind>/);
+});
+
+test('spawn --base reaches the operation; land names the branch it merged into', async () => {
+  const h = harness({
+    spawn: async (o) => { h.calls.push(['spawn', o.baseBranch]); return { workers: [], warnings: [] }; },
+    land: async () => ({ ok: true, branch: 'feat/x', into: 'develop' }),
+  }, { deps: { stdout: { isTTY: true, write: (s) => { h.text += s; } } } });
+  h.text = '';
+  await main(['spawn', '--task', 't', '--branch', 'feat/x', '--base', 'develop', 'w1=codex'], h.deps);
+  assert.deepEqual(h.calls, [['spawn', 'develop']]);
+  await main(['land', '--task', 't'], h.deps);
+  assert.match(h.text, /merged feat\/x into develop/);
 });

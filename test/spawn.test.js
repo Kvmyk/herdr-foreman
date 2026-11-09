@@ -501,3 +501,44 @@ test('a trust dialog is answered while the agent is still starting', async () =>
   assert.deepEqual(keys, [['w1', ['down', 'enter']]]);
   assert.equal(workers[0].status, 'ready');
 });
+
+test('--base: the run starts from that branch, records it, and later spawns must agree', async () => {
+  const f = fakes({ takenBranches: ['develop'] });
+  f.git.currentBranch = async () => 'main';
+  f.git.commitOf = async (r, b) => `commit-of-${b}`;
+  await call(f, { specs: ['w1=claude'], baseBranch: 'develop' });
+  assert.equal(f.log.find((l) => l[0] === 'worktree')[1].base, 'commit-of-develop');
+  const run = JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]);
+  assert.equal(run.baseBranch, 'develop');
+  assert.equal(run.base, 'commit-of-develop');
+  const again = fakes({ takenBranches: ['develop'], existingRun: run });
+  again.git.currentBranch = f.git.currentBranch;
+  again.git.commitOf = f.git.commitOf;
+  await assert.rejects(call(again, { specs: ['w2=claude'], baseBranch: 'main' }), (e) => e.code === 'BAD_BASE');
+  await call(again, { specs: ['w2=claude'], baseBranch: 'develop' });
+  await call(again, { specs: ['w3=claude'] });
+});
+
+test('--base: an unknown branch is refused before anything is created', async () => {
+  const f = fakes();
+  await assert.rejects(call(f, { specs: ['w1=claude'], baseBranch: 'nope' }), (e) => e.code === 'BAD_BASE' && /does not exist/.test(e.message));
+  assert.equal(f.log.length, 0);
+});
+
+test('--base on another branch than the checkout does not copy uncommitted changes and says so', async () => {
+  const f = fakes({ takenBranches: ['develop'], dirty: true });
+  f.git.currentBranch = async () => 'main';
+  f.git.commitOf = async () => 'dev111';
+  const res = await call(f, { specs: ['w1=claude'], baseBranch: 'develop', includeUncommitted: true });
+  assert.equal(f.log.some((l) => l[0] === 'snapshot'), false);
+  assert.match(res.warnings.join('\n'), /belong to main, not to the base develop/);
+  assert.equal(f.log.find((l) => l[0] === 'worktree')[1].base, 'dev111');
+});
+
+test('--base on the checked-out branch still takes the snapshot', async () => {
+  const f = fakes({ takenBranches: ['main'], dirty: true });
+  f.git.currentBranch = async () => 'main';
+  f.git.commitOf = async () => 'abc123';
+  await call(f, { specs: ['w1=claude'], baseBranch: 'main', includeUncommitted: true });
+  assert.ok(f.log.some((l) => l[0] === 'snapshot'));
+});
