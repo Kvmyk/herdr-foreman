@@ -19,8 +19,16 @@ const USAGE = {
   setup: 'foreman setup [--json] [--quiet]',
   doctor: 'foreman doctor [--json]',
   config: 'foreman config [--json]',
+  runs: 'foreman runs [--json]',
+  show: 'foreman show --task <slug> [--json]',
+  diff: 'foreman diff --task <slug> [--stat] [--json] [<worker>]',
+  resume: 'foreman resume --task <slug> [--json]',
+  respawn: 'foreman respawn --task <slug> [--new-tab] [--effort low|medium|high|xhigh|max] [--auto] [--full] [--json] <name>=<kind>[:<model>]',
   help: 'foreman help',
 };
+
+// Starting a leader: not a subcommand, so it is not offered by nearSubcommand.
+export const START_USAGE = 'foreman [--backend app|herdr] [--auto-answer] [--include-uncommitted] "<task>" | -f task.md';
 
 export const usageOf = (name) => USAGE[name] ?? null;
 

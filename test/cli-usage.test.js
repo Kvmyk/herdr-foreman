@@ -45,3 +45,10 @@ test('watch refreshes until every worker finished', async () => {
   assert.match(out, /every worker has finished/);
   assert.equal(allSettled([]), false);
 });
+
+test('the run subcommands have usage lines and are offered for near misses', () => {
+  for (const name of ['runs', 'show', 'diff', 'resume', 'respawn']) assert.match(usageOf(name), new RegExp('^foreman ' + name));
+  assert.equal(nearSubcommand('respwan'), 'respawn');
+  assert.equal(nearSubcommand('resum'), 'resume');
+  assert.match(usageOf('diff'), /--stat/);
+});

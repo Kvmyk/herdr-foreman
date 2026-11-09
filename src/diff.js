@@ -4,6 +4,7 @@
 // diff is the run branch, or every worker in turn before anything is merged.
 import { mergeBranch } from './collect.js';
 import { fail } from './errors.js';
+import { createUi } from './ui.js';
 
 const label = (w) => (w.model ? `${w.kind}:${w.model}` : w.kind);
 
@@ -39,7 +40,10 @@ export async function runDiff({ run, git, exists, name = null, stat = false }) {
   return { base: run.base, target: 'workers', text: parts.join('\n') };
 }
 
-export function formatDiff(d) {
+export function formatDiff(d, ui = createUi()) {
   if (!d.text.trim()) return `no changes in ${d.target} against ${String(d.base).slice(0, 10)}\n`;
-  return d.text.endsWith('\n') ? d.text : `${d.text}\n`;
+  const text = ui.color
+    ? d.text.split('\n').map((l) => (/^(\+\+\+|---)/.test(l) ? ui.bold(l) : l.startsWith('+') ? ui.green(l) : l.startsWith('-') ? ui.red(l) : l)).join('\n')
+    : d.text;
+  return text.endsWith('\n') ? text : `${text}\n`;
 }

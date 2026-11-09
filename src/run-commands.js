@@ -129,17 +129,17 @@ export function runOps(deps) {
 }
 
 // Runs one of RUN_COMMANDS; returns the exit code.
-export async function runCommand(r, { ops, print, stdout }) {
+export async function runCommand(r, { ops, print, stdout, ui }) {
   const task = r.flags['--task'];
   switch (r.name) {
     case 'runs':
-      print(await ops.runs(), (v) => stdout.write(formatRuns(v)));
+      print(await ops.runs(), (v) => stdout.write(formatRuns(v, ui)));
       return 0;
     case 'show':
-      print(await ops.show({ task }), (v) => stdout.write(formatShow(v)));
+      print(await ops.show({ task }), (v) => stdout.write(formatShow(v, ui)));
       return 0;
     case 'diff':
-      print(await ops.diff({ task, name: r.positionals[0] ?? null, stat: Boolean(r.flags['--stat']) }), (v) => stdout.write(formatDiff(v)));
+      print(await ops.diff({ task, name: r.positionals[0] ?? null, stat: Boolean(r.flags['--stat']) }), (v) => stdout.write(formatDiff(v, ui)));
       return 0;
     case 'resume': {
       const prep = await ops.prepareResume({ task });
