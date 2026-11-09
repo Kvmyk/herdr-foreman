@@ -49,6 +49,13 @@ export function readEntries({ path, readFile }) {
 
 const ratio = (num, den) => (den ? num / den : null);
 
+function mean(key, values, digits) {
+  const nums = values.filter((v) => typeof v === 'number' && Number.isFinite(v));
+  if (!nums.length) return {};
+  const f = 10 ** digits;
+  return { [key]: Math.round((nums.reduce((s, v) => s + v, 0) / nums.length) * f) / f };
+}
+
 export function computeStats(entries, { minSamples = 5 } = {}) {
   const groups = new Map();
   for (const e of entries) {
@@ -70,6 +77,9 @@ export function computeStats(entries, { minSamples = 5 } = {}) {
       firstPassRate: ratio(reviewed.filter((e) => e.reviewPassed === true && e.fixRounds === 0).length, reviewed.length),
       stuckRate: list.filter((e) => e.stuck).length / list.length,
       trusted: list.length >= minSamples,
+      // Only when foreman could read the agent's logs (see usage.js).
+      ...mean('avgTokens', list.map((e) => e.tokens), 0),
+      ...mean('avgCostUsd', list.map((e) => e.costUsd), 4),
     };
     (stats[category] ??= []).push(row);
   }

@@ -157,6 +157,23 @@ test('a task with several lines goes to a task file the prompt points at', async
   assert.ok(text.includes(written[0][0]));
 });
 
+test('a one-line task is saved for history but stays in the prompt', async () => {
+  const { deps, log } = fakes();
+  const written = [];
+  const r = await startForeman({ ...deps, paths: { runs: path.resolve('/s/runs'), home: path.resolve('/s') }, mkdir: () => {}, writeFile: (f, t) => written.push([f, t]), task: 'fix login' });
+  assert.equal(r.ok, true);
+  assert.deepEqual(written, [[path.resolve('/s/tasks/fix-login.md'), 'fix login\n']]);
+  const text = log.find(([k]) => k === 'prompt')[1].text;
+  assert.match(text, /: fix login$/);
+});
+
+test('a saved task file also makes the slug unique', async () => {
+  const { deps } = fakes();
+  const taken = path.resolve('/s/tasks/fix-login.md');
+  const r = await startForeman({ ...deps, paths: { runs: path.resolve('/s/runs'), home: path.resolve('/s') }, exists: (p) => p === taken, task: 'fix login' });
+  assert.equal(r.slug, 'fix-login-2');
+});
+
 test('@file mentions are listed for the leader; uncommitted ones are flagged', async () => {
   const { deps, log } = fakes();
   deps.exists = (p) => p.endsWith('login.js') || p.endsWith('README.md');

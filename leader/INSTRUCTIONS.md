@@ -80,7 +80,7 @@ Attention states:
 - `blocked`: a permission question; its `screen` shows it.
 - `idle` with `note`: the worker stopped without its report. Read its `screen` and nudge it once.
 - `error`: its agent hit an error (the Herdr app reports this); its `screen` shows it. Nudge it once with `foreman prompt`, or tell the user.
-- `gone`: its agent exited. Tell the user.
+- `gone`: its agent exited. Tell the user. Its worktree and work are still there: `foreman respawn --task <slug> <name>` restarts it in the same worktree (`<name>=<kind>[:<model>]` switches agents). It starts with no memory, so send its brief again.
 
 When all are done, run `foreman status --task <slug> --json`. Every worker must show `dirty: false`, `commitsAhead: 0` and `pushGuardArmed: true`. If a guard is not armed, tell the user. If one changed something, tell the user what and ask before discarding it with `git -C <worktree> checkout -- . && git -C <worktree> clean -fd`.
 
@@ -114,7 +114,7 @@ In the merge worktree, run the build and the tests, and review `git -C <worktree
 
 ## Step 8: ask the user
 
-Summarise what changed, in which files, and the test result. Give three choices; in Polish, call the first two "scal" and "zostaw":
+Summarise what changed, in which files, and the test result. Tell the user they can look at the changes themselves before choosing: `foreman diff --task <slug> --stat` lists the files, `foreman diff --task <slug>` shows the full diff against the start, and `foreman diff --task <slug> <name>` shows one worker's part. Give three choices; in Polish, call the first two "scal" and "zostaw":
 
 1. **Merge into their current branch:** `foreman land --task <slug> --title '<summary>'` (a few words, for the merge commit: `Merge <type>/<name>: <summary>`). When the run captured a snapshot of uncommitted changes and the user has not touched them since, land saves them as a commit (`chore: include the changes you had not committed yet`) before merging; otherwise land refuses, and the user needs to commit or stash the newer changes first.
 2. **Leave it:** `<type>/<name>` stays; it can be merged later with `git merge <type>/<name>`.
@@ -126,16 +126,16 @@ Summarise what changed, in which files, and the test result. Give three choices;
    - run `foreman cleanup --task <slug>` (add `--delete-branch` only after a successful `land`);
    - write the journal file, a JSON array with one entry per worker part:
      ```json
-     [{"task": "<slug>", "category": "security-audit", "kind": "claude", "model": "opus",
+     [{"task": "<slug>", "worker": "sec1", "category": "security-audit", "kind": "claude", "model": "opus",
        "proposed": 4, "approved": 3, "rejected": 1, "testsPassed": true, "reviewPassed": true,
        "fixRounds": 0, "stuck": false}]
      ```
-     `model` is the model you passed (or the agent's `defaultModel`, or null). `testsPassed` and `reviewPassed` are null when they did not apply. `fixRounds` counts how often you sent the worker back; `stuck` is true if it timed out or needed rescuing;
+     `worker` is the worker's name; foreman adds the tokens it used and their estimated cost. `model` is the model you passed (or the agent's `defaultModel`, or null). `testsPassed` and `reviewPassed` are null when they did not apply. `fixRounds` counts how often you sent the worker back; `stuck` is true if it timed out or needed rescuing;
    - run `foreman journal add <file>`.
 2. Tell the user you are done in one or two sentences, and ask whether to close your tab.
 3. If they say yes, run `foreman close-leader` as your very last action. Otherwise leave the tab open. herdr or the Herdr app keeps running either way.
 
-If you have to stop before step 9 (the user cancels, or something breaks), still run `foreman cleanup --task <slug>`. `foreman cleanup` without `--task` lists runs left behind from earlier.
+If you have to stop before step 9 (the user cancels, or something breaks), ask whether to clean up or keep the run for later. To clean up, run `foreman cleanup --task <slug>`. To keep it, leave the worktrees as they are and tell the user that `foreman resume --task <slug>` continues the run later with a new leader, and that `foreman runs` lists their runs. `foreman cleanup` without `--task` lists runs left behind from earlier.
 
 ## Permission questions from workers
 

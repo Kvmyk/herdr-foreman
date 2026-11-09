@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
 import { PROBES } from './inventory/kinds.js';
 import { EXAMPLE, resolveMentions } from './task.js';
+import { taskFile as taskPath } from './history.js';
 
 export const INSTRUCTIONS_PATH = fileURLToPath(new URL('../leader/INSTRUCTIONS.md', import.meta.url));
 
@@ -49,6 +50,7 @@ async function waitForServer({ herdr, spawnDetached, sleep }) {
 export async function startForeman({
   task, cwd, env, herdr, git, which, config, paths, homedir, exists, spawnDetached, attach, sleep, writeFile, mkdir,
   foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {}, platform = process.platform,
+  slug: fixedSlug = null, prompt: fixedPrompt = null,
 }) {
   if (!task?.trim()) return failed(`Tell me what you want done, for example:
   foreman "${EXAMPLE}"`);
@@ -65,12 +67,13 @@ export async function startForeman({
   }
   if (!which(config.leader)) return failed(`${config.leader} is not installed on this computer, so foreman cannot start. Install it and sign in, then try again.`);
 
-  const { files, missing } = await resolveMentions({ task, cwd, repo, exists, git });
+  // A resumed run brings its own slug and prompt; its files were checked when it started.
+  const { files, missing } = fixedPrompt ? { files: [], missing: [] } : await resolveMentions({ task, cwd, repo, exists, git });
   if (missing.length) {
     return failed(`I could not find ${missing.length > 1 ? 'these files' : 'this file'}: ${missing.join(', ')}. Check the name (it is relative to ${cwd}), or remove the @ if it is not a file.`);
   }
 
-  const slug = uniqueSlug(slugify(task), (s) => exists(path.join(paths.runs, `${s}.json`)));
+  const slug = fixedSlug ?? uniqueSlug(slugify(task), (s) => exists(path.join(paths.runs, `${s}.json`)) || exists(taskPath(paths, s)));
   // In the Herdr app the leader gets a new tab next to the caller's, or a new
   // space when foreman was started outside the app (for example by a mod).
   const app = herdr.kind === 'app';
@@ -89,13 +92,21 @@ export async function startForeman({
   let leader = 'lead';
   for (let n = 2; live.has(leader); n++) leader = `lead${n}`;
 
+  // Every task is kept for `foreman show` and `foreman resume`; the prompt
+  // points at the file only when the task has several lines.
   let taskFile = null;
-  if (/[\r\n]/.test(task.trim()) && writeFile) {
-    taskFile = path.join(paths.home ?? path.dirname(paths.runs), 'tasks', `${slug}.md`);
-    mkdir?.(path.dirname(taskFile), { recursive: true });
-    writeFile(taskFile, `${task.trim()}\n`);
+  const multiline = /[\r\n]/.test(task.trim());
+  if (writeFile && !fixedPrompt) {
+    const file = taskPath(paths, slug);
+    try {
+      mkdir?.(path.dirname(file), { recursive: true });
+      writeFile(file, `${task.trim()}\n`);
+      if (multiline) taskFile = file;
+    } catch (err) {
+      if (multiline) throw err;
+    }
   }
-  const prompt = buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile });
+  const prompt = fixedPrompt ?? buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile });
   const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];
   const args = [...lean, ...(config.leaderArgs ?? [])];
   const started = await herdr.agentStart({

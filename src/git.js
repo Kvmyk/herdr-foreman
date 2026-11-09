@@ -143,6 +143,16 @@ export function createGit({ run }) {
     async validBranchName(repo, name) {
       return (await git(repo, ['check-ref-format', '--branch', name])).code === 0;
     },
+    // Plain `git diff <args>` output, untrimmed.
+    async diff(dir, args) {
+      const res = await git(dir, ['diff', '--no-color', ...args]);
+      if (res.code !== 0) throw new Error(`git diff ${args.join(' ')} failed: ${(res.stderr || res.stdout).trim()}`);
+      return res.stdout;
+    },
+    // New files not added to git yet (ignored ones left out).
+    async untracked(dir) {
+      return (await ok(dir, ['ls-files', '--others', '--exclude-standard'])).split(/\r?\n/).filter(Boolean);
+    },
     async merge(dir, branch, message = null) {
       const res = await git(dir, ['merge', '--no-ff', ...(message ? ['-m', message] : ['--no-edit']), branch]);
       if (res.code === 0) return { ok: true };
