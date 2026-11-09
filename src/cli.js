@@ -15,6 +15,12 @@ import { startForeman } from './start.js';
 import { runSetup, formatSetup } from './setup.js';
 import { recentStartFailures } from './startfail.js';
 import { fail } from './errors.js';
+import { createUi } from './ui.js';
+import * as fmt from './format.js';
+import { commandUsage, nearSubcommand, usageOf } from './usage.js';
+import { VERSION } from './version.js';
+import { describeConfig, formatConfig } from './configcmd.js';
+import { runWatch } from './watch.js';
 import { EXAMPLE } from './task.js';
 
 const HELP = `foreman: describe a task; a lead agent splits it across your coding agents in herdr or the Herdr app.
@@ -77,6 +83,8 @@ const COMMANDS = {
   read: { flags: { '--task': true, '--backend': true, '--lines': true }, required: ['--task'], positionals: (p) => p.length === 1 },
   keys: { flags: { '--task': true, '--backend': true, '--json': false }, required: ['--task'], positionals: (p) => p.length >= 2 },
   journal: { flags: { '--json': false }, positionals: (p) => (p[0] === 'add' && p.length === 2) || (p[0] === 'stats' && p.length === 1) },
+  watch: { flags: { '--task': true, '--interval': true }, required: ['--task'], positionals: (p) => p.length === 0 },
+  config: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   help: { flags: {}, positionals: (p) => p.length === 0 },
   setup: { flags: { '--json': false, '--quiet': false, '--postinstall': false }, positionals: (p) => p.length === 0 },
   doctor: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
@@ -126,12 +134,18 @@ export function route(argv) {
   }
   if (argv[0].startsWith('--file=') && argv.length === 1) return { kind: 'start', file: argv[0].slice(7) };
   if (['--help', '-h'].includes(argv[0]) && argv.length === 1) return { kind: 'help', code: 0 };
+  if (['--version', '-v'].includes(argv[0]) && argv.length === 1) return { kind: 'version' };
   const name = argv[0];
+  if (name in COMMANDS && name !== 'help' && argv.length === 2 && ['--help', '-h'].includes(argv[1])) return { kind: 'help', code: 0, topic: name };
   const spec = COMMANDS[name];
-  if (!spec || /\s/.test(name)) return { kind: 'start', task: argv.join(' ') };
+  if (!spec || /\s/.test(name)) {
+    const near = /\s/.test(name) ? null : nearSubcommand(name);
+    if (near && argv.slice(1).some((a) => a.startsWith('--'))) return { kind: 'usage', message: `foreman: unknown subcommand ${name}. Did you mean "foreman ${near}"?\nTo start a task that begins with "${name}", write: foreman -- ${argv.join(' ')}` };
+    return { kind: 'start', task: argv.join(' ') };
+  }
   const parsed = parseFlags(argv.slice(1), spec);
   if (!parsed.error) return { kind: 'command', name, ...parsed };
-  if (argv.slice(1).some((a) => a.startsWith('--'))) return { kind: 'usage', message: `foreman ${name}: ${parsed.error}` };
+  if (argv.slice(1).some((a) => a.startsWith('--'))) return { kind: 'usage', message: `foreman ${name}: ${parsed.error}\nUsage: ${usageOf(name)}` };
   return { kind: 'start', task: argv.join(' ') };
 }
 
@@ -213,7 +227,10 @@ function defaultOps(deps) {
         pane: callerPane(name, deps.env), writeFile: deps.writeFile, readFile: deps.readFile, appendFile: deps.appendFile, mkdir: deps.mkdir,
       });
     },
-    status: async ({ task }) => workerStatus({ run: needRun(task), git: git(), exists: deps.exists }),
+    status: async ({ task }) => {
+      const run = needRun(task);
+      return workerStatus({ run, git: git(), exists: deps.exists, herdr: backendOf(run), now: deps.now });
+    },
     merge: async ({ task, only }) => mergeWorkers({ run: needRun(task), git: git(), paths: deps.paths, exists: deps.exists, only }),
     land: async ({ task, title }) => land({ run: needRun(task), git: git(), title }),
     async leftovers() {
@@ -257,21 +274,10 @@ function defaultOps(deps) {
       task, cwd: deps.cwd, env: deps.env, herdr: backend(here(flag)), git: git(), which: deps.which, config: config(), paths: deps.paths,
       homedir: deps.homedir, exists: deps.exists, spawnDetached: deps.spawnDetached, attach: deps.attach, sleep: deps.sleep,
       foremanCmd: deps.foremanCmd, writeFile: deps.writeFile, mkdir: deps.mkdir, report: (m) => deps.stdout.write(`${m}\n`),
+      progress: deps.progress ? (m) => deps.stdout.write(`  ${m}\n`) : undefined,
       platform: deps.platform,
     }),
   };
-}
-
-function printAgents(out, agents) {
-  if (!agents.length) {
-    out.write('No agent kinds known to herdr were found on PATH.\n');
-    return;
-  }
-  for (const a of agents) {
-    const models = a.models.length ? `${a.models.length} models` : '';
-    const def = a.defaultModel ? `default ${a.defaultModel}` : '';
-    out.write(`${a.kind.padEnd(10)}${a.status.padEnd(13)}${String(a.version ?? '').slice(0, 24).padEnd(26)}${[models, def, a.reason].filter(Boolean).join('; ')}\n`);
-  }
 }
 
 export async function main(argv, deps) {
@@ -282,8 +288,12 @@ export async function main(argv, deps) {
     const piped = await deps.readStdin();
     if (piped?.trim()) r = { kind: 'start', task: piped.trim() };
   }
+  if (r.kind === 'version') {
+    stdout.write(`${VERSION}\n`);
+    return 0;
+  }
   if (r.kind === 'help') {
-    stdout.write(HELP);
+    stdout.write(r.topic ? commandUsage(r.topic) : HELP);
     return r.code;
   }
   if (r.kind === 'usage') {
@@ -292,6 +302,9 @@ export async function main(argv, deps) {
   }
 
   const ops = { ...defaultOps(deps), ...deps.ops };
+  const ui = createUi({ env: deps.env, stream: stdout });
+  // Plain text for a person at a terminal; scripts and the leader get JSON.
+  const forPerson = (human) => (stdout.isTTY ? human : null);
   const print = (value, human) => {
     // Compact JSON: the leader reads it, and whitespace is tokens too.
     if (r.flags?.['--json'] || !human) stdout.write(`${JSON.stringify(value)}\n`);
@@ -310,7 +323,7 @@ export async function main(argv, deps) {
         if (!task) throw fail('USAGE', `The file ${r.file} is empty. Write what you want done in it, for example: ${EXAMPLE}`);
       }
       const setup = await ops.ensureSetup?.();
-      if (setup?.changes.length) stdout.write(`${formatSetup(setup)}
+      if (setup?.changes.length) stdout.write(`${formatSetup(setup, createUi({ env: deps.env, stream: stdout }))}
 `);
       const res = await ops.start({ task, ...(r.backend ? { backend: r.backend } : {}) });
       if (!res.ok) {
@@ -339,30 +352,27 @@ export async function main(argv, deps) {
           return 0;
         }
         print(res, (v) => {
-          const text = formatSetup(v);
+          const text = formatSetup(v, ui);
           if (text) stdout.write(`${text}\n`);
         });
         return res.ok || quiet ? 0 : 1;
       }
       case 'agents':
-        print(await ops.inventory(), (v) => printAgents(stdout, v));
+        print(await ops.inventory(), (v) => stdout.write(`${fmt.formatAgents(v, ui)}\n`));
         return 0;
       case 'brief':
-        print(await ops.brief());
+        print(await ops.brief(), forPerson((v) => stdout.write(`${fmt.formatBrief(v, ui)}\n`)));
         return 0;
       case 'spawn': {
         const res = await ops.spawn({
           task, specs: r.positionals, newTab: Boolean(r.flags['--new-tab']), effort: r.flags['--effort'] ?? null, full: Boolean(r.flags['--full']), auto: Boolean(r.flags['--auto']), includeUncommitted: Boolean(r.flags['--include-uncommitted']), branch: r.flags['--branch'] ?? null,
         });
-        print(res, (v) => {
-          for (const w of v.workers) stdout.write(`${w.name.padEnd(12)}${w.kind.padEnd(10)}${String(w.paneId ?? '-').padEnd(10)}${w.status}${w.error ? ` (${w.error})` : ''}\n`);
-          if (v.snapshot) stdout.write('workers start from a copy that includes your uncommitted changes\n');
-          for (const warning of v.warnings) stdout.write(`warning: ${warning}\n`);
-        });
-        return 0;
+        print(res, (v) => stdout.write(`${fmt.formatSpawn(v, ui)}\n`));
+        // An agent that exited at start is a failure; one waiting for an answer is not.
+        return res.workers.some((w) => w.exited) ? 1 : 0;
       }
       case 'status':
-        print(await ops.status({ task }), (v) => v.forEach((s) => stdout.write(`${s.name.padEnd(12)}${s.dirty ? 'changed' : 'clean'}  commits ahead: ${s.commitsAhead}  proposals: ${s.proposals ? 'yes' : 'no'}  report: ${s.report ? 'yes' : 'no'}  guard: ${s.pushGuardArmed ? 'armed' : 'MISSING'}\n`)));
+        print(await ops.status({ task }), (v) => stdout.write(`${fmt.formatStatus(v, ui)}\n`));
         return 0;
       case 'merge': {
         const res = await ops.merge({ task, only: r.flags['--only']?.split(',').map((s) => s.trim()).filter(Boolean) ?? null });
@@ -386,7 +396,7 @@ export async function main(argv, deps) {
         const timeout = r.flags['--timeout'] ? Number(r.flags['--timeout']) : undefined;
         if (timeout !== undefined && !(timeout > 0)) throw fail('USAGE', '--timeout is a number of milliseconds');
         const only = r.flags['--only']?.split(',').map((s) => s.trim()).filter(Boolean) ?? null;
-        print(await ops.wait({ task, phase, only, timeoutMs: timeout }));
+        print(await ops.wait({ task, phase, only, timeoutMs: timeout }), forPerson((v) => stdout.write(`${fmt.formatWait(v, ui)}\n`)));
         return 0;
       }
       case 'prompt': {
@@ -405,6 +415,16 @@ export async function main(argv, deps) {
         const [name, ...keys] = r.positionals;
         print(await ops.keys({ task, backend: r.flags['--backend'] ?? null, name, keys }), (v) => stdout.write(`pressed ${v.keys.join(' ')} in ${v.sent}\n`));
         return 0;
+      }
+      case 'config':
+        print(describeConfig({ paths: deps.paths, readFile: deps.readFile }), (v) => stdout.write(`${formatConfig(v, ui)}\n`));
+        return 0;
+      case 'watch': {
+        const interval = r.flags['--interval'] === undefined ? 5 : Number(r.flags['--interval']);
+        if (!(interval > 0)) throw fail('USAGE', '--interval is a number of seconds');
+        return runWatch({
+          status: () => ops.status({ task }), render: (v) => fmt.formatStatus(v, ui), stdout, sleep: deps.sleep, intervalS: interval, tty: Boolean(stdout.isTTY),
+        });
       }
       case 'close-leader':
         print(await ops.closeLeader(), (v) => stdout.write(`closed ${v.closed}\n`));
@@ -450,7 +470,7 @@ export async function main(argv, deps) {
           print({ added: n }, (v) => stdout.write(`added ${v.added} journal entries\n`));
           return 0;
         }
-        print(computeStats(readEntries({ path: deps.paths.journal, readFile: deps.readFile })));
+        print(computeStats(readEntries({ path: deps.paths.journal, readFile: deps.readFile })), forPerson((v) => stdout.write(`${fmt.formatStats(v, ui)}\n`)));
         return 0;
       }
       default:

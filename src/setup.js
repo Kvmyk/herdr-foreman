@@ -3,6 +3,7 @@
 // say in plain words what works and what to do next.
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { createUi } from './ui.js';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CONFIG } from './config.js';
 import { HERDR_KINDS } from './inventory/kinds.js';
@@ -454,10 +455,12 @@ export function describeAgent(a) {
   return `${a.kind} is installed but foreman cannot tell if it works${a.reason ? ` (${a.reason})` : ''}`;
 }
 
-export function formatSetup(r) {
+export function formatSetup(r, ui = createUi()) {
   const out = [];
-  const ok = (text) => out.push(`  [ok] ${text}`);
-  const todo = (text) => out.push(`  [!!] ${text}`);
+  let passed = 0;
+  let failed = 0;
+  const ok = (text) => { passed++; out.push(`  ${ui.green('[ok]')} ${text}`); };
+  const todo = (text) => { failed++; out.push(`  ${ui.red('[!!]')} ${text}`); };
 
   if (r.quiet) {
     for (const c of r.changes) out.push(`foreman ${c}.`);
@@ -512,7 +515,7 @@ export function formatSetup(r) {
   if (r.leader && leaderReady) ok(`Lead agent: ${r.leader}${r.leaderChosen ? ` (chosen just now; saved in ${r.configFile})` : ''}`);
   else if (r.leader) todo(`The lead agent ${r.leader} is not ready (see above). To use another one, put {"leader": "<agent>"} in ${r.configFile}`);
 
-  out.push('');
+  out.push('', `${passed} of ${passed + failed} checks passed`, '');
   const appKey = hasApp && ['added', 'already'].includes(r.app.key.status) ? humanAppKey(r.app.key.key) : null;
   if (r.ok && !['added', 'already'].includes(k.status)) {
     out.push(
@@ -531,7 +534,7 @@ export function formatSetup(r) {
     );
     if (appKey) out.push(`  In the Herdr app, open a terminal in your project folder and press ${appKey} instead.`);
   } else {
-    out.push('Fix the lines marked [!!], then type "foreman setup" again.');
+    out.push(`Fix the lines marked ${ui.red('[!!]')}, then type "foreman setup" again.`);
   }
   return out.join('\n');
 }

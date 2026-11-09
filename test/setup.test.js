@@ -341,3 +341,13 @@ test('app/foreman template: placeholders for node and foreman, the backend flag,
   assert.doesNotMatch(main, /node:|require\(|process\./);
   assert.equal(JSON.parse(readFileSync(new URL('../app/foreman/mod.json', import.meta.url), 'utf8')).place, 'none');
 });
+
+test('formatSetup counts the checks that passed', () => {
+  const r = {
+    quiet: false, changes: [], ok: false, node: { ok: true, version: '22.1.0' }, herdr: { ok: true, version: '0.9.5' },
+    git: { version: null }, plugin: 'enabled', key: { status: 'already', key: 'prefix+f', prefix: 'ctrl+b' },
+    agents: [{ kind: 'claude', status: 'ready' }], leader: 'claude',
+  };
+  assert.match(formatSetup(r), /\n\d+ of \d+ checks passed\n/);
+  assert.match(formatSetup(r), /^  \[ok\]|\n  \[!!\] git is not installed/);
+});

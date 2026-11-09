@@ -273,6 +273,7 @@ ${screen}`;
     });
   } catch { /* the note about failures is optional */ }
 
+  const startedAt = new Date(now()).toISOString();
   const record = {
     task,
     repo,
@@ -284,7 +285,7 @@ ${screen}`;
     ownsWorktreeConfig,
     workers: [
       ...(existing?.workers ?? []),
-      ...workers.map(({ name, kind, model, auto = false, paneId, worktree, branch, reportDir }) => ({ name, kind, model, auto, paneId, worktree, branch, reportDir })),
+      ...workers.map(({ name, kind, model, auto = false, paneId, worktree, branch, reportDir }) => ({ name, kind, model, auto, paneId, worktree, branch, reportDir, startedAt })),
     ],
   };
   saveRun(record, { paths, writeFile, mkdir });
