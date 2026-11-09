@@ -126,11 +126,11 @@ Summarise what changed, in which files, and the test result. Tell the user they 
    - run `foreman cleanup --task <slug>` (add `--delete-branch` only after a successful `land`);
    - write the journal file, a JSON array with one entry per worker part:
      ```json
-     [{"task": "<slug>", "category": "security-audit", "kind": "claude", "model": "opus",
+     [{"task": "<slug>", "worker": "sec1", "category": "security-audit", "kind": "claude", "model": "opus",
        "proposed": 4, "approved": 3, "rejected": 1, "testsPassed": true, "reviewPassed": true,
        "fixRounds": 0, "stuck": false}]
      ```
-     `model` is the model you passed (or the agent's `defaultModel`, or null). `testsPassed` and `reviewPassed` are null when they did not apply. `fixRounds` counts how often you sent the worker back; `stuck` is true if it timed out or needed rescuing;
+     `worker` is the worker's name; foreman adds the tokens it used and their estimated cost. `model` is the model you passed (or the agent's `defaultModel`, or null). `testsPassed` and `reviewPassed` are null when they did not apply. `fixRounds` counts how often you sent the worker back; `stuck` is true if it timed out or needed rescuing;
    - run `foreman journal add <file>`.
 2. Tell the user you are done in one or two sentences, and ask whether to close your tab.
 3. If they say yes, run `foreman close-leader` as your very last action. Otherwise leave the tab open. herdr or the Herdr app keeps running either way.
