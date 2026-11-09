@@ -4,6 +4,7 @@
 // `foreman show` can tell what happened after the leader is gone.
 import path from 'node:path';
 import { loadRun, saveRun } from './runs.js';
+import { formatUsage, formatTokens } from './usage.js';
 
 // spawned -> investigate -> implement -> merged -> landed -> cleaned
 export const PHASES = Object.freeze(['spawned', 'investigate', 'implement', 'merged', 'landed', 'cleaned']);
@@ -32,7 +33,7 @@ export function updateRun(task, change, { paths, readFile, writeFile, mkdir, now
   try {
     const run = loadRun(task, { paths, readFile });
     if (!run) return null;
-    const next = { ...run, ...change(run), updatedAt: iso(now) };
+    const next = { ...run, updatedAt: iso(now), ...change(run) };
     saveRun(next, { paths, writeFile, mkdir });
     return next;
   } catch {
@@ -149,7 +150,8 @@ export function formatRuns(rows) {
   const lines = rows.map((r) => {
     const live = r.liveWorkers.length ? `, ${r.liveWorkers.length} live` : '';
     const end = r.outcome ? ` (${r.outcome})` : '';
-    return `${r.task.padEnd(32)} ${`${r.phase}${end}`.padEnd(22)} ${String(r.branch ?? '-').padEnd(28)} ${`${r.workers} workers${live}`.padEnd(20)} ${when(r.createdAt)}  ${r.repo}`;
+    const cost = r.usage?.total ? `${formatTokens(r.usage.total)} ${r.usage.costUsd === null ? '' : `~$${r.usage.costUsd.toFixed(2)}`}`.trim() : '-';
+    return `${r.task.padEnd(32)} ${`${r.phase}${end}`.padEnd(22)} ${String(r.branch ?? '-').padEnd(28)} ${`${r.workers} workers${live}`.padEnd(20)} ${cost.padEnd(14)} ${when(r.createdAt)}  ${r.repo}`;
   });
   return `${lines.join('\n')}\nDetails: foreman show --task <slug>\n`;
 }
@@ -165,11 +167,16 @@ export function formatShow(d) {
   ];
   if (d.merged.length) out.push(`merged   ${d.merged.join(', ')} (${when(d.mergedAt)})`);
   if (d.landedAt) out.push(`landed   ${when(d.landedAt)}`);
+  if (d.usage) {
+    const missing = d.usage.unknown?.length ? `; no log for ${d.usage.unknown.join(', ')}` : '';
+    out.push(`usage    ${formatUsage(d.usage)}${missing} (workers only, API prices)`);
+  }
   out.push('workers');
   for (const w of d.workers) {
     const agent = w.model ? `${w.kind}:${w.model}` : w.kind;
     const times = `${when(w.startedAt)} -> ${w.endedAt ? when(w.endedAt) : '...'}`;
     out.push(`  ${w.name.padEnd(10)} ${agent.padEnd(24)} ${w.state.padEnd(8)} ${times}${w.respawns ? `  respawned ${w.respawns}x` : ''}`);
+    if (w.usage !== undefined) out.push(`             ${formatUsage(w.usage)}`);
     for (const r of w.reports) out.push(`             ${r}`);
   }
   return `${out.join('\n')}\n`;

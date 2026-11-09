@@ -466,7 +466,7 @@ export async function main(argv, deps) {
           } catch (err) {
             throw fail('USAGE', `cannot read ${r.positionals[1]}: ${err.message}`);
           }
-          const n = appendEntries(entries, { path: deps.paths.journal, appendFile: deps.appendFile, categories: builtinKnowledge().categories, now: deps.now?.() });
+          const n = appendEntries(await ops.withUsage?.(entries) ?? entries, { path: deps.paths.journal, appendFile: deps.appendFile, categories: builtinKnowledge().categories, now: deps.now?.() });
           print({ added: n }, (v) => stdout.write(`added ${v.added} journal entries\n`));
           return 0;
         }

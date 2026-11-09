@@ -2,7 +2,9 @@
 // here so cli.js only routes to them.
 import { createBackend } from './backend.js';
 import { listRuns, loadRun } from './runs.js';
-import { summarizeRuns, describeRun, formatRuns, formatShow, updateRun } from './history.js';
+import { loadKnowledge } from './knowledge.js';
+import { summarizeRuns, describeRun, formatRuns, formatShow, updateRun, phaseOf } from './history.js';
+import { runUsage, usageForEntries } from './usage.js';
 import { fail } from './errors.js';
 
 // Same shape as COMMANDS in cli.js: flags (true = takes a value), required
@@ -12,6 +14,8 @@ export const RUN_COMMANDS = {
   runs: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   show: { flags: { '--task': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
 };
+
+const usageSummary = (u) => ({ total: u.total, tokens: u.tokens, costUsd: u.costUsd, costKnown: u.costKnown, unknown: u.unknown });
 
 export function runOps(deps) {
   const io = { paths: deps.paths, readFile: deps.readFile };
@@ -28,17 +32,47 @@ export function runOps(deps) {
     }
     return out;
   };
+  // Prices from the models.dev copy foreman already has; never the network.
+  const usageCtx = async () => {
+    let modelsDev = {};
+    try {
+      modelsDev = (await loadKnowledge({ ...io, writeFile: () => {}, offline: true })).modelsDev;
+    } catch {
+      // No prices: tokens are still shown.
+    }
+    return { home: deps.homedir, env: deps.env ?? {}, modelsDev };
+  };
+  const noteRun = (task, change) => updateRun(task, change, { ...io, writeFile: deps.writeFile, mkdir: deps.mkdir, now: deps.now });
 
   return {
     // History notes from the commands that move a run along.
-    noteRun: (task, change) => updateRun(task, change, { ...io, writeFile: deps.writeFile, mkdir: deps.mkdir, now: deps.now }),
+    noteRun,
     async runs() {
       const runs = listRuns({ ...io, readdir: deps.readdir });
-      return summarizeRuns({ runs, exists: deps.exists, agents: await agentsFor(runs) });
+      const ctx = await usageCtx();
+      const withUsage = runs.map((run) => {
+        if (run.usage) return run;
+        const usage = usageSummary(runUsage(run, ctx));
+        // A cleaned-up run does not change any more: keep its usage.
+        if (phaseOf(run) === 'cleaned') noteRun(run.task, (r) => ({ usage, updatedAt: r.updatedAt }));
+        return { ...run, usage };
+      });
+      return summarizeRuns({ runs: withUsage, exists: deps.exists, agents: await agentsFor(runs) });
     },
     async show({ task }) {
       const run = needRun(task);
-      return describeRun(run, { ...io, exists: deps.exists, agents: await agentsFor([run]) });
+      const d = describeRun(run, { ...io, exists: deps.exists, agents: await agentsFor([run]) });
+      const usage = runUsage(run, await usageCtx());
+      d.workers.forEach((w) => { w.usage = usage.workers[w.name]; });
+      return { ...d, usage: usageSummary(usage) };
+    },
+    // Journal entries with tokens and cost of the worker they describe.
+    async withUsage(entries) {
+      try {
+        return usageForEntries(entries, { loadRun: (t) => loadRun(t, io), ctx: await usageCtx() });
+      } catch {
+        return entries;
+      }
     },
   };
 }
