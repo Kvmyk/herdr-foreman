@@ -4,6 +4,10 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- `foreman wait` no longer counts a `proposals.md` or `report.md` left from an earlier round: after `foreman prompt` briefs a worker again, only a report written after that brief makes the worker done.
+
 ## [0.5.0] - 2026-11-09
 
 ### Added

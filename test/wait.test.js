@@ -106,3 +106,19 @@ test('an agent that reports an error needs attention, with its screen', async ()
   assert.equal(res.result, 'attention');
   assert.deepEqual(res.workers.w2, { state: 'error', screen: 'w2 screen' });
 });
+
+test('a report older than the last brief does not make the worker done', async () => {
+  const w = world({ script: [{ w1: 'idle' }, { w1: 'working' }, { w1: 'idle' }], reports: { w1: 0 } });
+  const briefed = { ...run, briefedAt: { w1: 5000 } };
+  // The old report (mtime 1000) predates the brief; a new one is written from poll 2.
+  const mtimeMs = () => (w.polls() >= 2 ? 9000 : 1000);
+  const res = await waitForWorkers({ run: briefed, only: ['w1'], ...w, mtimeMs, phase: 'investigate', pollMs: 3000 });
+  assert.equal(res.workers.w1, 'done');
+  assert.ok(w.polls() >= 2);
+});
+
+test('without a recorded brief time a report counts as before', async () => {
+  const w = world({ script: [{ w1: 'idle' }], reports: { w1: 0 } });
+  const res = await waitForWorkers({ run, only: ['w1'], ...w, mtimeMs: () => 1, phase: 'investigate' });
+  assert.equal(res.workers.w1, 'done');
+});
