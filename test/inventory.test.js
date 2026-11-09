@@ -162,3 +162,17 @@ test('a remembered default that is no longer listed is dropped with a note', asy
   assert.equal(a.defaultModel, null);
   assert.match(a.reason, /github-copilot\/gpt-5\.3-codex/);
 });
+
+test('codex whose token ran out long ago is unavailable although login status is fine', async () => {
+  const jwt = (exp) => `h.${Buffer.from(JSON.stringify({ exp })).toString('base64url')}.s`;
+  const run = fakeRun({ 'codex login status': { stdout: 'Logged in using ChatGPT' } });
+  const file = path.join(home, '.codex', 'auth.json');
+  const now = () => Date.parse('2026-11-09T00:00:00Z');
+  const old = { [file]: { auth_mode: 'chatgpt', tokens: { access_token: jwt(1778783372) }, last_refresh: '2026-05-04T18:29:24Z' } };
+  const r = await PROBES.codex.probe({ ...ctx(run, { files: old }), now });
+  assert.equal(r.status, 'unavailable');
+  assert.match(r.reason, /codex login/);
+  const fresh = { [file]: { auth_mode: 'chatgpt', tokens: { access_token: jwt(1778783372) }, last_refresh: '2026-11-08T00:00:00Z' } };
+  assert.equal((await PROBES.codex.probe({ ...ctx(run, { files: fresh }), now })).status, 'ready');
+  assert.equal((await PROBES.codex.probe({ ...ctx(run), now })).status, 'ready');
+});

@@ -22,11 +22,19 @@ function write(data, { paths, writeFile, mkdir }) {
   }
 }
 
+// The sign-in of some kinds can run out while their login status still looks fine.
+const SIGN_IN_HINTS = [[/access token could not be refreshed|log out and sign in again/i, 'codex', 'run "codex login"']];
+
+export function startFailureHint(kind, message) {
+  const found = SIGN_IN_HINTS.find(([re, k]) => k === kind && re.test(message));
+  return found ? `${message}; ${found[2]}` : message;
+}
+
 export function recordStartResults({ paths, readFile, writeFile, mkdir, now = Date.now, failed = [], worked = [] }) {
   const data = read({ paths, readFile });
   let changed = false;
   for (const { kind, message } of failed) {
-    data[kind] = { at: new Date(now()).toISOString(), message };
+    data[kind] = { at: new Date(now()).toISOString(), message: startFailureHint(kind, message) };
     changed = true;
   }
   for (const kind of worked) {
