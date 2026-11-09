@@ -48,6 +48,8 @@ export function indexModelsDev(api) {
         output: m.limit?.output ?? null,
         costIn: m.cost?.input ?? null,
         costOut: m.cost?.output ?? null,
+        costCacheRead: m.cost?.cache_read ?? null,
+        costCacheWrite: m.cost?.cache_write ?? null,
         reasoning: Boolean(m.reasoning),
         releaseDate: m.release_date ?? null,
         knowledge: m.knowledge ?? null,

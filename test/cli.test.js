@@ -383,3 +383,26 @@ test('NO_COLOR keeps every output plain, FORCE_COLOR colors it', async () => {
   await main(['spawn', '--task', 't', '--branch', 'feat/x', 'w1=codex'], colored.deps);
   assert.match(colored.out(), /\x1b\[31m/);
 });
+
+test('route: answers given in front of a task go to the leader', () => {
+  assert.deepEqual(route(['--backend', 'app', '--auto-answer', '--include-uncommitted', '--', 'fix', 'it']),
+    { kind: 'start', task: 'fix it', backend: 'app', prefs: { autoAnswer: true, includeUncommitted: true } });
+  assert.deepEqual(route(['--auto-answer', 'fix it']), { kind: 'start', task: 'fix it', prefs: { autoAnswer: true } });
+  assert.equal(route(['--auto-answer', 'status', '--task', 'x']).kind, 'usage');
+  // spawn keeps its own --include-uncommitted
+  assert.equal(route(['spawn', '--task', 'x', '--include-uncommitted', 'a=claude']).name, 'spawn');
+});
+
+test('--help lists every subcommand of the README table, the shortcuts and examples', async () => {
+  const { readFileSync } = await import('node:fs');
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  const table = readme.slice(readme.indexOf('## Subcommands'), readme.indexOf('## Choosing agents'));
+  const names = [...new Set([...table.matchAll(/^\| `foreman ([a-z-]+)/gm)].map((m) => m[1]))];
+  assert.ok(names.length >= 10);
+  const h = harness();
+  await main(['--help'], h.deps);
+  for (const name of names) assert.match(h.out(), new RegExp(`^  ${name}( |$)`, 'm'), `${name} is missing from --help`);
+  assert.match(h.out(), /Ctrl\+Shift\+Y/);
+  assert.match(h.out(), /^Examples:/m);
+  assert.match(h.out(), /--auto-answer/);
+});

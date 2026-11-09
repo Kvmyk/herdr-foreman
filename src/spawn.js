@@ -25,6 +25,29 @@ export function parseSpec(s) {
   return { name: m[1], kind: m[2], model: m[3] ?? null };
 }
 
+// The command-line arguments a worker's agent starts with (model, effort,
+// auto mode, lean start), and warnings for what its kind cannot take.
+export function agentArgs({ name, kind, model = null, effort = null, auto = false, full = false, config }) {
+  const probe = PROBES[kind];
+  const args = [];
+  const warnings = [];
+  let isAuto = false;
+  if (model && probe) args.push(...probe.modelArgs(model));
+  else if (model) warnings.push(`no model flag known for ${kind}; ${name} starts with its default model`);
+  if (effort && probe?.effortFromModel && model) warnings.push(`${name}: ${kind} takes effort from the model id; --effort not passed with --model ${model}`);
+  else if (effort && probe?.effortArgs) args.push(...probe.effortArgs(effort));
+  else if (effort) warnings.push(`no effort setting known for ${kind}; ${name} uses its default effort`);
+  // Lean start: fewer tool definitions re-sent on every turn; the user's skills stay.
+  // --full keeps MCP servers and all tools, e.g. for a worker that tests a web app in the browser.
+  if (auto && probe?.autoArgs) {
+    args.push(...probe.autoArgs);
+    isAuto = true;
+  }
+  else if (auto) warnings.push(`no auto-approve mode known for ${kind}; ${name} may still ask for permission`);
+  if (config.lean !== false && !full && probe?.leanArgs) args.push(...probe.leanArgs.worker);
+  return { args, auto: isAuto, warnings };
+}
+
 async function validate({ herdr, git, repo, config, task, specs, existing, pane, newTab, effort, branch }) {
   if (specs.length < 1 || specs.length > config.maxWorkers) {
     throw fail('TOO_MANY', `between 1 and ${config.maxWorkers} workers per spawn (got ${specs.length})`);
@@ -144,7 +167,7 @@ async function excludeReports({ git, repo, readFile, appendFile, mkdir }) {
 }
 
 export async function spawnWorkers({
-  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, includeUncommitted = false, run = null, writeFile, readFile, appendFile, mkdir, sleep = null, now = Date.now, foremanCmd = 'foreman',
+  herdr, git, paths, config, repo, task, specs, pane, newTab = false, effort = null, full = false, auto = false, branch = null, includeUncommitted = false, run = null, prepare = null, writeFile, readFile, appendFile, mkdir, sleep = null, now = Date.now, foremanCmd = 'foreman',
 }) {
   const existing = loadRun(task, { paths, readFile });
   const backend = herdr.kind ?? 'herdr';
@@ -213,29 +236,21 @@ export async function spawnWorkers({
     throw err;
   }
 
+  // Copy untracked files and run the setup command before the agents start.
+  const setup = prepare ? await prepare(workers) : { results: [], warnings: [] };
+  warnings.push(...setup.warnings);
+
   const argsOf = new Map();
   const startArgs = workers.map((w) => {
-    const probe = PROBES[w.kind];
-    w.auto = false;
-    const args = [];
-    if (w.model && probe) args.push(...probe.modelArgs(w.model));
-    else if (w.model) warnings.push(`no model flag known for ${w.kind}; ${w.name} starts with its default model`);
-    if (effort && probe?.effortFromModel && w.model) warnings.push(`${w.name}: ${w.kind} takes effort from the model id; --effort not passed with --model ${w.model}`);
-    else if (effort && probe?.effortArgs) args.push(...probe.effortArgs(effort));
-    else if (effort) warnings.push(`no effort setting known for ${w.kind}; ${w.name} uses its default effort`);
-    // Lean start: fewer tool definitions re-sent on every turn; the user's skills stay.
-    // --full keeps MCP servers and all tools, e.g. for a worker that tests a web app in the browser.
-    if (auto && probe?.autoArgs) {
-      args.push(...probe.autoArgs);
-      w.auto = true;
-    }
-    else if (auto) warnings.push(`no auto-approve mode known for ${w.kind}; ${w.name} may still ask for permission`);
-    if (config.lean !== false && !full && probe?.leanArgs) args.push(...probe.leanArgs.worker);
-    argsOf.set(w.kind, [...new Set([...(argsOf.get(w.kind) ?? []), ...flagsOf(args)])]);
-    return args;
+    const start = agentArgs({ name: w.name, kind: w.kind, model: w.model, effort, auto, full, config });
+    w.auto = start.auto;
+    warnings.push(...start.warnings);
+    argsOf.set(w.kind, [...new Set([...(argsOf.get(w.kind) ?? []), ...flagsOf(start.args)])]);
+    return start.args;
   });
   // Each kind's start flags are checked once against its own --help.
   if (run) warnings.push(...await checkStartFlags({ run, byKind: argsOf }));
+
 
   const results = await Promise.all(workers.map((w, i) => herdr.agentStart({
     name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
@@ -275,13 +290,17 @@ ${screen}`;
 
   const startedAt = new Date(now()).toISOString();
   const record = {
+    // History fields (phase, merged, ...) written by later commands stay.
+    ...existing,
     task,
     repo,
     base,
     ...(snapshot ? { snapshot } : {}),
     ...(runBranch ? { branch: runBranch } : {}),
     ...(backend === 'app' ? { backend } : {}),
-    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    createdAt: existing?.createdAt ?? startedAt,
+    updatedAt: startedAt,
+    phase: existing?.phase ?? 'spawned',
     ownsWorktreeConfig,
     workers: [
       ...(existing?.workers ?? []),
@@ -289,5 +308,5 @@ ${screen}`;
     ],
   };
   saveRun(record, { paths, writeFile, mkdir });
-  return { workers, warnings, snapshot };
+  return { workers, warnings, snapshot, setup: setup.results };
 }

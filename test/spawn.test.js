@@ -198,6 +198,21 @@ test('adding workers to an existing run keeps its base', async () => {
   assert.equal(f.log.find(([k]) => k === 'worktree')[1].base, 'old999');
 });
 
+test('the run record keeps history fields and stamps worker start times', async () => {
+  const existingRun = { task: 'fix-login', repo, base: 'old999', branch: 'feat/fix-login', createdAt: 'x', phase: 'investigate', merged: ['w1'], workers: [{ name: 'w1', kind: 'claude', startedAt: 'old' }] };
+  const f = fakes({ existingRun });
+  await call(f, { specs: ['w2=agy'], branch: null });
+  const saved = JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]);
+  assert.equal(saved.phase, 'investigate');
+  assert.deepEqual(saved.merged, ['w1']);
+  assert.equal(saved.workers[0].startedAt, 'old');
+  assert.match(saved.workers[1].startedAt, /^\d{4}-\d\d-\d\dT/);
+  assert.ok(saved.updatedAt);
+  const fresh = fakes();
+  await call(fresh, { specs: ['w1=claude'] });
+  assert.equal(JSON.parse(fresh.files[path.join(paths.runs, 'fix-login.json')]).phase, 'spawned');
+});
+
 test('an existing run keeps its snapshot base even when dirty again', async () => {
   const existingRun = { task: 'fix-login', repo, base: 'snap111', snapshot: 'snap111', createdAt: 'x', workers: [{ name: 'w1', kind: 'claude' }] };
   const f = fakes({ existingRun, dirty: true });

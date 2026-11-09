@@ -4,6 +4,25 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- Herdr app prompt (Ctrl+Shift+Y), reworked: `Enter` adds a line and `Ctrl+Enter` starts, with the hint "Ctrl+Enter start · Esc cancel"; the folder is shown cut from the left; a draft is kept when you cancel and comes back next time; your last tasks are listed for reuse; `@` offers file names of the project; the configured leader is shown; Start is dimmed while the task is empty or something is wrong.
+- Herdr app prompt checks before it starts and says so inline: foreman or node moved ("run foreman setup"), no folder, or the folder is not a git repository. A toast says "Started: ..." or why it could not start.
+- Two options in the Herdr app prompt, "Workers answer permission questions automatically" and "Include uncommitted changes", and the matching command line flags `--auto-answer` and `--include-uncommitted` (in front of a task). The leader no longer asks the questions you already answered.
+- In the Herdr app, a worker that is stuck (a trust dialog, a question) or has stopped puts its name in its tab's title (`⚠ w2 needs you`) and brings the tab forward.
+- Start failures are explained in plain words, and a leader or workers open in a new tab by themselves when there is no room in the current one; hints for trust and permission dialogs say which keys to press.
+- `foreman status` and a live watch of a run; `foreman runs` and `foreman show` list and describe earlier runs; `foreman resume` and `foreman respawn` continue a run or restart a worker; `foreman diff` shows what a worker changed; `foreman cost` estimates what a run used.
+- `foreman --version`, and usage help for a wrong command or option (what was expected and an example) instead of a bare error.
+- New settings in `config.json`: `worktreeSetup` (a command run in each new worktree, for example an install) and `copyFiles` (ignored files such as `.env` copied into each worktree).
+- Output in color on a terminal (plain when piped or with `NO_COLOR`).
+- README: a Quick start with a terminal path and a desktop path at the top, the desktop section next to Install, `npm install -g` plus `foreman setup` as a normal install step, a troubleshooting table, an FAQ (cost, what is changed, what is never done, how to undo), and each prompt tip marked as herdr prompt or desktop prompt. `foreman --help` lists where to start and examples.
+
+### Fixed
+
+- codex failed to start because foreman passed `--no-daemon`, which current codex rejects.
+- `foreman` no longer ends with an unhandled EPIPE error when its output is piped into `head` or another program that closes early.
+- Many workers in one tab made panes only a few columns wide, so a dialog (for example agy's trust question) could not be read; the layout now keeps the panes wide enough or opens a new tab.
+
 ## [0.4.2] - 2026-11-09
 
 ### Fixed

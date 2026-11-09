@@ -12,18 +12,41 @@ foreman "check the payment module for security holes and fix what needs fixing"
 
 Nothing is pushed and no pull request is created.
 
+## Quick start
+
+**In the herdr terminal app**
+
+```
+herdr plugin install Kvmyk/herdr-foreman
+```
+
+Open herdr in your project folder, press `Ctrl+B`, then `F`, and describe the task.
+
+**In the Herdr desktop app**
+
+```
+npm install -g github:Kvmyk/herdr-foreman
+foreman setup
+```
+
+Open a terminal in your project folder, press `Ctrl+Shift+Y`, describe the task and press `Ctrl+Enter`.
+
+Either way the leader opens in a new tab and tells you what it plans before anything changes. Something does not work? See [If something does not work](#if-something-does-not-work).
+
+
 ## Before you start
 
-You need four things on your computer:
+You need these on your computer:
 
-1. **herdr 0.9.5 or newer**, the terminal app foreman runs in. Install it from [herdr.dev](https://herdr.dev).
+1. **A place to run foreman**: either **herdr 0.9.5 or newer**, the terminal app (from [herdr.dev](https://herdr.dev)), or the **Herdr desktop app**. You can use either one; you do not need both.
 2. **Node.js 20 or newer**, from [nodejs.org](https://nodejs.org).
-3. **git**, from [git-scm.com](https://git-scm.com). Your project folder must use git.
+3. **git**, from [git-scm.com](https://git-scm.com). Your project folder must use git and have at least one commit.
+
 4. **At least one coding agent, signed in**: for example [Claude Code](https://claude.com/claude-code) or [Codex](https://developers.openai.com/codex). Others herdr can start (opencode, agy, pi, gemini, ...) work too.
 
 ## Install
 
-Open a terminal and type:
+**herdr (terminal).** Open a terminal and type:
 
 ```
 herdr plugin install Kvmyk/herdr-foreman
@@ -31,33 +54,92 @@ herdr plugin install Kvmyk/herdr-foreman
 
 herdr shows what the plugin will run and asks you to confirm; answer yes. That is all: foreman adds its keyboard shortcut to herdr by itself.
 
-## Start a task
+**Herdr desktop app, or any terminal.** Install the `foreman` command, then let it set itself up once:
+
+```
+npm install -g github:Kvmyk/herdr-foreman
+foreman setup
+```
+
+`foreman setup` checks herdr, git and your agents, adds foreman to the desktop app and to herdr if they are installed, and says in plain words what is left to do. Run it again after every update; it is quick and changes nothing that is already right. More in [Advanced](#advanced-install-as-a-command-or-set-up-by-hand).
+
+
+## Herdr app (desktop)
+
+If the Herdr desktop app is installed (its folder is `~/.config/herdr-app`, on Windows `%USERPROFILE%\.config\herdr-app`, or `$HERDR_APP_HOME`), `foreman setup` also adds foreman to it. You do not need the terminal version of herdr for this.
+
+In the app, open a terminal in your project folder and press **Ctrl+Shift+Y**. A prompt opens:
+
+<!-- Screenshot of the desktop prompt goes here. Put desktop-prompt.png on the `assets` branch, then replace this comment with:
+<p align="center"><img src="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/desktop-prompt.png" alt="The foreman prompt in the Herdr app: folder, task box, two options, Start" width="70%"></p>
+-->
+
+- **Desktop prompt, keys:** `Enter` adds a line, `Ctrl+Enter` (`Cmd+Enter` on a Mac) or the Start button starts, `Esc` cancels. What you typed is kept as a draft when you cancel and comes back the next time.
+- **Desktop prompt, `@`:** type `@` and part of a file name to get a list of files of your project; click one to insert it.
+- **Desktop prompt, below the box:** your last tasks (click one to reuse it) and two options, "Workers answer permission questions automatically" and "Include uncommitted changes". They answer in advance what the leader would otherwise ask you (they pass `--auto-answer` and `--include-uncommitted` to foreman).
+- **Desktop prompt, problems:** if the folder is not a git repository, there is no terminal to take the folder from, or foreman moved, the prompt says so in red and Start stays dimmed. A toast says "Started: ..." when the leader tab opens.
+- **While workers run:** a worker that is stuck on a question or has stopped puts its name in its tab's title (`⚠ w2 needs you`) and the app brings that tab forward.
+
+What setup changes, checked first and never forced:
+
+- `mods/foreman/` in the app folder: the prompt. Its `main.js` starts with a `foreman-managed` line holding the version and a hash. The mod is checked with `herdr-app check` before it is written. A newer foreman updates it; a file you edited, or a `mods/foreman` that is not foreman's, is left alone and setup says so.
+- one line in `keys.json`, `"ctrl-shift-y": "mod.open:foreman"` (the first of `ctrl-shift-y`, `ctrl-alt-shift-f`, `ctrl-shift-f10` that you have not bound). Your old keys are saved as `keys.json.foreman-backup`, and if the app rejects the new file (`keys.error`) your keys are put back. A missing or invalid `keys.json` is never created or replaced; open the app once and type `foreman setup` again.
+- the + menu is not changed: the app replaces its own menus at every start. To use another key, change the line in `keys.json`.
+
+Setup reruns quietly whenever herdr starts. `"autoSetup": false` in `~/.herdr-foreman/config.json` (or `FOREMAN_NO_SETUP=1`) stops that; `foreman setup` still works. To remove foreman from the app, delete `mods/foreman` and that line.
+
+The prompt starts foreman as `node <foreman>/bin/foreman.js --backend app -- "<task>"` in a terminal tab of the app, in the folder of the focused terminal.
+
+## Start a task (terminal)
 
 1. Open a terminal in your project folder and type `herdr`.
 2. Press `Ctrl+B`, let go, then press `F`.
 3. Type what you want done, in plain words. You can paste several lines; finish with an empty line. An empty first line cancels.
 
-The lead agent opens in a new tab and tells you what it plans to do before anything changes.
+The lead agent opens in a new tab and tells you what it plans to do before anything changes. In the desktop app, use the prompt described above instead.
 
 ### Describing the task
 
-- Write it in your own words. Point at files with `@` and the file name (`@src/login.js`); links to issues or docs work too. foreman checks that the files exist and warns you when one has changes you have not committed.
-- A longer task can be written in a file (`foreman -f task.md`) or piped in (`cat task.md | foreman`).
-- In the herdr prompt you can paste several lines and finish with an empty line (or Ctrl+D), or type `e` to write the task in an editor (`$VISUAL` or `$EDITOR`; Notepad on Windows).
+- **Both prompts:** write it in your own words. Point at files with `@` and the file name (`@src/login.js`); links to issues or docs work too. foreman checks that the files exist and warns you when one has changes you have not committed.
+- **Command line:** a longer task can be written in a file (`foreman -f task.md`) or piped in (`cat task.md | foreman`).
+- **herdr prompt (terminal):** you can paste several lines and finish with an empty line (or Ctrl+D), or type `e` to write the task in an editor (`$VISUAL` or `$EDITOR`; Notepad on Windows).
+- **Desktop prompt:** `Enter` is a new line and `Ctrl+Enter` starts, so a long task can be written in the box itself; `@` offers file names.
 
 ## If something does not work
 
 Type this in a terminal; it checks herdr, git and your coding agents, fixes what it can and tells you in plain words what is left to do:
 
 ```
-herdr plugin pane open --plugin herdr-foreman --entrypoint setup
+foreman setup
 ```
 
-(If you installed the `foreman` command, below, `foreman setup` or just `foreman` does the same.)
+(Without the `foreman` command: `herdr plugin pane open --plugin herdr-foreman --entrypoint setup`.)
 
-- **The shortcut does nothing:** if `Ctrl+B, then F` was already taken, foreman picked `Ctrl+B, then Shift+F` (or `Alt+F`); the check above shows which one.
-- **An agent is not signed in:** the check shows the exact line to type to sign in.
-- **To undo the shortcut:** foreman saved your previous herdr settings next to them as `config.toml.foreman-backup`.
+| What you see | What to do |
+|---|---|
+| herdr: the shortcut does nothing | If `Ctrl+B, then F` was already taken, foreman picked `Ctrl+B, then Shift+F` (or `Alt+F`); `foreman setup` shows which one. |
+| Desktop app: `Ctrl+Shift+Y` does nothing | Open the app once, then run `foreman setup`. It binds the first free key of `ctrl-shift-y`, `ctrl-alt-shift-f`, `ctrl-shift-f10` and prints which. A `mods/foreman` that is not foreman's, or a `main.js` you edited, is left alone. |
+| Desktop prompt: "foreman is not set up" or "moved or was removed" | Run `foreman setup`; it rewrites the prompt with the right paths. |
+| "This folder is not one" / "has no saved version yet" | Run `git init`, then `git add -A` and `git commit -m "first version"`. |
+| An agent is not signed in | `foreman setup` or `foreman agents` shows the exact line to type to sign in. |
+| "did not report ready within ...s; it may be asking whether to trust the folder" | The worker is waiting for you. See what it asks with `foreman read --task <slug> <name>`, then answer in its pane or tab (in the app its title starts with `⚠`) or with `foreman keys --task <slug> <name> down enter`. Raise `startTimeoutMs` in `config.json` if the agent is only slow. |
+| A worker exits right after starting, or an agent crashes | `foreman read --task <slug> <name>` shows its last screen. Update that agent, or leave it out with `"excludeKinds": ["<kind>"]` in `config.json`; the leader then picks others. |
+| With many workers the panes are only a few columns wide | Lower `maxWorkers` in `config.json` (3 or 4 fits most screens), or give foreman a larger window. |
+| Runs left behind after a crash or a closed window | `foreman cleanup` lists them, `foreman cleanup --all` removes their worktrees and panes. |
+| To undo the herdr shortcut | foreman saved your previous herdr settings as `config.toml.foreman-backup`, and the app's keys as `keys.json.foreman-backup`. |
+
+## FAQ
+
+**Does it cost money?** foreman itself is free. The agents it starts use your own subscriptions or API keys, and a run uses one session for the leader plus one per worker, so more workers mean more tokens. To spend less, use fewer workers (`maxWorkers` in `config.json`), ask for `--effort low` on simple parts, and read [Token use](#token-use).
+
+**What does it change on my computer?** Workers edit copies of your project (git worktrees in `~/.herdr-foreman/worktrees`, on branches `wip/<name>/<worker>`), never your working folder. Your branch changes only when you agree to `foreman land`. foreman also writes `.foreman/` to the repository's `.git/info/exclude`, its own files to `~/.herdr-foreman/`, a block in herdr's `config.toml` and, for the desktop app, `mods/foreman` and one line in `keys.json` (see above).
+
+**What does it never do?** It never pushes and never opens a pull request, it does not land anything without asking you, and a worker does not change anything until you approved the numbered list. Each worker worktree gets a push guard as a tripwire.
+
+**Does my code leave the computer?** foreman sends nothing anywhere. Your coding agents send what they read to their own providers, as they do when you use them yourself. foreman fetches only public model facts (price, context size) from models.dev.
+
+**How do I undo or remove it?** `foreman cleanup --all` removes leftover worktrees and panes; delete the run branch (`git branch -D <type>/<name>`) if you did not land it. To remove foreman from herdr, run `herdr plugin uninstall herdr-foreman` and delete the `herdr-foreman.start` block in `config.toml`; from the desktop app, delete `mods/foreman` and its line in `keys.json`. `"autoSetup": false` in `~/.herdr-foreman/config.json` stops setup from coming back.
+
 
 ## Advanced: install as a command, or set up by hand
 
@@ -95,22 +177,6 @@ foreman works in PowerShell like any other command; a few things are different f
 - **Where things are:** herdr's settings in `%APPDATA%\herdr\config.toml`, the Herdr app folder in `%USERPROFILE%\.config\herdr-app`, foreman's own files in `%USERPROFILE%\.herdr-foreman`. To look at herdr's settings: `notepad $env:APPDATA\herdr\config.toml`.
 
 With herdr in the terminal, type `herdr` and press `Ctrl+B`, then `F`, as above; `foreman '<task>'` typed outside herdr starts it for you. In the Herdr desktop app the prompt (`Ctrl+Shift+Y`) starts node directly, so PowerShell quoting does not matter there.
-
-## Herdr app (desktop)
-
-If the Herdr desktop app is installed (its folder is `~/.config/herdr-app`, on Windows `%USERPROFILE%\.config\herdr-app`, or `$HERDR_APP_HOME`), setup also adds foreman to it. You do not need the terminal version of herdr for this: install the command with `npm install -g github:Kvmyk/herdr-foreman`, or type `foreman setup` in a clone.
-
-In the app, open a terminal in your project folder and press **Ctrl+Shift+Y**. A prompt opens; type your task and press Enter (or Start). foreman opens the leader in a new tab of the same space. Esc or an empty task cancels.
-
-What setup changes, checked first and never forced:
-
-- `mods/foreman/` in the app folder: the prompt. Its `main.js` starts with a `foreman-managed` line holding the version and a hash. The mod is checked with `herdr-app check` before it is written. A newer foreman updates it; a file you edited, or a `mods/foreman` that is not foreman's, is left alone and setup says so.
-- one line in `keys.json`, `"ctrl-shift-y": "mod.open:foreman"` (the first of `ctrl-shift-y`, `ctrl-alt-shift-f`, `ctrl-shift-f10` that you have not bound). Your old keys are saved as `keys.json.foreman-backup`, and if the app rejects the new file (`keys.error`) your keys are put back. A missing or invalid `keys.json` is never created or replaced; open the app once and type `foreman setup` again.
-- the + menu is not changed: the app replaces its own menus at every start. To use another key, change the line in `keys.json`.
-
-Setup reruns quietly whenever herdr starts. `"autoSetup": false` in `~/.herdr-foreman/config.json` (or `FOREMAN_NO_SETUP=1`) stops that; `foreman setup` still works. To remove foreman from the app, delete `mods/foreman` and that line.
-
-The prompt starts foreman as `node <foreman>/bin/foreman.js --backend app -- "<task>"` in a terminal tab of the app, in the folder of the focused terminal.
 
 ## How a task runs
 
