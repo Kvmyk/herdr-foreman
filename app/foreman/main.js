@@ -1,7 +1,7 @@
 // foreman: describe a task, a lead agent splits it across your coding agents.
 // Installed and updated by "foreman setup"; edit a copy under another name,
 // a changed file is left alone. Ctrl+Enter starts, Enter adds a line, Esc cancels.
-import { View, div } from "gpui-kit";
+import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { run, props, closeOverlay, theme, spaces, focused, panes, notify, exec, readTextFile, writeTextFile, home, shared, setShared } from "herdr";
 
@@ -201,8 +201,7 @@ export default class Foreman extends View {
 
     // Header: mark, title with subtitle, and the leader that will run the task.
     body.child(h_flex().items_center().gap(12)
-      .child(div().w(32).h(32).flex_shrink_0().rounded(8).bg(t.solid).flex().items_center().justify_center()
-        .text_size(17).font_semibold().text_color(t.solid_foreground).child("f"))
+      .child(image("mods/foreman/logo.svg").w(32).h(32).flex_none())
       .child(v_flex().flex_1().min_w(0)
         .child(div().text_size(15).font_semibold().child("New task"))
         .child(div().text_size(11.5).text_color(t.dim).child("A lead agent splits it across your coding agents.")))

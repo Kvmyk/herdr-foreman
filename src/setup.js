@@ -186,15 +186,17 @@ export function renderAppMod(d, version) {
   return {
     main: `// foreman-managed ${version} ${sha(body)}\n${body}`,
     modJson: d.readFile(path.join(root, 'app', APP_MOD, 'mod.json')),
+    logo: d.readFile(path.join(root, 'app', APP_MOD, 'logo.svg')),
   };
 }
 
-async function appCheck(d, main, modJson) {
+async function appCheck(d, main, modJson, logo) {
   const dir = path.join(d.tmpdir, 'foreman-app-mod-check', APP_MOD);
-  const files = [path.join(dir, 'main.js'), path.join(dir, 'mod.json')];
+  const files = [path.join(dir, 'main.js'), path.join(dir, 'mod.json'), path.join(dir, 'logo.svg')];
   try {
     d.writeFile(files[0], main);
     d.writeFile(files[1], modJson);
+    d.writeFile(files[2], logo);
     const res = await d.run('herdr-app', ['check', dir], { env: d.env, cwd: d.tmpdir, timeoutMs: 30000 });
     if (res.code === 0) return null;
     const last = `${res.stdout}\n${res.stderr}`.trim().split(/\r?\n/).filter(Boolean).pop();
@@ -229,7 +231,14 @@ export async function installAppMod(d, version) {
   } catch (err) {
     if (err.code !== 'ENOENT') return { status: 'failed', dir, reason: `cannot read ${mainFile}: ${err.message}` };
   }
-  if (have === want.main) return { status: 'already', dir };
+  const logoFile = path.join(dir, 'logo.svg');
+  let haveLogo = null;
+  try {
+    haveLogo = d.readFile(logoFile);
+  } catch {
+    // missing: written below
+  }
+  if (have === want.main && haveLogo === want.logo) return { status: 'already', dir };
   if (have !== null) {
     const marker = have.match(APP_MARKER);
     if (!marker || sha(have.slice(marker[0].length)) !== marker[2]) {
@@ -238,9 +247,10 @@ export async function installAppMod(d, version) {
   } else if (d.exists(dir)) {
     return { status: 'skipped', dir, reason: `${dir} exists and is not foreman's, so it is left alone` };
   }
-  const problem = await appCheck(d, want.main, want.modJson);
+  const problem = await appCheck(d, want.main, want.modJson, want.logo);
   if (problem) return { status: 'failed', dir, reason: problem };
   d.writeFile(path.join(dir, 'mod.json'), want.modJson);
+  d.writeFile(logoFile, want.logo);
   d.writeFile(mainFile, want.main);
   return { status: have === null ? 'added' : 'updated', dir };
 }

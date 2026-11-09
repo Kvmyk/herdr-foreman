@@ -207,6 +207,7 @@ function appWorld({ keys = DEFAULT_KEYS, check = { code: 0 }, files = {}, keyErr
   const root = w.d.root;
   w.fs[path.join(root, 'app', 'foreman', 'main.js')] = TEMPLATE;
   w.fs[path.join(root, 'app', 'foreman', 'mod.json')] = '{"place":"none"}\n';
+  w.fs[path.join(root, 'app', 'foreman', 'logo.svg')] = '<svg/>\n';
   w.fs[path.join(root, 'package.json')] = '{"version":"1.2.3"}';
   w.d.env = {};
   w.d.nodePath = 'C:\\n\\node.exe';
@@ -241,6 +242,7 @@ test('setupApp: first install checks the mod, writes it with a marker and binds 
   assert.match(main, /const NODE = "C:\/n\/node\.exe";/);
   assert.match(main, /const BIN = ".*\/bin\/foreman\.js";/);
   assert.equal(w.fs[path.join(APP, 'mods', 'foreman', 'mod.json')], '{"place":"none"}\n');
+  assert.equal(w.fs[path.join(APP, 'mods', 'foreman', 'logo.svg')], '<svg/>\n');
   assert.equal(w.fs[`${KEYS}.foreman-backup`], DEFAULT_KEYS);
   assert.deepEqual(JSON.parse(w.fs[KEYS]), { global: { 'ctrl-shift-t': 'tab.new', 'ctrl-shift-y': 'mod.open:foreman' }, terminal: { 'ctrl-shift-f': 'terminal.search' } });
 });
@@ -254,6 +256,19 @@ test('setupApp: a second run changes and checks nothing', async () => {
   assert.deepEqual([r.mod.status, r.key.status, r.key.key], ['already', 'already', 'ctrl-shift-y']);
   assert.equal(w.checks.length, 0);
   assert.deepEqual(w.fs, before);
+});
+
+test('setupApp: a missing logo is written when main.js is current; an edited main.js keeps it away', async () => {
+  const w = appWorld();
+  await setupApp(w.d, '1.2.3');
+  const logo = path.join(APP, 'mods', 'foreman', 'logo.svg');
+  delete w.fs[logo];
+  assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'updated');
+  assert.equal(w.fs[logo], '<svg/>\n');
+  delete w.fs[logo];
+  w.fs[MOD_MAIN] += '// mine\n';
+  assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'skipped');
+  assert.equal(logo in w.fs, false);
 });
 
 test('setupApp: an unedited mod of an older version is updated, an edited one is left alone', async () => {

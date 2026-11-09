@@ -4,6 +4,10 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- The Herdr desktop prompt shows the foreman hat logo in its header instead of the letter f; "foreman setup" installs it as `mods/foreman/logo.svg` next to `main.js`.
+
 ## [0.6.0] - 2026-11-09
 
 ### Changed
