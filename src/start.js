@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
 import { PROBES } from './inventory/kinds.js';
 import { EXAMPLE, resolveMentions } from './task.js';
+import { taskFile as taskPath } from './history.js';
 
 export const INSTRUCTIONS_PATH = fileURLToPath(new URL('../leader/INSTRUCTIONS.md', import.meta.url));
 
@@ -70,7 +71,7 @@ export async function startForeman({
     return failed(`I could not find ${missing.length > 1 ? 'these files' : 'this file'}: ${missing.join(', ')}. Check the name (it is relative to ${cwd}), or remove the @ if it is not a file.`);
   }
 
-  const slug = uniqueSlug(slugify(task), (s) => exists(path.join(paths.runs, `${s}.json`)));
+  const slug = uniqueSlug(slugify(task), (s) => exists(path.join(paths.runs, `${s}.json`)) || exists(taskPath(paths, s)));
   // In the Herdr app the leader gets a new tab next to the caller's, or a new
   // space when foreman was started outside the app (for example by a mod).
   const app = herdr.kind === 'app';
@@ -89,11 +90,19 @@ export async function startForeman({
   let leader = 'lead';
   for (let n = 2; live.has(leader); n++) leader = `lead${n}`;
 
+  // Every task is kept for `foreman show` and `foreman resume`; the prompt
+  // points at the file only when the task has several lines.
   let taskFile = null;
-  if (/[\r\n]/.test(task.trim()) && writeFile) {
-    taskFile = path.join(paths.home ?? path.dirname(paths.runs), 'tasks', `${slug}.md`);
-    mkdir?.(path.dirname(taskFile), { recursive: true });
-    writeFile(taskFile, `${task.trim()}\n`);
+  const multiline = /[\r\n]/.test(task.trim());
+  if (writeFile) {
+    const file = taskPath(paths, slug);
+    try {
+      mkdir?.(path.dirname(file), { recursive: true });
+      writeFile(file, `${task.trim()}\n`);
+      if (multiline) taskFile = file;
+    } catch (err) {
+      if (multiline) throw err;
+    }
   }
   const prompt = buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile });
   const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];

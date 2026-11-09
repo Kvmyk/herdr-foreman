@@ -225,18 +225,23 @@ ${help.stderr}`.includes(flagName)) {
     w.error = results[i].ok ? null : `${results[i].code}: ${results[i].message}`;
   });
 
+  const startedAt = new Date().toISOString();
   const record = {
+    // History fields (phase, merged, ...) written by later commands stay.
+    ...existing,
     task,
     repo,
     base,
     ...(snapshot ? { snapshot } : {}),
     ...(runBranch ? { branch: runBranch } : {}),
     ...(backend === 'app' ? { backend } : {}),
-    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    createdAt: existing?.createdAt ?? startedAt,
+    updatedAt: startedAt,
+    phase: existing?.phase ?? 'spawned',
     ownsWorktreeConfig,
     workers: [
       ...(existing?.workers ?? []),
-      ...workers.map(({ name, kind, model, auto = false, paneId, worktree, branch, reportDir }) => ({ name, kind, model, auto, paneId, worktree, branch, reportDir })),
+      ...workers.map(({ name, kind, model, auto = false, paneId, worktree, branch, reportDir }) => ({ name, kind, model, auto, paneId, worktree, branch, reportDir, startedAt })),
     ],
   };
   saveRun(record, { paths, writeFile, mkdir });
