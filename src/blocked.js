@@ -8,20 +8,35 @@ const KINDS = [
   { type: 'permission', re: /\(y\/n\)|\[y\/n\]|do you want to|allow .*\?|approve|permission/i, label: 'asks for permission' },
 ];
 
-// Kinds whose trust dialog has "yes" preselected: Enter accepts it.
-const TRUST_ENTER = new Set(['claude', 'codex']);
-const KEYS = { trust: ['enter'], update: ['esc'], permission: ['enter'] };
+// Which option of a folder-trust dialog is highlighted differs per agent (claude
+// preselects No, agy and codex Yes), so the answer is read off the screen.
+const OPTION = /^\s*([❯>›])?\s*(?:(\d+)[.)]\s*)?(yes|no)\b/i;
+const KEYS = { update: ['esc'], permission: ['enter'] };
+
+// The keys that choose "yes" in a trust dialog; null when the screen does not
+// show which option is highlighted. Never presses enter on a highlighted "no".
+export function trustKeys(screen) {
+  const options = String(screen ?? '').split(/\r?\n/).map((l) => OPTION.exec(l)).filter(Boolean)
+    .map((m) => ({ marked: Boolean(m[1]), number: m[2] ?? null, yes: m[3].toLowerCase() === 'yes' }));
+  const yes = options.findIndex((o) => o.yes);
+  const at = options.findIndex((o) => o.marked);
+  if (yes < 0 || at < 0) return null;
+  if (options[yes].number) return [options[yes].number];
+  if (at === yes) return ['enter'];
+  return [...Array(Math.abs(yes - at)).fill(yes > at ? 'down' : 'up'), 'enter'];
+}
 
 export function classifyScreen(kind, screen) {
   const text = String(screen ?? '');
   const hit = KINDS.find((k) => k.re.test(text));
   if (!hit) return null;
+  const keys = hit.type === 'trust' ? trustKeys(text) : KEYS[hit.type] ?? null;
   return {
     type: hit.type,
     label: `${kind} ${hit.label}`,
-    keys: KEYS[hit.type] ?? null,
-    // Foreman may answer this itself in its own worktrees.
-    safeToAnswer: hit.type === 'trust' && TRUST_ENTER.has(kind),
+    keys,
+    // Foreman may answer a trust dialog itself in its own worktrees.
+    safeToAnswer: hit.type === 'trust' && Boolean(keys),
   };
 }
 

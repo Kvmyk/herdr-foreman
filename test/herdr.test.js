@@ -86,8 +86,22 @@ test('agentRead with lines reads recent output', async () => {
   assert.deepEqual(run.calls[0].args, ['agent', 'read', 'w1', '--source', 'recent', '--lines', '40']);
 });
 
-test('agentKeys sends keys', async () => {
+test('agentKeys sends keys one at a time with a pause', async () => {
   const run = fakeRun([[/^herdr agent send-keys/, json({ type: 'ok' })]]);
-  await createHerdr({ run }).agentKeys('w1', ['down', 'enter']);
-  assert.deepEqual(run.calls[0].args, ['agent', 'send-keys', 'w1', 'down', 'enter']);
+  const events = [];
+  const inner = run;
+  const logged = async (...a) => { events.push(a[1].join(' ')); return inner(...a); };
+  logged.calls = inner.calls;
+  await createHerdr({ run: logged, sleep: async (ms) => { events.push(`sleep ${ms}`); } }).agentKeys('w1', ['down', 'enter']);
+  assert.deepEqual(events, ['agent send-keys w1 down', 'sleep 150', 'agent send-keys w1 enter']);
+});
+
+test('agentPrompt presses enter once when the prompt is still in the input', async () => {
+  const mk = (screen) => fakeRun([[/^herdr agent prompt/, json({ type: 'ok' })], [/^herdr agent send-keys/, json({ type: 'ok' })], [/^herdr agent read/, { code: 0, stdout: screen }]]);
+  const stuck = mk('some output\n> fix the login bug please\n  ? for shortcuts');
+  await createHerdr({ run: stuck, sleep: async () => {} }).agentPrompt('w1', 'fix the login bug please');
+  assert.deepEqual(stuck.calls.filter((c) => c.args[1] === 'send-keys').map((c) => c.args), [['agent', 'send-keys', 'w1', 'enter']]);
+  const sent = mk('working...\n> \n');
+  await createHerdr({ run: sent, sleep: async () => {} }).agentPrompt('w1', 'fix the login bug please');
+  assert.equal(sent.calls.filter((c) => c.args[1] === 'send-keys').length, 0);
 });

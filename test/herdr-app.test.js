@@ -76,7 +76,8 @@ test('paneClose kills and removes the terminal; a missing one is pane_not_found'
 
 test('read, prompt and keys use hc read, send and keys', async () => {
   const run = fakeRun([[/^hc read/, { stdout: 'screen\n' }], [/^hc send/, out({ turn: 2 })], [/^hc keys/, out({ status: 'idle' })]]);
-  const herdr = createHerdrApp({ run });
+  const pauses = [];
+  const herdr = createHerdrApp({ run, sleep: async (ms) => { pauses.push(ms); } });
   assert.equal(await herdr.agentRead('w1'), 'screen\n');
   await herdr.agentRead('w1', { lines: 50 });
   await herdr.agentPrompt('w1', '-starts with a dash');
@@ -85,8 +86,11 @@ test('read, prompt and keys use hc read, send and keys', async () => {
     ['read', '--lines', '0', 'w1'],
     ['read', '--lines', '50', 'w1'],
     ['send', '--json', 'w1', '--', '-starts with a dash'],
-    ['keys', '--json', 'w1', 'down', 'enter'],
+    ['read', '--lines', '0', 'w1'],
+    ['keys', '--json', 'w1', 'down'],
+    ['keys', '--json', 'w1', 'enter'],
   ]);
+  assert.deepEqual(pauses, [500, 150]);
 });
 
 test('a refused send becomes an error with hc kind', async () => {
@@ -144,4 +148,10 @@ test('agentStart keeps the warning in the tab when a later worker of that tab is
   const ok = await herdr.agentStart({ name: 'w2', kind: 'claude', tab: 'tb1', label: 'foreman:x', focus: true });
   assert.equal(ok.ok, true);
   assert.equal(run.calls.slice(before).filter((c) => c.cmd === 'herdr-app').length, 0);
+});
+
+test('agentPrompt presses enter once when the prompt is still in the input', async () => {
+  const run = fakeRun([[/^hc send/, out({ turn: 1 })], [/^hc read/, { stdout: 'x\n> hello there\n' }], [/^hc keys/, out({})]]);
+  await createHerdrApp({ run, sleep: async () => {} }).agentPrompt('w1', 'hello there');
+  assert.deepEqual(run.calls.map((c) => c.args[0]), ['send', 'read', 'keys']);
 });
