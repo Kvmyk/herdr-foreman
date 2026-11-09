@@ -12,70 +12,33 @@ foreman "check the payment module for security holes and fix what needs fixing"
 
 Nothing is pushed and no pull request is created.
 
-## Quick start
-
-**In the herdr terminal app**
-
-```
-herdr plugin install Kvmyk/herdr-foreman
-```
-
-Open herdr in your project folder, press `Ctrl+B`, then `F`, and describe the task.
-
-**In the Herdr desktop app**
-
-Open the app once, then in a terminal (Windows: PowerShell):
-
-```
-irm https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.ps1 | iex
-```
-
-macOS and Linux:
-
-```
-curl -fsSL https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.sh | sh
-```
-
-Open a terminal in your project folder, press `Ctrl+Shift+Y`, describe the task and press `Ctrl+Enter`.
-
-Either way the leader opens in a new tab and tells you what it plans before anything changes. Something does not work? See [If something does not work](#if-something-does-not-work).
-
-
-## Before you start
-
-You need these on your computer:
-
-1. **A place to run foreman**: either **herdr 0.9.5 or newer**, the terminal app (from [herdr.dev](https://herdr.dev)), or the **Herdr desktop app**. You can use either one; you do not need both.
-2. **Node.js 20 or newer**, from [nodejs.org](https://nodejs.org).
-3. **git**, from [git-scm.com](https://git-scm.com). Your project folder must use git and have at least one commit.
-
-4. **At least one coding agent, signed in**: for example [Claude Code](https://claude.com/claude-code) or [Codex](https://developers.openai.com/codex). Others herdr can start (opencode, agy, pi, gemini, ...) work too.
-
 ## Install
 
-**herdr (terminal).** Open a terminal and type:
+You need **Node.js 20 or newer** ([nodejs.org](https://nodejs.org)), **git** ([git-scm.com](https://git-scm.com)) and **at least one coding agent, signed in**, for example [Claude Code](https://claude.com/claude-code), [Codex](https://developers.openai.com/codex), opencode or agy. Then run one command, once:
+
+**Herdr desktop app.** Open the app once first, then in a terminal:
+
+```
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.ps1 | iex
+
+# macOS and Linux
+curl -fsSL https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.sh | sh
+```
+
+**herdr (terminal app, 0.9.5 or newer).**
 
 ```
 herdr plugin install Kvmyk/herdr-foreman
 ```
 
-herdr shows what the plugin will run and asks you to confirm; answer yes. That is all: foreman adds its keyboard shortcut to herdr by itself.
+That is all: either command sets everything up, and the desktop script also prints what, if anything, is left to do (for example an agent to sign in). If you have both apps, the herdr command sets up the desktop app too.
 
-**Herdr desktop app, or any terminal.** Open the Herdr app once (setup needs its folder and its `keys.json`), then run one command. On Windows, in PowerShell:
+- **Start a task:** open a terminal in your project folder (a git repository with at least one commit). In the desktop app press `Ctrl+Shift+Y`, type the task and press `Ctrl+Enter`. In herdr press `Ctrl+B`, then `F`. The leader opens in a new tab and tells you what it plans before anything changes.
+- **Update:** run the same command again (for herdr: `herdr plugin update`).
+- **Something does not work:** type `foreman setup`; it checks everything, fixes what it can and says what is left. See [If something does not work](#if-something-does-not-work).
 
-```
-irm https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.ps1 | iex
-```
-
-On macOS and Linux:
-
-```
-curl -fsSL https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.sh | sh
-```
-
-The script checks Node.js and git, installs the `foreman` command with `npm install -g github:Kvmyk/herdr-foreman` and runs `foreman setup`; read [install.ps1](install.ps1) or [install.sh](install.sh) first if you like. By hand it is the same two commands: `npm install -g github:Kvmyk/herdr-foreman`, then `foreman setup`.
-
-`foreman setup` checks herdr, git and your agents, adds foreman to the desktop app and to herdr if they are installed, and says in plain words what is left to do. Run the same command again to update; `foreman setup` on its own is quick and changes nothing that is already right. More in [Advanced](#advanced-install-as-a-command-or-set-up-by-hand).
+The desktop install script checks Node.js and git, runs `npm install -g github:Kvmyk/herdr-foreman` and then `foreman setup`; read [install.ps1](install.ps1) or [install.sh](install.sh) first if you like, or run those two commands by hand. More in [Advanced](#advanced-install-as-a-command-or-set-up-by-hand).
 
 
 ## Herdr app (desktop)
