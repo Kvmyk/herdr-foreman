@@ -17,7 +17,7 @@ import { recentStartFailures } from './startfail.js';
 import { fail } from './errors.js';
 import { createUi } from './ui.js';
 import * as fmt from './format.js';
-import { commandUsage, nearSubcommand, usageOf } from './usage.js';
+import { commandUsage, nearSubcommand, usageOf } from './cli-usage.js';
 import { VERSION } from './version.js';
 import { describeConfig, formatConfig } from './configcmd.js';
 import { runWatch } from './watch.js';

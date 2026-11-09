@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nearSubcommand, usageOf, commandUsage } from '../src/usage.js';
+import { nearSubcommand, usageOf, commandUsage } from '../src/cli-usage.js';
 import { describeConfig, formatConfig } from '../src/configcmd.js';
 import { allSettled, runWatch } from '../src/watch.js';
 import { createUi } from '../src/ui.js';
