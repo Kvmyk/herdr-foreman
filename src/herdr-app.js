@@ -44,6 +44,9 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     }
   }
 
+  // Tabs whose title already says a worker needs the person.
+  const needsYou = new Set();
+
   async function terminals() {
     return (await call('ls', [])).terminals ?? [];
   }
@@ -132,9 +135,20 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
       } catch (err) {
         res = { ok: false, pane, code: err.code, message: err.message };
       }
-      // By now the window has picked the terminal up, if it is open.
-      if (label && tab) await appDo('tab.rename', { id: tab, name: label });
-      if (focus && tab) await appDo('tab.select', { id: tab });
+      // By now the window has picked the terminal up, if it is open. A worker
+      // that needs the person puts its name in the tab's title and brings the tab
+      // forward; a later worker in the same tab does not hide that.
+      if (tab) {
+        const mark = res.ok ? null : res.code === 'agent_exited' ? '✖' : res.code === 'agent_not_ready' ? '⚠' : null;
+        if (mark) {
+          needsYou.add(tab);
+          await appDo('tab.rename', { id: tab, name: `${mark} ${name} ${res.code === 'agent_exited' ? 'stopped' : 'needs you'}${label ? ` · ${label}` : ''}` });
+          await appDo('tab.select', { id: tab });
+        } else {
+          if (label && !needsYou.has(tab)) await appDo('tab.rename', { id: tab, name: label });
+          if (focus && !needsYou.has(tab)) await appDo('tab.select', { id: tab });
+        }
+      }
       return res;
     },
 
