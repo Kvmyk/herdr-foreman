@@ -157,48 +157,94 @@ export default class Foreman extends View {
     if (e.key === "escape") { this.cancel(); cx.stop_propagation(); }
   }
 
+  // The git branch of the terminal the prompt was opened from, if the app knows it.
+  branch() {
+    const f = this.origin;
+    const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
+    return pane?.branch ?? spaces().find((s) => s.id === f?.space)?.branch ?? null;
+  }
+
   render(cx) {
     this.cx = cx;
     const t = theme();
     const ready = Boolean(this.text.trim()) && !this.problem;
-    const button = (id, text, primary, enabled, action) => h_flex().id(id).h(32).px(14).items_center().rounded(8)
-      .border_1().border_color(primary ? t.solid : t.input).bg(primary ? t.solid : t.raised)
-      .text_color(primary ? t.solid_foreground : t.foreground).text_size(12.5).font_medium()
-      .opacity(enabled ? 1 : 0.4)
-      .cursor_pointer().hover((s) => (enabled ? s.opacity(0.88) : s)).on_click(() => { if (enabled) action(); }).child(text);
-    const toggle = (id, label, name) => h_flex().id(id).items_center().gap(8).cursor_pointer()
-      .on_click(() => { this.prefs = { ...this.prefs, [name]: !this.prefs[name] }; cx.notify(); })
-      .child(div().w(15).h(15).rounded(4).border_1().border_color(this.prefs[name] ? t.solid : t.input).bg(this.prefs[name] ? t.solid : t.background)
-        .text_size(11).text_color(t.solid_foreground).flex().items_center().justify_center().child(this.prefs[name] ? "✓" : ""))
-      .child(div().text_size(12).text_color(t.foreground).child(label));
-    const link = (id, text, color, action) => div().id(id).px(8).py(3).rounded(6).text_size(11.5).text_color(color)
-      .truncate().cursor_pointer().hover((s) => s.bg(t.hover)).on_click(action).child(text);
+    const lines = this.text.trim() ? this.text.split(/\r?\n/).length : 0;
+    const chars = this.text.trim().length;
 
+    const pill = (...children) => h_flex().items_center().gap(6).px(8).py(4).rounded(6).bg(t.raised).border_1().border_color(t.border)
+      .text_size(11.5).text_color(t.muted).min_w(0).children(children);
+    const cap = (text) => div().px(6).py(2).rounded(4).bg(t.raised).border_1().border_color(t.border).text_size(10.5).text_color(t.muted).child(text);
+    const hint = (caps, text) => h_flex().items_center().gap(4).children(caps.map(cap)).child(div().pl(2).text_size(11).text_color(t.dim).child(text));
+    const button = (id, text, primary, enabled, action) => h_flex().id(id).h(32).px(16).items_center().justify_center().rounded(8)
+      .border_1().border_color(primary ? t.solid : t.border).bg(primary ? t.solid : t.raised)
+      .text_color(primary ? t.solid_foreground : t.foreground).text_size(12.5).font_medium()
+      .opacity(enabled ? 1 : 0.4).cursor_pointer().hover((s) => (enabled ? s.opacity(0.88) : s))
+      .on_click(() => { if (enabled) action(); }).child(text);
+    // A switch row: track and knob, a title, and one line saying what it does.
+    const toggle = (id, title, detail, name) => {
+      const on = Boolean(this.prefs[name]);
+      return h_flex().id(id).items_center().gap(12).py(4).cursor_pointer()
+        .on_click(() => { this.prefs = { ...this.prefs, [name]: !on }; cx.notify(); })
+        .child((on ? h_flex().justify_end() : h_flex().justify_start()).w(32).h(18).p(2).flex_shrink_0().rounded_full().items_center().bg(on ? t.solid : t.input).border_1().border_color(on ? t.solid : t.border)
+          .child(div().w(12).h(12).rounded_full().bg(on ? t.solid_foreground : t.muted)))
+        .child(v_flex().flex_1().min_w(0)
+          .child(div().text_size(12.5).text_color(t.foreground).child(title))
+          .child(div().text_size(11).text_color(t.dim).child(detail)));
+    };
+    const chip = (id, text, color, action) => div().id(id).px(10).py(4).rounded_full().bg(t.raised).border_1().border_color(t.border)
+      .text_size(11.5).text_color(color).truncate().cursor_pointer().hover((s) => s.bg(t.hover)).on_click(action).child(text);
+
+    const branch = this.branch();
     const hints = this.hints();
     const body = v_flex().id("foreman").track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
-      .w_full().h_full().min_h(0).p(18).gap(8).bg(t.popover).text_color(t.foreground)
-      .child(h_flex().items_center().child(div().flex_1().text_size(15).font_semibold().child("foreman: new task"))
-        .child(div().text_size(11).text_color(t.dim).child(`leader: ${this.leader}`)))
-      // The folder is cut from the left: its end says which project it is.
-      .child(div().w_full().overflow_hidden().whitespace_nowrap().text_ellipsis_start().text_size(11.5).text_color(this.where ? t.dim : t.blocked)
-        .child(this.where ?? "no folder"));
+      .w_full().h_full().min_h(0).p(24).gap(16).bg(t.popover).text_color(t.foreground);
+
+    // Header: mark, title with subtitle, and the leader that will run the task.
+    body.child(h_flex().items_center().gap(12)
+      .child(div().w(32).h(32).flex_shrink_0().rounded(8).bg(t.solid).flex().items_center().justify_center()
+        .text_size(17).font_semibold().text_color(t.solid_foreground).child("f"))
+      .child(v_flex().flex_1().min_w(0)
+        .child(div().text_size(15).font_semibold().child("New task"))
+        .child(div().text_size(11.5).text_color(t.dim).child("A lead agent splits it across your coding agents.")))
+      .child(pill(div().text_size(11).text_color(t.dim).child("leader"), div().text_color(t.foreground).child(this.leader))));
+
+    // Where it will run: the folder is cut from the left, its end says which project it is.
+    body.child(h_flex().items_center().gap(8)
+      .child(h_flex().flex_1().min_w(0).items_center().gap(6).px(8).py(4).rounded(6).bg(t.raised).border_1().border_color(this.where ? t.border : t.blocked)
+        .child(div().flex_shrink_0().text_size(11.5).text_color(t.dim).child("in"))
+        .child(div().flex_1().min_w(0).overflow_hidden().whitespace_nowrap().text_ellipsis_start().text_size(11.5).text_color(this.where ? t.muted : t.blocked).child(this.where ?? "no folder")))
+      .children(branch ? [pill(div().text_color(t.dim).child("branch"), div().text_color(t.foreground).child(clip(branch, 28)))] : []));
+
     if (this.problem) {
-      body.child(div().px(10).py(7).rounded(8).border_1().border_color(t.blocked).text_size(12).text_color(t.blocked).child(this.problem));
+      body.child(h_flex().items_start().gap(10).px(12).py(10).rounded(8).bg(t.raised).border_1().border_color(t.blocked)
+        .child(div().w(18).h(18).flex_shrink_0().rounded_full().bg(t.blocked).flex().items_center().justify_center().text_size(11).font_semibold().text_color(t.background).child("!"))
+        .child(div().flex_1().min_w(0).text_size(12).text_color(t.foreground).child(this.problem)));
     }
-    body.child(Textarea.new(this.input).w_full().flex_1().min_h(120).p(10).rounded(9).border_1().border_color(t.input)
-      .focus((s) => s.border_color(t.accent)).bg(t.background).text_size(12.8).text_color(t.foreground));
+
+    // The task box, with a quiet border that turns accent on focus, and a count.
+    body.child(v_flex().flex_1().min_h(0).gap(6)
+      .child(Textarea.new(this.input).w_full().flex_1().min_h(120).p(12).rounded(10).border_1().border_color(t.border)
+        .focus((s) => s.border_color(t.accent)).bg(t.background).text_size(12.8).text_color(t.foreground))
+      .child(h_flex().items_center().px(2)
+        .child(div().flex_1().text_size(11).text_color(t.dim).child(mention(this.text) !== null ? "Pick a file below, or keep typing." : "Type @ to point at a file."))
+        .child(div().text_size(11).text_color(t.dim).child(`${chars} chars · ${lines} ${lines === 1 ? "line" : "lines"}`))));
+
     if (hints.length) {
-      body.child(v_flex().gap(1).children(hints.map((f, i) => link(`fm-hint-${i}`, `@${f}`, t.accent, () => this.pick(f)))));
+      body.child(h_flex().flex_wrap().gap(6).children(hints.map((f, i) => chip(`fm-hint-${i}`, `@${f}`, t.accent, () => this.pick(f)))));
     } else if (!this.text && this.recent.length) {
-      body.child(v_flex().gap(1)
+      body.child(v_flex().gap(6)
         .child(div().text_size(11).text_color(t.dim).child("Recent"))
-        .children(this.recent.map((r, i) => link(`fm-recent-${i}`, clip(firstLine(r), 90), t.muted, () => { this.input.set_value(r); this.text = r; this.input.focus(); }))));
+        .child(h_flex().flex_wrap().gap(6).children(this.recent.map((r, i) => chip(`fm-recent-${i}`, clip(firstLine(r), 44), t.muted, () => { this.input.set_value(r); this.text = r; this.input.focus(); })))));
     }
-    body.child(v_flex().gap(6).pt(4)
-      .child(toggle("fm-answer", "Workers answer permission questions automatically", "answer"))
-      .child(toggle("fm-uncommitted", "Include uncommitted changes", "uncommitted")));
-    body.child(h_flex().pt(6).items_center().gap(8)
-      .child(div().flex_1().text_size(11).text_color(t.dim).child("Ctrl+Enter start · Esc cancel"))
+
+    body.child(v_flex().gap(4)
+      .child(toggle("fm-answer", "Workers answer permission questions automatically", "Workers run in auto-approve mode; pushes and pull requests stay refused.", "answer"))
+      .child(toggle("fm-uncommitted", "Include uncommitted changes", "Workers start from a copy that also holds what you have not committed.", "uncommitted")));
+
+    // Footer: key caps on the left, buttons on the right.
+    body.child(h_flex().items_center().gap(8).pt(8).border_t_1().border_color(t.border)
+      .child(h_flex().flex_1().min_w(0).items_center().gap(12)
+        .child(hint(["Ctrl", "Enter"], "start")).child(hint(["Esc"], "cancel")))
       .child(button("fm-cancel", "Cancel", false, true, () => this.cancel()))
       .child(button("fm-start", "Start", true, ready, () => this.submit())));
     return body;

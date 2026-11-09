@@ -356,7 +356,8 @@ test('the real app mod keeps its placeholders and the keys the prompt documents'
   const main = readFileSync(path.join(PACKAGE_ROOT, 'app', 'foreman', 'main.js'), 'utf8');
   assert.equal(main.split('"__NODE__"').length, 2);
   assert.equal(main.split('"__BIN__"').length, 2);
-  assert.match(main, /Ctrl\+Enter start · Esc cancel/);
+  assert.match(main, /hint\(\["Ctrl", "Enter"\], "start"\)/);
+  assert.match(main, /hint\(\["Esc"\], "cancel"\)/);
   for (const flag of ['--auto-answer', '--include-uncommitted']) assert.ok(main.includes(`"${flag}"`), flag);
   const mod = JSON.parse(readFileSync(path.join(PACKAGE_ROOT, 'app', 'foreman', 'mod.json'), 'utf8'));
   assert.ok(mod.overlay.height >= 420);
