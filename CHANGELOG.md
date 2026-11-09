@@ -4,6 +4,8 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-09
+
 ### Changed
 
 - New default pane layout `stack`: the leader keeps a full-height column of about 40% on the left and the workers are stacked one under another on the right. Up to 4 workers fit beside the leader; more (or `--new-tab`) go to a new tab, stacked as well, in two columns only past 4 workers. The old layout stays available as `"layout": "grid"` in `config.json`.
@@ -111,7 +113,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.0...v0.4.1
