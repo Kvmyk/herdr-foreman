@@ -18,6 +18,7 @@ import { EXAMPLE } from './task.js';
 import { RUN_COMMANDS, runOps, runCommand } from './run-commands.js';
 import { setupSettings, prepareWorktrees, formatSetup as formatWorktreeSetup } from './worktree-setup.js';
 import { afterWait, afterMerge, afterLand, afterCleanup } from './history.js';
+import { takePrefs } from './start-prefs.js';
 
 const HELP = `foreman: describe a task; a lead agent splits it across your coding agents in herdr or the Herdr app.
 
@@ -29,6 +30,10 @@ Usage:
   foreman -- <task words...>           same, when the task starts with a subcommand name
   foreman --backend app|herdr ...      start in the Herdr app or in herdr (default: where you run it;
                                        also FOREMAN_BACKEND)
+  foreman --auto-answer --include-uncommitted "<task>"
+                                       answer the leader's two usual questions in advance: workers get
+                                       --auto, and a copy of the changes not committed yet
+                                       (the Herdr app prompt has these as checkboxes)
   foreman setup                        check herdr, git and your agents, add the herdr shortcut,
                                        and say what to do next (also: foreman doctor, or just foreman)
 
@@ -59,7 +64,15 @@ Subcommands (used by the leader; add --json for machine-readable output):
   journal add <file.json>              record how each worker did
   journal stats                        results per category and agent
 
+Where to start: Ctrl+B then F in herdr, Ctrl+Shift+Y in the Herdr app, or foreman "<task>" in any terminal.
+Examples:
+  foreman "fix the login page so it shows an error for a wrong password, see @src/login.js"
+  foreman -f task.md                   a longer task written in a file
+  foreman agents                       which agents are installed and signed in
+  foreman cleanup --all                remove what an interrupted run left behind
+
 Foreman never pushes and creates no pull request. It arms a push guard (a tripwire) on each worker worktree.
+More: README.md ("If something does not work", FAQ) and https://github.com/Kvmyk/herdr-foreman
 `;
 
 // Each subcommand: flags it accepts (true = takes a value), required flags,
@@ -122,6 +135,12 @@ export function route(argv) {
     return { kind: 'usage', message: 'foreman --backend goes with a task, e.g. foreman --backend app "fix the login"' };
   }
   if (argv[0] === '--backend') return { kind: 'usage', message: `foreman --backend is ${BACKENDS.join(' or ')}` };
+  // --auto-answer and --include-uncommitted in front of a task answer the leader's questions in advance.
+  const { prefs, rest } = takePrefs(argv);
+  if (rest.length < argv.length) {
+    const r = route(rest);
+    return r.kind === 'start' ? { ...r, prefs } : { kind: 'usage', message: 'foreman --auto-answer and --include-uncommitted go in front of a task, e.g. foreman --auto-answer "fix the login"' };
+  }
   if (argv.length === 0) return { kind: 'help', code: 2 };
   if (argv[0] === '--') return { kind: 'start', task: argv.slice(1).join(' ') };
   if (['-f', '--file'].includes(argv[0])) {
@@ -273,11 +292,11 @@ function defaultOps(deps) {
       return result;
     },
     // cwd, slug and prompt are set by `foreman resume` for a run that already exists.
-    start: async ({ task, backend: flag, cwd = deps.cwd, slug = null, prompt = null }) => startForeman({
+    start: async ({ task, backend: flag, cwd = deps.cwd, slug = null, prompt = null, prefs }) => startForeman({
       task, cwd, slug, prompt, env: deps.env, herdr: backend(here(flag)), git: git(), which: deps.which, config: config(), paths: deps.paths,
       homedir: deps.homedir, exists: deps.exists, spawnDetached: deps.spawnDetached, attach: deps.attach, sleep: deps.sleep,
       foremanCmd: deps.foremanCmd, writeFile: deps.writeFile, mkdir: deps.mkdir, report: (m) => deps.stdout.write(`${m}\n`),
-      platform: deps.platform,
+      platform: deps.platform, prefs,
     }),
   };
 }
@@ -332,7 +351,7 @@ export async function main(argv, deps) {
       const setup = await ops.ensureSetup?.();
       if (setup?.changes.length) stdout.write(`${formatSetup(setup)}
 `);
-      const res = await ops.start({ task, ...(r.backend ? { backend: r.backend } : {}) });
+      const res = await ops.start({ task, ...(r.backend ? { backend: r.backend } : {}), ...(r.prefs ? { prefs: r.prefs } : {}) });
       if (!res.ok) {
         stderr.write(`${res.message}\n`);
         return 1;
