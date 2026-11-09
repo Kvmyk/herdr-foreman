@@ -5,7 +5,7 @@
 import path from 'node:path';
 import { HERDR_KINDS } from './inventory/kinds.js';
 import { agentArgs } from './spawn.js';
-import { describeRun, isInside } from './history.js';
+import { describeRun, isInside, phaseText } from './history.js';
 import { fail } from './errors.js';
 
 export const RESPAWN_SPEC = /^([a-z][a-z0-9_-]{0,31})(?:=([a-z][a-z0-9-]*)(?::(.+))?)?$/;
@@ -43,7 +43,7 @@ export function resumeNotes(run, { paths, readFile, exists, agents = [], foreman
     '',
     `- repository: ${d.repo}`,
     `- run branch: ${d.branch ?? '-'} (base ${d.base}${d.snapshot ? ', a snapshot that includes the user\'s uncommitted changes' : ''})`,
-    `- phase: ${d.phase}${d.outcome ? `, ${d.outcome}` : ''} (spawned, investigate, implement, merged, landed, cleaned)`,
+    `- phase: ${phaseText(d.phase, d.outcome)} (spawned, investigate, implement, merged, landed, cleaned)`,
     `- merged: ${d.merged.join(', ') || 'nothing yet'}`,
     '- workers (live: its agent runs; stopped: the agent exited, the worktree is there; removed: worktree gone):',
     ...d.workers.map((w) => `  - ${w.name}: ${w.model ? `${w.kind}:${w.model}` : w.kind}, ${w.state}${w.auto ? ', auto mode' : ''}; worktree ${w.worktree}; branch ${w.branch}; reports in ${path.join(w.worktree, '.foreman')}`),

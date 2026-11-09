@@ -82,9 +82,28 @@ async function probeGemini({ env, exists, home }) {
   return unavailable(`not signed in; ${ended}`);
 }
 
-async function probeCodex({ run, timeoutMs }) {
+// "codex login status" only looks at the saved login, so it still says "logged in"
+// when the access token ran out and the refresh token no longer renews it (codex then
+// exits with "Your access token could not be refreshed"). A token that ran out long ago
+// without a refresh since is treated as signed out.
+const CODEX_STALE_MS = 28 * 24 * 3600 * 1000;
+
+function codexLoginExpired({ readJson, home, now }) {
+  const auth = readJson(path.join(home, '.codex', 'auth.json'));
+  if (!auth?.tokens?.access_token || auth.auth_mode === 'apikey') return false;
+  try {
+    const exp = JSON.parse(Buffer.from(auth.tokens.access_token.split('.')[1], 'base64url').toString()).exp * 1000;
+    const refreshed = Date.parse(auth.last_refresh);
+    return exp < now() && now() - (Number.isNaN(refreshed) ? exp : refreshed) > CODEX_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+async function probeCodex({ run, readJson, home, timeoutMs, now = Date.now }) {
   const res = await run('codex', ['login', 'status'], { timeoutMs });
   if (res.code !== 0) return unavailable(`not signed in; run "codex login" (${firstLine(res)})`);
+  if (readJson && codexLoginExpired({ readJson, home, now })) return unavailable('sign-in expired; run "codex login"');
   return ready([]);
 }
 
@@ -113,7 +132,9 @@ export const PROBES = Object.freeze({
   // agy takes its effort from the model id; with --model, --effort makes it ignore the model.
   agy: {
     probe: probeAgy, modelArgs: flag('--model'), effortArgs: flag('--effort'), effortFromModel: true,
-    autoArgs: ['--mode', 'auto'], autoFlag: '--mode', verified: true,
+    // --mode auto still asks before every shell command; this flag approves them. Workers run in
+    // foreman's own worktrees, where the push guard applies.
+    autoArgs: ['--dangerously-skip-permissions'], autoFlag: '--dangerously-skip-permissions', verified: true,
   },
   opencode: { probe: probeOpencode, modelArgs: flag('--model'), listsModels: true, autoArgs: ['--auto'], autoFlag: '--auto', verified: true },
   // pi never asks for permission.

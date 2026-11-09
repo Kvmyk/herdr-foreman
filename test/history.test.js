@@ -111,7 +111,8 @@ test('summarizeRuns lists newest first with live workers and worktrees', () => {
   assert.equal(rows[1].outcome, 'landed');
   const text = formatRuns(rows);
   assert.match(text, /fix-login\s+investigate/);
-  assert.match(text, /cleaned \(landed\)/);
+  assert.match(text, /landed, cleaned up/);
+  assert.doesNotMatch(text, /\(landed\)/);
   assert.match(text, /1 live/);
   assert.equal(formatRuns([]), 'no foreman runs yet\n');
 });

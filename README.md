@@ -190,7 +190,7 @@ With herdr in the terminal, type `herdr` and press `Ctrl+B`, then `F`, as above;
 
 Workers write their reports to `.foreman/` inside their own worktree; foreman adds `.foreman/` to the repository's `.git/info/exclude`, so reports never show up in `git status` or a commit.
 
-If a worker asks for permission, the leader asks you once whether you answer such questions yourself or let it answer on your behalf. It never approves a push or a pull request.
+If a worker asks for permission, the leader asks you once whether you answer such questions yourself or let it answer on your behalf. It never approves a push or a pull request. In auto mode claude workers get `--permission-mode auto` (with `git push` and `gh` denied), opencode `--auto`, and agy `--dangerously-skip-permissions`, because agy's own `--mode auto` still asks before every shell command; the workers run in foreman's own worktrees, which have the push guard.
 
 ## Subcommands
 

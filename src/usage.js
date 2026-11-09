@@ -182,10 +182,13 @@ export function formatTokens(n) {
   return `${(n / 1e6).toFixed(1)}M`;
 }
 
+// "~$1.23", or "cost unknown" when any model in it has no price (a partial sum would read too low).
+export const costText = (u) => (u.costUsd === null || u.costKnown === false ? 'cost unknown' : `~$${u.costUsd.toFixed(2)}`);
+
 // "1.2M tokens (out 34k), ~$1.23"; "no log" when nothing was read.
 export function formatUsage(u) {
   if (!u || !u.total) return 'usage unknown';
-  const cost = u.costUsd === null ? 'cost unknown' : `~$${u.costUsd.toFixed(2)}${u.costKnown ? '' : ' (some models without a price)'}`;
+  const cost = costText(u);
   return `${formatTokens(u.total)} tokens (out ${formatTokens(u.tokens.output)}), ${cost}`;
 }
 
@@ -201,6 +204,6 @@ export function usageForEntries(entries, { loadRun, ctx }) {
     if (matches.length !== 1) return e;
     const u = workerUsage(matches[0], { run, ...ctx });
     if (!u) return e;
-    return { ...e, tokens: u.total, ...(u.costUsd !== null ? { costUsd: Math.round(u.costUsd * 10000) / 10000 } : {}) };
+    return { ...e, tokens: u.total, ...(u.costUsd !== null && u.costKnown ? { costUsd: Math.round(u.costUsd * 10000) / 10000 } : {}) };
   });
 }

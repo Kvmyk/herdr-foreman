@@ -158,3 +158,12 @@ test('show and runs print usage', () => {
   assert.match(text, /usage unknown/);
   assert.match(formatRuns([{ task: 't', phase: 'cleaned', outcome: 'landed', branch: 'b', workers: 2, liveWorkers: [], createdAt: null, repo: '/r', usage }]), /3\.0k ~\$0\.06/);
 });
+
+test('a cost with a model without a price reads "cost unknown"; one worker is not "1 workers"', () => {
+  const usage = { total: 3000, tokens: { input: 1000, output: 2000, cacheRead: 0, cacheWrite: 0 }, costUsd: 0, costKnown: false, unknown: [] };
+  assert.match(formatUsage(usage), /cost unknown$/);
+  const row = formatRuns([{ task: 't', phase: 'landed', outcome: 'landed', branch: 'b', workers: 1, liveWorkers: [], createdAt: null, repo: '/r', usage }]);
+  assert.match(row, /3\.0k cost unknown/);
+  assert.match(row, /1 worker\b/);
+  assert.doesNotMatch(row, /landed \(landed\)/);
+});

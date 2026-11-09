@@ -302,7 +302,7 @@ test('--auto passes each kind its auto-approve args and records auto', async () 
   const { warnings } = await call(f, { specs: ['c=claude', 'a=agy', 'o=opencode', 'p=pi', 'x=codex'], auto: true });
   const args = Object.fromEntries(f.log.filter(([k]) => k === 'start').map(([, o]) => [o.name, o.args]));
   assert.deepEqual(args.c.slice(0, 4), ['--permission-mode', 'auto', '--disallowedTools', 'Bash(git push:*),Bash(gh:*)']);
-  assert.deepEqual(args.a, ['--mode', 'auto']);
+  assert.deepEqual(args.a, ['--dangerously-skip-permissions']);
   assert.deepEqual(args.o, ['--auto']);
   assert.deepEqual(args.p, []);
   assert.deepEqual(args.x, []);
@@ -328,7 +328,7 @@ test('agy gets no --effort together with --model, only a warning', async () => {
 test('--auto warns when the agent help does not mention its flag', async () => {
   const f = fakes();
   const asked = [];
-  const run = async (cmd, a) => { asked.push([cmd, a]); return { code: 0, stdout: cmd === 'agy' ? '--mode' : 'nothing', stderr: '' }; };
+  const run = async (cmd, a) => { asked.push([cmd, a]); return { code: 0, stdout: cmd === 'agy' ? '--dangerously-skip-permissions' : 'nothing', stderr: '' }; };
   const { warnings } = await call(f, { specs: ['a=agy', 'a2=agy', 'c=claude'], auto: true, run });
   assert.deepEqual(asked, [['agy', ['--help']], ['claude', ['--help']]]);
   assert.ok(warnings.some((w) => /claude --help/.test(w)));
