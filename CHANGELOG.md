@@ -4,6 +4,8 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-09
+
 ### Fixed
 
 - `npm install -g github:Kvmyk/herdr-foreman` no longer fails with "Cannot find module ...\bin\foreman.js". The install script made npm link the global package to a temporary clone that it then deleted. The npm install no longer runs setup, so run `foreman setup` (or `foreman`) once afterwards.
@@ -66,7 +68,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.2.0...v0.3.0
