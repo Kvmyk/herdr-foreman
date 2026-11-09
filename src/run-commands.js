@@ -1,10 +1,13 @@
-// Subcommands about runs as a whole: their history (runs, show). They live
+// Subcommands about runs as a whole: their history (runs, show) and their
+// changes (diff). They live
 // here so cli.js only routes to them.
 import { createBackend } from './backend.js';
 import { listRuns, loadRun } from './runs.js';
 import { loadKnowledge } from './knowledge.js';
 import { summarizeRuns, describeRun, formatRuns, formatShow, updateRun, phaseOf } from './history.js';
 import { runUsage, usageForEntries } from './usage.js';
+import { runDiff, formatDiff } from './diff.js';
+import { createGit } from './git.js';
 import { fail } from './errors.js';
 
 // Same shape as COMMANDS in cli.js: flags (true = takes a value), required
@@ -13,6 +16,7 @@ import { fail } from './errors.js';
 export const RUN_COMMANDS = {
   runs: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   show: { flags: { '--task': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
+  diff: { flags: { '--task': true, '--stat': false, '--json': false }, required: ['--task'], positionals: (p) => p.length <= 1 },
 };
 
 const usageSummary = (u) => ({ total: u.total, tokens: u.tokens, costUsd: u.costUsd, costKnown: u.costKnown, unknown: u.unknown });
@@ -66,6 +70,7 @@ export function runOps(deps) {
       d.workers.forEach((w) => { w.usage = usage.workers[w.name]; });
       return { ...d, usage: usageSummary(usage) };
     },
+    diff: async ({ task, name, stat }) => runDiff({ run: needRun(task), git: createGit({ run: deps.run }), exists: deps.exists, name, stat }),
     // Journal entries with tokens and cost of the worker they describe.
     async withUsage(entries) {
       try {
@@ -86,6 +91,9 @@ export async function runCommand(r, { ops, print, stdout }) {
       return 0;
     case 'show':
       print(await ops.show({ task }), (v) => stdout.write(formatShow(v)));
+      return 0;
+    case 'diff':
+      print(await ops.diff({ task, name: r.positionals[0] ?? null, stat: Boolean(r.flags['--stat']) }), (v) => stdout.write(formatDiff(v)));
       return 0;
     default:
       throw fail('USAGE', `unknown subcommand ${r.name}`);

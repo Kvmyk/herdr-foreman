@@ -114,7 +114,7 @@ In the merge worktree, run the build and the tests, and review `git -C <worktree
 
 ## Step 8: ask the user
 
-Summarise what changed, in which files, and the test result. Give three choices; in Polish, call the first two "scal" and "zostaw":
+Summarise what changed, in which files, and the test result. Tell the user they can look at the changes themselves before choosing: `foreman diff --task <slug> --stat` lists the files, `foreman diff --task <slug>` shows the full diff against the start, and `foreman diff --task <slug> <name>` shows one worker's part. Give three choices; in Polish, call the first two "scal" and "zostaw":
 
 1. **Merge into their current branch:** `foreman land --task <slug> --title '<summary>'` (a few words, for the merge commit: `Merge <type>/<name>: <summary>`). When the run captured a snapshot of uncommitted changes and the user has not touched them since, land saves them as a commit (`chore: include the changes you had not committed yet`) before merging; otherwise land refuses, and the user needs to commit or stash the newer changes first.
 2. **Leave it:** `<type>/<name>` stays; it can be merged later with `git merge <type>/<name>`.
