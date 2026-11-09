@@ -198,7 +198,7 @@ If a worker asks for permission, the leader asks you once whether you answer suc
 
 | Command | What it does |
 |---|---|
-| `foreman agents [--json]` | Installed agent kinds: signed in?, models, default model |
+| `foreman agents [--json] [--quick]` | Installed agent kinds: signed in?, models, default model. `--quick` leaves out each agent's version. The list is kept in `~/.herdr-foreman/agents.json`, so the desktop prompt shows the agents at once |
 | `foreman brief [--json]` | Inventory, knowledge, models.dev facts and your stats in one JSON |
 | `foreman spawn --task <slug> [--new-tab] [--effort <level>] [--full] [--auto] [--branch <type>/<name>] [--base <branch>] [--include-uncommitted] <name>=<kind>[:<model>]...` | Open workers in worktrees and panes. `--branch` (required on a task's first spawn) names the run, e.g. `feat/auto-accept-workers`; `--base` starts the run from that local branch instead of HEAD (recorded in the run; `land` merges into it; uncommitted changes belong to the checked-out branch, so `--include-uncommitted` only works when the base is the checked-out branch); `--auto` starts workers in their auto-approve mode; `--include-uncommitted` starts workers from a copy that also holds your uncommitted changes. `--effort low\|medium\|high\|xhigh\|max` (claude, agy); `--full` keeps MCP servers and all tools for claude workers |
 | `foreman wait --task <slug> [--phase investigate\|implement] [--only a,b] [--timeout ms]` | Block until every worker finished (its report written) or one needs attention; returns within 9 minutes |

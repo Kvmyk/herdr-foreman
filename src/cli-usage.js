@@ -2,7 +2,7 @@
 // usage error; also the "did you mean" check for a mistyped subcommand.
 
 const USAGE = {
-  agents: 'foreman agents [--json]',
+  agents: 'foreman agents [--json] [--quick]',
   brief: 'foreman brief [--json]',
   spawn: 'foreman spawn --task <slug> [--branch <type>/<name>] [--base <branch>] [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--include-uncommitted] [--json] <name>=<kind>[:<model>]...',
   wait: 'foreman wait --task <slug> [--phase investigate|implement] [--only a,b] [--timeout ms] [--json]',

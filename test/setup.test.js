@@ -6,6 +6,7 @@ import {
   parseKeys, addBinding, humanKey, versionAtLeast, compareVersions, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey, PACKAGE_ROOT,
 } from '../src/setup.js';
 import { fakeRun } from './helpers.js';
+import { paths } from '../src/config.js';
 
 const CFG = path.resolve('/h/herdr/config.toml');
 
@@ -394,6 +395,10 @@ test('app/foreman template: placeholders for node and foreman, the backend flag,
   assert.match(main, /\[NODE, BIN, "--backend", "app", [^\n]*"--", task\]/);
   assert.match(main, /"--leader", this\.leader/);
   assert.match(main, /"--base", this\.base/);
+  // The prompt shows the agents foreman kept last time, then asks quickly.
+  assert.match(main, /\$\{this\.dir\}\/agents\.json/);
+  assert.equal(path.basename(paths({ env: {}, homedir: '/h' }).agentsCache), 'agents.json');
+  assert.match(main, /\[BIN, "agents", "--json", "--quick"\]/);
   assert.doesNotMatch(main, /node:|require\(|process\./);
   assert.equal(JSON.parse(readFileSync(new URL('../app/foreman/mod.json', import.meta.url), 'utf8')).place, 'none');
 });

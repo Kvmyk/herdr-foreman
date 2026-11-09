@@ -3,7 +3,7 @@
 import { BACKENDS, checkBackend, detectBackend, callerPane, createBackend, installed } from './backend.js';
 import { createGit } from './git.js';
 import { loadConfig } from './config.js';
-import { inventory } from './inventory/index.js';
+import { inventory, saveAgents } from './inventory/index.js';
 import { loadKnowledge, builtinKnowledge } from './knowledge.js';
 import { buildBrief } from './brief.js';
 import { waitForWorkers } from './wait.js';
@@ -103,7 +103,7 @@ More: README.md ("If something does not work", FAQ) and https://github.com/Kvmyk
 // Each subcommand: flags it accepts (true = takes a value), required flags,
 // and which positional arguments are valid.
 const COMMANDS = {
-  agents: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
+  agents: { flags: { '--json': false, '--quick': false }, positionals: (p) => p.length === 0 },
   brief: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   spawn: { flags: { '--task': true, '--new-tab': false, '--effort': true, '--full': false, '--auto': false, '--include-uncommitted': false, '--branch': true, '--base': true, '--json': false }, required: ['--task'], positionals: (p) => p.length > 0 && p.every((s) => SPEC_PATTERN.test(s)) },
   wait: { flags: { '--task': true, '--phase': true, '--only': true, '--timeout': true, '--json': false }, required: ['--task'], positionals: (p) => p.length === 0 },
@@ -209,10 +209,11 @@ function defaultOps(deps) {
     return backend(loadRun(task, { paths: deps.paths, readFile: deps.readFile })?.backend ?? here());
   };
   const note = (task, change) => runOps(deps).noteRun(task, change);
-  const inv = () => inventory({
+  // Every full look at the agents is kept for the desktop prompt.
+  const inv = async ({ versions = true } = {}) => saveAgents({ writeFile: deps.writeFile, file: deps.paths.agentsCache }, await inventory({
     run: deps.run, which: deps.which, env: deps.env, readJson: deps.readJson, exists: deps.exists,
-    home: deps.homedir, exclude: config().excludeKinds,
-  });
+    home: deps.homedir, exclude: config().excludeKinds, versions,
+  }));
 
   const setupDeps = () => ({
     run: deps.run, which: deps.which, env: deps.env, cwd: deps.cwd, homedir: deps.homedir, platform: deps.platform, paths: deps.paths,
@@ -420,7 +421,7 @@ export async function main(argv, deps) {
         return res.ok || quiet ? 0 : 1;
       }
       case 'agents':
-        print(await ops.inventory(), (v) => stdout.write(`${fmt.formatAgents(v, ui)}\n`));
+        print(await ops.inventory({ versions: !r.flags['--quick'] }), (v) => stdout.write(`${fmt.formatAgents(v, ui)}\n`));
         return 0;
       case 'brief':
         print(await ops.brief(), forPerson((v) => stdout.write(`${fmt.formatBrief(v, ui)}\n`)));

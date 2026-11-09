@@ -4,6 +4,11 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- The Herdr desktop prompt lists the branches at once and the ready agents from the last time foreman looked, then updates them; before, both pills waited several seconds while every agent was asked again. `foreman agents --quick` leaves out the agents' versions.
+- Every foreman command starts a little faster on Windows: it finds programs by listing each PATH folder once.
+
 ## [0.7.0] - 2026-11-09
 
 ### Changed

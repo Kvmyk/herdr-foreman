@@ -30,6 +30,7 @@ export function paths({ env = process.env, homedir = os.homedir() } = {}) {
     config: path.join(home, 'config.json'),
     journal: path.join(home, 'journal.jsonl'),
     knowledgeCache: path.join(home, 'knowledge-cache.json'),
+    agentsCache: path.join(home, 'agents.json'),
     modelsDevCache: path.join(home, 'models-dev-cache.json'),
     overrides: path.join(home, 'knowledge.override.json'),
     worktrees: path.join(home, 'worktrees'),

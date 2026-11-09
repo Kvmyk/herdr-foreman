@@ -23,6 +23,7 @@ function folder() {
 
 const forward = (p) => p.replace(/\\/g, "/");
 const firstLine = (text) => text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? "";
+const readyKinds = (agents) => agents.filter((a) => a.status === "ready").map((a) => a.kind);
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
 
 // The word being typed when it starts with @, e.g. "@src/lo" at the end of the text.
@@ -38,7 +39,7 @@ export default class Foreman extends View {
     this.problem = null;      // why Start cannot work, shown inline
     this.leader = "claude";   // the leader for this task; configLeader is what foreman uses anyway
     this.configLeader = "claude";
-    this.kinds = null;        // agents that can lead (ready ones), once listed
+    this.ready = null;        // agents that can lead (ready ones), once listed
     this.branches = null;     // local branches of the folder, once listed
     this.base = null;         // chosen base branch; null: the current branch
     this.menu = null;         // which pill's choices are open: "leader" or "branch"
@@ -65,7 +66,8 @@ export default class Foreman extends View {
     this.rowFocus = { answer: cx.focus_handle(), uncommitted: cx.focus_handle() };
     this.acx = cx;
     cx.spawn(async (cx) => { await this.load(); cx.notify(); });
-    cx.spawn(async (cx) => { await this.loadChoices(); cx.notify(); });
+    cx.spawn(async (cx) => { await this.loadBranches(); cx.notify(); });
+    cx.spawn(async (cx) => { await this.loadAgents(cx); });
   }
 
   // Draft, recent tasks, the leader, and whether a task can start at all.
@@ -81,19 +83,36 @@ export default class Foreman extends View {
     this.problem = await this.check();
   }
 
-  // What the pills can offer: agents that are ready to lead, and the local branches.
-  // Either may stay empty (an old foreman, no git); the pills then just show the current value.
-  async loadChoices() {
+  // What the pills can offer: the local branches, and the agents that are ready to
+  // lead. Each comes on its own, so the branches never wait for the agents. Either
+  // may stay empty (an old foreman, no git); the pills then just show the current value.
+  async loadBranches() {
+    if (!this.where) return;
+    const r = await exec("git", ["branch", "--format=%(refname:short)"], { cwd: this.where }).catch(() => null);
+    this.branches = r?.code === 0 ? r.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("(")) : [];
+  }
+
+  // Asking every agent takes seconds (some list their models slowly), so the list
+  // foreman kept last time shows at once and the fresh answer replaces it.
+  async loadAgents(cx) {
     if (NODE.startsWith("__") || BIN.startsWith("__") || !this.where) return;
-    const [agents, branches] = await Promise.all([
-      exec(NODE, [BIN, "agents", "--json"], { cwd: this.where }).catch(() => null),
-      exec("git", ["branch", "--format=%(refname:short)"], { cwd: this.where }).catch(() => null),
-    ]);
+    const kept = await readTextFile(`${this.dir}/agents.json`).catch(() => null);
     try {
-      const ready = JSON.parse(agents?.stdout ?? "[]").filter((a) => a.status === "ready").map((a) => a.kind);
-      this.kinds = ready.includes(this.configLeader) ? ready : [this.configLeader, ...ready];
-    } catch { this.kinds = [this.configLeader]; }
-    this.branches = branches?.code === 0 ? branches.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("(")) : [];
+      const agents = JSON.parse(kept ?? "null")?.agents;
+      if (Array.isArray(agents)) { this.ready = readyKinds(agents); cx.notify(); }
+    } catch { /* asked below */ }
+    const r = await exec(NODE, [BIN, "agents", "--json", "--quick"], { cwd: this.where }).catch(() => null);
+    try {
+      if (r?.code === 0) this.ready = readyKinds(JSON.parse(r.stdout));
+    } catch { /* keep what was kept */ }
+    if (!this.ready) this.ready = [];
+    cx.notify();
+  }
+
+  // The leader foreman uses anyway comes first when it is not among the ready ones.
+  leaderChoices() {
+    if (!this.ready) return null;
+    return this.ready.includes(this.configLeader) ? this.ready : [this.configLeader, ...this.ready];
   }
 
   async check() {
@@ -250,9 +269,10 @@ export default class Foreman extends View {
 
     // The open pill's choices, as chips: the leader's agent, or the branch the run starts from and lands on.
     if (this.menu === "leader") {
-      const kinds = this.kinds ?? [this.leader];
+      const choices = this.leaderChoices();
+      const kinds = choices ?? [this.leader];
       body.child(v_flex().gap(6)
-        .child(div().text_size(11).text_color(t.dim).child(this.kinds ? "Which agent leads this task" : "Which agent leads this task (looking for ready agents...)"))
+        .child(div().text_size(11).text_color(t.dim).child(choices ? "Which agent leads this task" : "Which agent leads this task (looking for ready agents...)"))
         .child(h_flex().flex_wrap().gap(6).children(kinds.map((k, i) => chip(`fm-kind-${i}`, k, k === this.leader ? t.foreground : t.muted, pick(() => { this.leader = k; }), k === this.leader)))));
     } else if (this.menu === "branch") {
       const current = this.base ?? branch;

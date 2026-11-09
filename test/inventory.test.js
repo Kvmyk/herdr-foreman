@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { PROBES, HERDR_KINDS } from '../src/inventory/kinds.js';
-import { inventory } from '../src/inventory/index.js';
+import { inventory, saveAgents } from '../src/inventory/index.js';
 import { fakeRun } from './helpers.js';
 
 const home = '/home/k';
@@ -122,6 +122,24 @@ test('inventory skips kinds not on PATH and marks unknown kinds', async () => {
   assert.deepEqual(list.map((a) => [a.kind, a.status]), [['claude', 'ready'], ['kimi', 'unknown']]);
   assert.equal(list[0].version, '1.0.0');
   assert.match(list[1].reason, /no probe/);
+});
+
+test('inventory without versions never runs --version', async () => {
+  const calls = [];
+  const run = async (cmd, args) => { calls.push(`${cmd} ${args.join(' ')}`); return { code: 0, stdout: JSON.stringify({ loggedIn: true, authMethod: 'claude.ai' }), stderr: '' }; };
+  const [a] = await inventory({ run, which: (k) => (k === 'claude' ? '/bin/claude' : null), env: {}, home, readJson: () => null, exists: () => false, versions: false });
+  assert.deepEqual([a.kind, a.status, a.version], ['claude', 'ready', null]);
+  assert.deepEqual(calls, ['claude auth status']);
+});
+
+test('saveAgents keeps kind and status and never fails the list', () => {
+  const written = {};
+  const agents = [{ kind: 'claude', status: 'ready', version: '2', models: [{ id: 'opus' }] }, { kind: 'pi', status: 'unavailable', reason: 'x' }];
+  assert.equal(saveAgents({ writeFile: (f, t) => { written[f] = t; }, file: '/h/agents.json' }, agents), agents);
+  const kept = JSON.parse(written['/h/agents.json']);
+  assert.deepEqual(kept.agents, [{ kind: 'claude', status: 'ready' }, { kind: 'pi', status: 'unavailable' }]);
+  assert.ok(!Number.isNaN(Date.parse(kept.at)));
+  assert.equal(saveAgents({ writeFile: () => { throw new Error('read-only'); }, file: '/h/agents.json' }, agents), agents);
 });
 
 test('inventory marks slow probe as unknown', async () => {

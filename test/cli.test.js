@@ -113,6 +113,14 @@ test('agents --json prints inventory', async () => {
   assert.equal(JSON.parse(h.out())[0].kind, 'claude');
 });
 
+test('agents --quick asks the inventory to skip versions', async () => {
+  const seen = [];
+  const h = harness({ inventory: async (o) => { seen.push(o); return []; } });
+  assert.equal(await main(['agents', '--json', '--quick'], h.deps), 0);
+  assert.equal(await main(['agents'], h.deps), 0);
+  assert.deepEqual(seen, [{ versions: false }, { versions: true }]);
+});
+
 test('agents without --json prints a table', async () => {
   const h = harness();
   assert.equal(await main(['agents'], h.deps), 0);
