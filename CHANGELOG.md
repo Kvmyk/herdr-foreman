@@ -4,6 +4,8 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-09
+
 ### Added
 
 - One command installs and sets up foreman for the Herdr desktop app and herdr: `irm https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.ps1 | iex` on Windows, `curl -fsSL https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/install.sh | sh` on macOS and Linux. It checks Node.js and git, runs `npm install -g` and `foreman setup`, and shows what is left to do.
@@ -135,7 +137,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.4.2...v0.5.0
