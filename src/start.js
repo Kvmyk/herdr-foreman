@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
 import { PROBES } from './inventory/kinds.js';
 import { EXAMPLE, resolveMentions } from './task.js';
+import { describeBlocked } from './blocked.js';
+import { screenTail } from './wait.js';
 
 export const INSTRUCTIONS_PATH = fileURLToPath(new URL('../leader/INSTRUCTIONS.md', import.meta.url));
 
@@ -110,7 +112,11 @@ export async function startForeman({
     message = `Leader "${leader}" (${config.leader}) started in pane ${paneId} for task "${slug}".`;
   } else {
     const backendFlag = app && !inside ? ' --backend app' : '';
-    message = `The leader is waiting for an answer in pane ${paneId} (${started.message}). Answer it there, then run: ${foremanCmd} prompt --task ${slug}${backendFlag} ${leader} ${shellQuote(prompt, platform)}`;
+    // The leader runs in the user's own project, so a trust question is theirs to answer.
+    const screen = screenTail(await Promise.resolve().then(() => herdr.agentRead(leader)).catch(() => ''));
+    const asks = describeBlocked({ kind: config.leader, screen, task: slug, name: leader, foremanCmd });
+    const answer = asks ? ` The leader ${asks}. Then run:` : ' Answer it there, then run:';
+    message = `The leader is waiting for an answer in pane ${paneId} (${started.message}).${answer} ${foremanCmd} prompt --task ${slug}${backendFlag} ${leader} ${shellQuote(prompt, platform)}`;
   }
 
   report(message);

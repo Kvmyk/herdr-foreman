@@ -13,6 +13,7 @@ import { loadRun, listRuns } from './runs.js';
 import { workerStatus, mergeWorkers, land, cleanup, findLeftovers } from './collect.js';
 import { startForeman } from './start.js';
 import { runSetup, formatSetup } from './setup.js';
+import { recentStartFailures } from './startfail.js';
 import { fail } from './errors.js';
 import { EXAMPLE } from './task.js';
 
@@ -192,12 +193,13 @@ function defaultOps(deps) {
         config: cfg,
         warnings: know.warnings,
         repoDirty,
+        startFailures: recentStartFailures({ paths: deps.paths, readFile: deps.readFile, now: deps.now }),
       });
     },
     async wait({ task, phase, only, timeoutMs }) {
       const run = needRun(task);
       return waitForWorkers({
-        run, herdr: backendOf(run), exists: deps.exists, sleep: deps.sleep, now: deps.now,
+        run, herdr: backendOf(run), foremanCmd: deps.foremanCmd, exists: deps.exists, sleep: deps.sleep, now: deps.now,
         phase, only, timeoutMs: timeoutMs ?? config().waitTimeoutMs,
       });
     },
@@ -207,7 +209,7 @@ function defaultOps(deps) {
       if (!repo) throw fail('USAGE', 'run foreman spawn inside the git repository');
       const name = here();
       return spawnWorkers({
-        herdr: backend(name), git: g, paths: deps.paths, config: config(), repo, task, specs, newTab, effort, full, auto, includeUncommitted, branch, run: deps.run,
+        herdr: backend(name), git: g, paths: deps.paths, config: config(), repo, task, specs, newTab, effort, full, auto, includeUncommitted, branch, run: deps.run, sleep: deps.sleep, now: deps.now, foremanCmd: deps.foremanCmd,
         pane: callerPane(name, deps.env), writeFile: deps.writeFile, readFile: deps.readFile, appendFile: deps.appendFile, mkdir: deps.mkdir,
       });
     },

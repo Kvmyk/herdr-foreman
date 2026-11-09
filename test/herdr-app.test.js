@@ -34,7 +34,7 @@ test('agentStart adds the flags a kind needs under hc', async () => {
   const run = fakeRun([[/^hc run/, out({ address: 't2' })], [/^hc wait/, out({ ended: true, status: 'idle' })]]);
   await createHerdrApp({ run }).agentStart({ name: 'c1', kind: 'codex', cwd: '/wt' });
   const argv = run.calls[0].args;
-  assert.deepEqual(argv.slice(argv.indexOf('--') + 1), ['codex', '--no-daemon']);
+  assert.deepEqual(argv.slice(argv.indexOf('--') + 1), ['codex']);
 });
 
 test('agentStart reports a blocked agent as not ready, with its terminal', async () => {

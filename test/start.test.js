@@ -252,3 +252,11 @@ test('a leader that never got a terminal fails with hc\'s reason', async () => {
   assert.equal(r.ok, false);
   assert.match(r.message, /claude not found/);
 });
+
+test('a leader stuck on a trust dialog is told which keys answer it', async () => {
+  const { deps } = fakes({ startResult: { ok: false, code: 'agent_not_ready', message: 'claude is waiting for an answer' } });
+  deps.herdr.agentRead = async () => 'Do you trust the files in this folder?';
+  const r = await startForeman({ ...deps, task: 'fix it' });
+  assert.match(r.message, /asks to trust this folder; answer it with: foreman keys --task fix-it lead enter/);
+  assert.match(r.message, /foreman prompt --task fix-it lead/);
+});

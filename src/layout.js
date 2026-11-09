@@ -14,3 +14,7 @@ export function columnRatios(cols) {
 export function rowRatios(rows) {
   return Array.from({ length: Math.max(rows - 1, 0) }, (_, k) => 1 / (rows - (k + 1) + 1));
 }
+
+// More workers than this beside the leader leave panes too narrow to read an
+// agent's dialogs (a trust prompt, a model picker): they get a tab of their own.
+export const MAX_BESIDE_LEADER = 3;

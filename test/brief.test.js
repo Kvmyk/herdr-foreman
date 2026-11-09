@@ -60,3 +60,14 @@ test('brief skips non-coding models and prefers known families', () => {
   assert.deepEqual(b.agents[0].models.map((m) => m.id), ['google/gemini-3.1-pro-preview', 'openrouter/mystery-model']);
   assert.equal(b.agents[0].modelsOmitted, 3);
 });
+
+test('a kind whose program exited at its last start is listed as unavailable', () => {
+  const b = buildBrief({
+    agents: [{ kind: 'codex', status: 'ready', models: [], defaultModel: null, reason: null }],
+    knowledge: { harnesses: {}, families: [], categories: [] }, modelsDev: {}, stats: {}, config: {},
+    startFailures: { codex: { at: '2026-11-09T10:00:00.000Z', message: 'agent_exited: codex exited (code 2)' } },
+  });
+  assert.equal(b.agents, undefined);
+  assert.deepEqual(b.unavailable.map((u) => [u.kind, u.status]), [['codex', 'start_failed']]);
+  assert.match(b.unavailable[0].reason, /codex exited \(code 2\)/);
+});
