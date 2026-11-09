@@ -21,7 +21,7 @@ export function screenTail(text, lines = 15, maxChars = 1500) {
 const hintObj = (hint) => (hint ? { hint } : {});
 
 export async function waitForWorkers({
-  run, herdr, foremanCmd = 'foreman', exists, sleep, now, phase = null, only = null,
+  run, herdr, foremanCmd = 'foreman', exists, mtimeMs = null, sleep, now, phase = null, only = null,
   timeoutMs = 540000, pollMs = 3000, stableMs = 6000, quietMs = 30000,
 }) {
   const report = REPORT[phase] ?? null;
@@ -30,6 +30,13 @@ export async function waitForWorkers({
   const start = now();
   // What a blocked screen asks, with the exact command that answers it.
   const hintFor = (w, screen) => describeBlocked({ kind: w.kind ?? 'agent', screen, task: run.task, name: w.name, foremanCmd });
+  // A report left from an earlier round does not count: it must be newer than the last brief.
+  const fresh = (w, file) => {
+    if (!exists(file)) return false;
+    const briefed = run.briefedAt?.[w.name];
+    const modified = briefed && mtimeMs ? mtimeMs(file) : null;
+    return modified == null || modified >= briefed;
+  };
   const read = async (name) => screenTail(await herdr.agentRead(name).catch(() => ''));
 
   for (;;) {
@@ -84,7 +91,7 @@ export async function waitForWorkers({
       // idle, done or unknown: the agent is not doing anything right now.
       Object.assign(m, { blockedSince: null, screen: null });
       m.idleSince ??= now();
-      const hasReport = report ? exists(path.join(w.reportDir, report)) : false;
+      const hasReport = report ? fresh(w, path.join(w.reportDir, report)) : false;
       const settled = m.seenWorking || now() - m.idleSince >= quietMs;
       if (hasReport || (!report && settled)) {
         out[w.name] = 'done';

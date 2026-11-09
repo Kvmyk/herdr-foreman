@@ -250,7 +250,7 @@ function defaultOps(deps) {
     async wait({ task, phase, only, timeoutMs }) {
       const run = needRun(task);
       const result = await waitForWorkers({
-        run, herdr: backendOf(run), foremanCmd: deps.foremanCmd, exists: deps.exists, sleep: deps.sleep, now: deps.now,
+        run, herdr: backendOf(run), foremanCmd: deps.foremanCmd, exists: deps.exists, mtimeMs: deps.mtimeMs, sleep: deps.sleep, now: deps.now,
         phase, only, timeoutMs: timeoutMs ?? config().waitTimeoutMs,
       });
       note(task, (r) => afterWait(r, { phase, result, now: deps.now }));
@@ -309,6 +309,8 @@ function defaultOps(deps) {
     // run's backend, else where foreman runs now.
     async prompt({ task, backend: flag, name, text }) {
       await agentBackend(task, flag).agentPrompt(name, text);
+      // Remember when this worker was briefed: wait ignores reports older than that.
+      note(task, (r) => ({ briefedAt: { ...r.briefedAt, [name]: deps.now() } }));
       return { sent: name };
     },
     read: async ({ task, backend: flag, name, lines }) => agentBackend(task, flag).agentRead(name, { lines }),

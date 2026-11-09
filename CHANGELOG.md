@@ -22,6 +22,7 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 - `foreman journal stats` with no results now says "no results yet" on a terminal (JSON output stays `{}`).
 - `foreman status` counts FILES from the same diff as LINES, so committed work no longer shows 0 files next to changed lines; TIME counts from the worker's start.
 - `foreman config` showed `autoSetup true` while `FOREMAN_NO_SETUP=1` was set; it now shows the value in effect and says the environment set it.
+- `foreman wait` no longer counts a `proposals.md` or `report.md` left from an earlier round: after `foreman prompt` briefs a worker again, only a report written after that brief makes the worker done.
 
 ## [0.5.0] - 2026-11-09
 
