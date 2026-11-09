@@ -404,6 +404,29 @@ test('in the Herdr app --new-tab puts workers in a fresh, named tab of the same 
   assert.deepEqual([start.space, start.tab, start.label], ['spA', 'tbNew', 'foreman:fix-login']);
 });
 
+test('in the Herdr app the stack layout asks the app to stack the workers', async () => {
+  const f = appHerdr(fakes());
+  const stack = { labelled: () => false, add: async () => {} };
+  f.herdr.stackLayout = async (o) => { f.log.push(['stack', o]); return stack; };
+  const { workers } = await call(f, { specs: ['w1=claude', 'w2=agy'], pane: 't3' });
+  assert.deepEqual(f.log.find(([k]) => k === 'stack')[1], { leader: 't3', space: 'spA', tab: 'tbA', newTab: false, count: 2 });
+  const starts = f.log.filter(([k]) => k === 'start').map(([, o]) => o);
+  assert.deepEqual(starts.map((o) => [o.stack === stack, o.index]), [[true, 0], [true, 1]]);
+  assert.equal('place' in workers[0], false);
+});
+
+test('in the Herdr app a new tab is stacked as a new tab, and grid leaves the layout to the app', async () => {
+  const f = appHerdr(fakes());
+  f.herdr.stackLayout = async (o) => { f.log.push(['stack', o]); return null; };
+  await call(f, { specs: ['w1=claude'], pane: 't3', newTab: true });
+  assert.equal(f.log.find(([k]) => k === 'stack')[1].newTab, true);
+  assert.equal(f.log.find(([k]) => k === 'start')[1].stack, null);
+  const g = appHerdr(fakes());
+  g.herdr.stackLayout = async (o) => { g.log.push(['stack', o]); return null; };
+  await call(g, { specs: ['w1=claude'], pane: 't3', config: { ...DEFAULT_CONFIG, layout: 'grid' } });
+  assert.equal(g.log.some(([k]) => k === 'stack'), false);
+});
+
 test('a herdr run does not take workers spawned from the Herdr app', async () => {
   const existingRun = { task: 'fix-login', repo, base: 'abc123', branch: 'feat/fix-login', workers: [] };
   const f = appHerdr(fakes({ existingRun }));

@@ -2,7 +2,8 @@
 // started in parallel. Panes are stacked to the right of the leader (or, with
 // layout "grid" in config.json, sit in columns of up to three).
 // In the Herdr app each worker is a terminal in the leader's tab (or a new
-// one), and the app lays them out.
+// one), stacked the same way while the window is open; otherwise (and with
+// layout "grid") the app lays them out.
 import path from 'node:path';
 import { HERDR_KINDS, PROBES, EFFORT_LEVELS } from './inventory/kinds.js';
 import { planPanes, layoutOf, MAX_BESIDE_LEADER } from './layout.js';
@@ -82,11 +83,19 @@ async function validate({ herdr, git, repo, config, task, specs, existing, pane,
 }
 
 // The Herdr app: the space and tab the workers' terminals will show up in.
-async function appPlace({ herdr, pane, newTab, task, workers }) {
+async function appPlace({ herdr, pane, newTab, task, workers, layout }) {
   const here = pane ? await herdr.here(pane) : null;
-  if (!newTab && here?.tab) return { space: here.space, tab: here.tab, label: null };
-  const { workspaceId, tabId } = await herdr.tabCreate({ workspaceId: here?.space, cwd: workers[0].worktree, label: `foreman:${task}`, focus: false });
-  return { space: workspaceId, tab: tabId, label: `foreman:${task}` };
+  let place;
+  if (!newTab && here?.tab) {
+    place = { space: here.space, tab: here.tab, label: null };
+  } else {
+    const { workspaceId, tabId } = await herdr.tabCreate({ workspaceId: here?.space, cwd: workers[0].worktree, label: `foreman:${task}`, focus: false });
+    place = { space: workspaceId, tab: tabId, label: `foreman:${task}` };
+  }
+  if (layout === 'stack' && herdr.stackLayout) {
+    place.stack = await herdr.stackLayout({ leader: pane, space: place.space, tab: place.tab, newTab: place.label !== null, count: workers.length });
+  }
+  return place;
 }
 
 async function openPanes({ herdr, pane, newTab, task, workers, layout }) {
@@ -238,7 +247,7 @@ export async function spawnWorkers({
       mkdir(w.reportDir, { recursive: true });
     }
     if (backend === 'app') {
-      const place = await appPlace({ herdr, pane, newTab, task, workers });
+      const place = await appPlace({ herdr, pane, newTab, task, workers, layout });
       workers.forEach((w) => { w.place = place; w.paneId = null; });
     } else {
       const panes = await openPanes({ herdr, pane, newTab, task, workers, layout });
@@ -275,7 +284,7 @@ export async function spawnWorkers({
     try {
       return await herdr.agentStart({
         name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
-        timeoutMs: config.startTimeoutMs, args: startArgs[i],
+        timeoutMs: config.startTimeoutMs, args: startArgs[i], stack: w.place?.stack ?? null, index: i,
       });
     } finally {
       done = true;
