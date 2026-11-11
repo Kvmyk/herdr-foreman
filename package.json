@@ -37,7 +37,8 @@
     "herdr-plugin.toml"
   ],
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "refresh:knowledge": "node scripts/refresh-knowledge.js"
   },
   "engines": {
     "node": ">=20"
