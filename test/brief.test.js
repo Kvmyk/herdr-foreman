@@ -73,10 +73,12 @@ test('a kind whose program exited at its last start is listed as unavailable', (
 });
 
 test('brief names the knowledge source and warns when knowledge is old or stale', () => {
-  const fresh = buildBrief({ agents, knowledge, knowledgeSource: 'remote', modelsDev, stats: {}, config: { maxWorkers: 6 }, now: Date.parse('2026-11-20') });
+  // A fixed date, so the test does not depend on when knowledge/agents.json was last refreshed.
+  const dated = { ...knowledge, updated: '2026-11-07' };
+  const fresh = buildBrief({ agents, knowledge: dated, knowledgeSource: 'remote', modelsDev, stats: {}, config: { maxWorkers: 6 }, now: Date.parse('2026-11-20') });
   assert.equal(fresh.knowledgeSource, 'remote');
   assert.equal(fresh.warnings, undefined);
-  const old = { ...knowledge, families: knowledge.families.map((f) => ({ ...f, stale: f.id === 'grok' })) };
+  const old = { ...dated, families: knowledge.families.map((f) => ({ ...f, stale: f.id === 'grok' })) };
   const b = buildBrief({ agents, knowledge: old, knowledgeSource: 'builtin', modelsDev, stats: {}, config: { maxWorkers: 6 }, warnings: ['x'], now: Date.parse('2027-01-01') });
   assert.equal(b.warnings[0], 'x');
   assert.match(b.warnings[1], /knowledge about agents is from 2026-11-07 \(55 days old\); run "foreman knowledge refresh"/);

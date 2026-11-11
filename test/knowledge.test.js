@@ -236,8 +236,9 @@ test('describeKnowledge lists source, stale and automatically added families', a
   const d = describeKnowledge(r, { knowledgeUrl: false });
   assert.equal(d.source, 'builtin');
   assert.equal(d.url, null);
-  assert.deepEqual(d.stale, [{ id: 'auto1', updated: '2026-01-01', auto: true }]);
-  assert.deepEqual(d.auto, ['auto1']);
+  // The weekly refresh adds families of its own, so look only at the one this test added.
+  assert.deepEqual(d.stale.filter((f) => f.id === 'auto1'), [{ id: 'auto1', updated: '2026-01-01', auto: true }]);
+  assert.ok(d.auto.includes('auto1'));
 });
 
 test('knowledge comes from the repository by default', () => {
