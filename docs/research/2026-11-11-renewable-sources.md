@@ -15,7 +15,7 @@ As of 2026-11-11. Follows `2026-11-07-agent-selection.md`, whose one-off sources
 | LiveBench, Vals, Scale SEAL | extra leaderboards (adapters in `scripts/knowledge-sources/`) | see the adapters |
 | Vendor documentation (Claude Code, Codex, opencode, Antigravity, Gemini CLI discussion) | `permissions` and the Gemini end-of-access fact; links only, not read by the script | HTML or Markdown |
 
-Facts become frozen, and are dropped, when a source's newest record is older than its `ttlDays` or the source failed twice in a row.
+Facts become frozen, and are dropped, when a source has not changed for more than its `ttlDays` or the source failed twice in a row.
 
 ## Rejected
 

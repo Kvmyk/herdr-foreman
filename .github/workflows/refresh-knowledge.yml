@@ -38,7 +38,7 @@ jobs:
             echo "No changes."
             exit 0
           fi
-          unexpected=$(echo "$changed" | grep -v -x -e knowledge/agents.json -e CHANGELOG.md -e docs/research/knowledge-log.md || true)
+          unexpected=$(echo "$changed" | grep -v -x -e knowledge/agents.json -e docs/research/knowledge-log.md || true)
           if [ -n "$unexpected" ]; then
             echo "::error::Refusing to commit unexpected changes:"
             echo "$unexpected"
