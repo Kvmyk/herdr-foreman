@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  detectNewModels, checkSources, validateAnswer, rewriteTendencies, refresh, callGemini,
+  detectNewModels, analyzeNewModels, checkSources, validateAnswer, rewriteTendencies, refresh, callGemini,
   stripHtml, addChangelogLine, serializeKnowledge, renderLogEntry,
 } from '../scripts/refresh-knowledge.js';
 
@@ -39,6 +39,64 @@ test('detectNewModels skips covered, old, non-text and reseller models', () => {
   assert.ok(!ids.includes('gemini-9-image-preview'));
   assert.ok(!ids.includes('gemini-9-pro'));
   assert.ok(!ids.includes('shiny-new-model-1'));
+});
+
+// Subset of https://models.dev/api.json as of 2026-11-11, plus the existing families it collided with.
+const realApi = JSON.parse(readFileSync(new URL('./fixtures/models-dev-stubs.json', import.meta.url), 'utf8'));
+const realKnowledge = {
+  updated: '2026-11-07',
+  sources: {},
+  families: [
+    { id: 'gpt', match: 'gpt-[0-9]', vendor: 'openai', tendencies: [], updated: '2026-11-07', sources: [] },
+    { id: 'gemini-pro', match: 'gemini-[0-9.]+-pro|gemini-[0-9.]+-argon|gemini-4', vendor: 'google', tendencies: [], updated: '2026-11-07', sources: [] },
+  ],
+};
+
+test('analyzeNewModels on real models.dev data adds only gemma and flags the rest for a manual look', () => {
+  const { stubs, review } = analyzeNewModels(realKnowledge, realApi, { now: NOW });
+  assert.deepEqual(stubs.map((s) => [s.id, s.match]), [['gemma', 'gemma']]);
+  assert.deepEqual(review.map((r) => r.models).flat().sort(),
+    ['gemini-pro-latest', 'gpt-daybreak-blue-latest', 'gpt-daybreak-red-latest']);
+  const byFamily = Object.fromEntries(review.map((r) => [r.family, r.reason]));
+  assert.match(byFamily.gpt, /variant of existing family gpt/);
+  assert.match(byFamily['gemini-pro'], /variant of existing family gemini-pro/);
+  assert.match(byFamily['gpt-sol'], /only alias ids/);
+});
+
+test('stub matches never use a bare vendor word and cover only the concrete ids', () => {
+  const k = { families: [] };
+  const apiOf = (provider, ...ids) => ({ [provider]: { models: Object.fromEntries(ids.map((id) => [id, model(id, { family: 'gpt' })])) } });
+  const [multi] = detectNewModels(k, apiOf('openai', 'gpt-7.1-mini', 'gpt-7.1-nano'), { now: NOW });
+  assert.equal(multi.match, String.raw`gpt-7\.1`);
+  const [mixed] = detectNewModels(k, apiOf('openai', 'gpt-7-mini', 'gpt-8-pro'), { now: NOW });
+  assert.equal(mixed.match, 'gpt-7-mini|gpt-8-pro');
+  const [single] = detectNewModels(k, apiOf('openai', 'gpt-7-mini'), { now: NOW });
+  assert.equal(single.match, 'gpt-7-mini');
+});
+
+test('aliases and dated duplicates are ignored when a canonical id exists; stub ids drop vendor suffixes', () => {
+  const k = { families: [] };
+  const api2 = { google: { models: Object.fromEntries(
+    ['gemma-9-it', 'gemma-9-it-latest', 'gemma-9-it-2026-09-01', 'gemma-9-it-preview-latest']
+      .map((id) => [id, model(id, { family: 'gemma-google' })])) } };
+  const { stubs } = analyzeNewModels(k, api2, { now: NOW });
+  assert.deepEqual(stubs.map((s) => [s.id, s.models]), [['gemma', ['gemma-9-it']]]);
+});
+
+test('renderLogEntry reports review items and notes redirects separately from warnings', () => {
+  const result = {
+    today: '2026-11-11', stubs: [], rewrites: { changes: [] }, warnings: [],
+    review: [{ family: 'gpt', provider: 'openai', models: ['gpt-x-latest'], reason: 'variant of existing family gpt' }],
+    links: [
+      { id: 'a', url: 'https://e.test/a', status: 200, verdict: 'moved', finalUrl: 'https://e.test/b' },
+      { id: 'b', url: 'https://e.test/c', status: 410, verdict: 'dead' },
+    ],
+  };
+  const log = renderLogEntry(result);
+  assert.match(log, /Needs a manual look, no stub added \(variant of existing family gpt\): gpt-x-latest/);
+  assert.match(log, /needing attention[^]*`b` dead/);
+  assert.match(log, /Note: source links that redirect[^]*`a` moved/);
+  assert.doesNotMatch(log.split('Note:')[0], /`a` moved/);
 });
 
 test('refresh adds stubs, bumps updated, and leaves existing entries untouched', async () => {

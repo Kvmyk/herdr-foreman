@@ -28,6 +28,8 @@ const MAX_TENDENCY_LENGTH = 200;
 
 const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Same shape familyFor() tests a match against: dots are kept.
+const matchForm = (id) => id.toLowerCase().replace(/[\s_]+/g, '-').split('/').pop();
 const normalize = (id) => id.toLowerCase().split('/').pop().replace(/[\s_.]+/g, '-');
 
 async function mapLimit(items, limit, fn) {
@@ -51,23 +53,44 @@ function commonPrefix(ids) {
   return p.replace(/-+$/, '');
 }
 
+// Vendor and product words that say nothing about which model a stub covers.
+const GENERIC = new Set([...FIRST_PARTY, 'claude', 'gpt', 'gemini', 'qwen', 'glm', 'kimi', 'grok', 'llama', 'mistral', 'o']);
+const VENDOR_SUFFIX = new RegExp(`-(${[...FIRST_PARTY, 'meta', 'mistral', 'microsoft'].join('|')})$`);
+const ALIAS = /-latest$/;
+const DATED = /-(\d{4}-\d{2}-\d{2}|\d{8})$/;
+
+const stripVendor = (id) => id.replace(VENDOR_SUFFIX, '');
+
 function groupKey(provider, m) {
   const family = m.family ? normalize(m.family) : normalize(m.id).replace(/-\d[\w-]*$/, '');
   return { family: family || normalize(m.id), key: `${provider}:${family}` };
 }
 
+// The match covers exactly the group's concrete ids: the family word when it is
+// distinctive, else their longest common prefix when it carries a version, else
+// the escaped ids. Never a bare vendor or product word.
 function buildMatch(ids, family) {
-  const ok = (re) => ids.every((id) => new RegExp(re, 'i').test(id));
+  const covers = (re) => ids.every((id) => new RegExp(re, 'i').test(id));
   const prefix = ids.length > 1 ? commonPrefix(ids) : '';
-  for (const candidate of [escapeRe(family), prefix.length >= 4 ? escapeRe(prefix) : null]) {
-    if (candidate && ok(candidate)) return candidate;
-  }
+  const candidates = [
+    GENERIC.has(family) ? null : escapeRe(family),
+    prefix && /\d/.test(prefix) && !GENERIC.has(prefix) ? escapeRe(prefix) : null,
+  ];
+  for (const candidate of candidates) if (candidate && covers(candidate)) return candidate;
   return ids.map(escapeRe).join('|');
 }
 
+// Canonical ids of a group: no aliases (*-latest, *-preview-latest) and no dated
+// copy of an id that is also listed.
+function canonicalIds(ids) {
+  return ids.filter((id) => !ALIAS.test(id) && !(DATED.test(id) && ids.includes(id.replace(DATED, ''))));
+}
+
 // New first-party text models released within the window that no family matches,
-// grouped into one stub family per provider and models.dev family.
-export function detectNewModels(knowledge, api, { now = Date.now(), providers = FIRST_PARTY } = {}) {
+// grouped into one stub family per provider and models.dev family. Returns
+// { stubs, review }; review lists the uncovered ids that were not turned into a
+// stub (alias only, or a variant of an existing family) and need a manual look.
+export function analyzeNewModels(knowledge, api, { now = Date.now(), providers = FIRST_PARTY } = {}) {
   const groups = new Map();
   for (const provider of providers) {
     for (const m of Object.values(api?.[provider]?.models ?? {})) {
@@ -76,31 +99,41 @@ export function detectNewModels(knowledge, api, { now = Date.now(), providers = 
       if (NOT_CODING.test(m.id) || (m.modalities?.output && m.modalities.output.join() !== 'text')) continue;
       if (familyFor(knowledge, m.id)) continue;
       const { family, key } = groupKey(provider, m);
-      if (!groups.has(key)) groups.set(key, { provider, family, models: [] });
+      if (!groups.has(key)) groups.set(key, { provider, family, derived: normalize(m.id).replace(/-\d[\w-]*$/, ''), models: [] });
       groups.get(key).models.push(m.id);
     }
   }
   const taken = new Set((knowledge.families ?? []).map((f) => f.id));
   const stubs = [];
-  for (const { provider, family, models } of groups.values()) {
-    let id = family;
-    if (taken.has(id)) id = `${family}-${provider}`;
-    if (taken.has(id)) continue;
+  const review = [];
+  for (const { provider, family, derived, models } of groups.values()) {
+    const id = stripVendor(family);
+    const variant = [family, id, derived, stripVendor(derived)].some((c) => taken.has(c));
+    if (variant) {
+      review.push({ family, provider, models, reason: `variant of existing family ${[family, id, derived, stripVendor(derived)].find((c) => taken.has(c))}` });
+      continue;
+    }
+    const ids = canonicalIds(models.map(matchForm));
+    if (!ids.length) {
+      review.push({ family, provider, models, reason: 'only alias ids (*-latest)' });
+      continue;
+    }
     taken.add(id);
-    const ids = models.map(normalize);
     stubs.push({
       id,
       vendor: provider,
-      match: buildMatch(ids, family),
+      match: buildMatch(ids, id),
       updated: isoDay(now),
       tendencies: [],
       sources: [],
       auto: true,
-      models,
+      models: models.filter((m) => ids.includes(matchForm(m))),
     });
   }
-  return stubs;
+  return { stubs, review };
 }
+
+export const detectNewModels = (knowledge, api, options) => analyzeNewModels(knowledge, api, options).stubs;
 
 // ---- Part A: source URLs ------------------------------------------------
 
@@ -285,7 +318,7 @@ export async function refresh({ knowledge, api, fetchImpl, env = {}, now = Date.
   const next = structuredClone(knowledge);
   const today = isoDay(now);
 
-  const stubs = detectNewModels(next, api, { now });
+  const { stubs, review } = analyzeNewModels(next, api, { now });
   for (const { models, ...stub } of stubs) next.families.push(stub);
 
   const links = await checkSources(next.sources, fetchImpl);
@@ -307,21 +340,28 @@ export async function refresh({ knowledge, api, fetchImpl, env = {}, now = Date.
 
   const changed = stubs.length > 0 || rewrites.changes.length > 0;
   if (changed) next.updated = today;
-  return { knowledge: next, changed, stubs, links, rewrites, warnings, today };
+  return { knowledge: next, changed, stubs, review, links, rewrites, warnings, today };
 }
 
 export function renderLogEntry(result) {
   const lines = [`## ${result.today}`, ''];
   for (const s of result.stubs) lines.push(`- New unverified family \`${s.id}\` (${s.vendor}, match \`${s.match}\`) for: ${s.models.join(', ')}.`);
+  for (const r of result.review ?? []) lines.push(`- Needs a manual look, no stub added (${r.reason}): ${r.models.join(', ')} (${r.provider}, models.dev family \`${r.family}\`).`);
   for (const c of result.rewrites.changes) {
     lines.push(`- Gemini (${c.model}) rewrote \`${c.id}\`:`);
     lines.push(`  - old: ${JSON.stringify(c.before)}`);
     lines.push(`  - new: ${JSON.stringify(c.after)}`);
   }
-  const bad = result.links.filter((l) => l.verdict !== 'ok');
+  const bad = result.links.filter((l) => !['ok', 'moved'].includes(l.verdict));
+  const moved = result.links.filter((l) => l.verdict === 'moved');
+  const linkLine = (l) => `  - \`${l.id}\` ${l.verdict}${l.status ? ` (HTTP ${l.status})` : ''}${l.finalUrl ? ` -> ${l.finalUrl}` : ''}${l.error ? ` (${l.error})` : ''}: ${l.url}`;
   if (bad.length) {
     lines.push('- Source links needing attention (none removed automatically):');
-    for (const l of bad) lines.push(`  - \`${l.id}\` ${l.verdict}${l.status ? ` (HTTP ${l.status})` : ''}${l.finalUrl ? ` -> ${l.finalUrl}` : ''}${l.error ? ` (${l.error})` : ''}: ${l.url}`);
+    for (const l of bad) lines.push(linkLine(l));
+  }
+  if (moved.length) {
+    lines.push('- Note: source links that redirect (still reachable, consider updating the URL):');
+    for (const l of moved) lines.push(linkLine(l));
   }
   for (const w of result.warnings) lines.push(`- Warning: ${w}`);
   return `${lines.join('\n')}\n`;
@@ -381,7 +421,10 @@ async function main() {
   const result = await refresh({ knowledge, api: await res.json(), fetchImpl: fetch, env: process.env });
 
   const annotate = process.env.GITHUB_ACTIONS ? '::warning::' : 'warning: ';
-  for (const l of result.links.filter((x) => x.verdict !== 'ok')) console.log(`${annotate}source ${l.id} ${l.verdict} ${l.status ?? ''} ${l.url}`);
+  const notice = process.env.GITHUB_ACTIONS ? '::notice::' : 'note: ';
+  for (const l of result.links.filter((x) => !['ok', 'moved'].includes(x.verdict))) console.log(`${annotate}source ${l.id} ${l.verdict} ${l.status ?? ''} ${l.url}`);
+  for (const l of result.links.filter((x) => x.verdict === 'moved')) console.log(`${notice}source ${l.id} moved to ${l.finalUrl}`);
+  for (const r of result.review) console.log(`${notice}no stub for ${r.models.join(', ')}: ${r.reason}`);
   for (const w of result.warnings) console.log(`${annotate}${w}`);
 
   if (!result.changed) {

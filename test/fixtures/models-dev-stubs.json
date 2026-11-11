@@ -1,0 +1,60 @@
+{
+  "openai": {
+    "models": {
+      "gpt-daybreak-blue-latest": {
+        "id": "gpt-daybreak-blue-latest",
+        "family": "gpt-sol",
+        "release_date": "2026-08-07",
+        "modalities": {
+          "output": [
+            "text"
+          ]
+        }
+      },
+      "gpt-daybreak-red-latest": {
+        "id": "gpt-daybreak-red-latest",
+        "family": "gpt",
+        "release_date": "2026-08-07",
+        "modalities": {
+          "output": [
+            "text"
+          ]
+        }
+      }
+    }
+  },
+  "google": {
+    "models": {
+      "gemini-pro-latest": {
+        "id": "gemini-pro-latest",
+        "family": "gemini-pro",
+        "release_date": "2026-02-19",
+        "modalities": {
+          "output": [
+            "text"
+          ]
+        }
+      },
+      "gemma-4-31b-it": {
+        "id": "gemma-4-31b-it",
+        "family": "gemma",
+        "release_date": "2026-04-02",
+        "modalities": {
+          "output": [
+            "text"
+          ]
+        }
+      },
+      "gemma-4-26b-a4b-it": {
+        "id": "gemma-4-26b-a4b-it",
+        "family": "gemma",
+        "release_date": "2026-04-02",
+        "modalities": {
+          "output": [
+            "text"
+          ]
+        }
+      }
+    }
+  }
+}
