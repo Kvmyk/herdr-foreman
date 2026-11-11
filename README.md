@@ -190,6 +190,8 @@ If a worker asks for permission, the leader asks you once whether you answer suc
 | `foreman keys --task <slug> <name> <key>...` | Press keys in an agent's pane: `enter`, `esc`, `up`, `down`, `1`, ... `prompt`, `read` and `keys` also take `--backend app\|herdr` |
 | `foreman close-leader` | Close the calling leader's pane; the leader's last step when you agree |
 | `foreman journal add <file.json>` / `foreman journal stats` | Record and view results per category and agent |
+| `foreman knowledge show\|refresh\|stale [--json]` | What foreman knows about agents: where it came from, its date, stale model families; `refresh` fetches it now |
+| `foreman knowledge validate <file>` | Check a knowledge file; exits 1 when it is invalid |
 | `foreman runs [--json]` | Earlier and current runs: phase, branch, workers, estimated cost |
 | `foreman show --task <slug> [--json]` | One run: the task, workers, reports, tokens and estimated cost (claude and codex logs) |
 | `foreman diff --task <slug> [--stat] [<worker>]` | What the run, or one worker, changed against its base; check it before `land` |
@@ -207,6 +209,13 @@ Choosing is based on three layers:
 2. **General knowledge:** `knowledge/agents.json` holds harness strengths and model family tendencies, with dates and sources. Model facts (context, price, release date) come from [models.dev](https://models.dev), fetched at most once a day.
 3. **Your results:** the journal in `~/.herdr-foreman/journal.jsonl`. Once a category has 5 or more results, they outweigh the general knowledge.
 
+### Keeping the knowledge up to date
+
+- **Weekly refresh on the repository:** the `.github/workflows/refresh-knowledge.yml` workflow runs `scripts/refresh-knowledge.js` once a week. Model families that models.dev lists but `knowledge/agents.json` does not know are added with `"auto": true` (no data yet, so the leader treats them as unproven), and every change is checked with `foreman knowledge validate knowledge/agents.json`.
+- **Between releases:** `knowledgeUrl` defaults to `https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/knowledge/agents.json`. Foreman fetches it at most once a day into `~/.herdr-foreman/knowledge-cache.json` and uses it only when it is valid and newer than the copy installed with foreman. Set `"knowledgeUrl": false` to use only the installed copy, or point it at your own file.
+- **Your corrections:** `~/.herdr-foreman/knowledge.override.json` is merged on top. Families merge by `id`, so `{"families": [{"id": "grok", "tendencies": ["fine for docs"]}]}` changes one family and keeps the rest; `rules` are added to the existing ones. An override that does not parse or makes the knowledge invalid is ignored with a warning.
+- **Checking:** `foreman knowledge show` says where the knowledge came from and how old it is, `foreman knowledge stale` lists families whose entry is older than 90 days (or has no date), and `foreman knowledge refresh` fetches the knowledge file and models.dev now. `foreman brief` warns when the knowledge is older than 30 days or has stale families.
+
 ## Token use
 
 Every turn an agent takes re-sends its whole conversation, so foreman cuts turns and per-turn context rather than thinking (details and measurements in `docs/research/2026-11-07-tokens.md`):
@@ -223,8 +232,9 @@ Everything lives in `~/.herdr-foreman/` (set `FOREMAN_HOME` to move it):
 
 | Path | Contents |
 |---|---|
-| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl`, `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr and Herdr app shortcuts), `worktreeSetup` (a command run in each new worker worktree, e.g. `"npm ci"`), `copyFiles` (globs of untracked files such as `.env*` copied into each worktree), `layout` (`"stack"`, the default: the leader keeps about 40% on the left and up to 4 workers are stacked on the right, more go to a new tab; `"grid"`: the earlier equal columns of up to 3 workers). A `.foreman.json` at the root of a repository can set `worktreeSetup` and `copyFiles` for that repository; it runs commands, so check it in repositories you did not write |
-| `knowledge.override.json` | Optional: your corrections to the knowledge file, deep-merged |
+| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl` (default: `knowledge/agents.json` on GitHub; `false` turns it off), `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr and Herdr app shortcuts), `worktreeSetup` (a command run in each new worker worktree, e.g. `"npm ci"`), `copyFiles` (globs of untracked files such as `.env*` copied into each worktree), `layout` (`"stack"`, the default: the leader keeps about 40% on the left and up to 4 workers are stacked on the right, more go to a new tab; `"grid"`: the earlier equal columns of up to 3 workers). A `.foreman.json` at the root of a repository can set `worktreeSetup` and `copyFiles` for that repository; it runs commands, so check it in repositories you did not write |
+| `knowledge.override.json` | Optional: your corrections to the knowledge file, deep-merged; families by `id` |
+| `knowledge-cache.json`, `models-dev-cache.json` | The knowledge file and models.dev facts, fetched at most once a day |
 | `journal.jsonl` | Your results |
 | `worktrees/` | Worker worktrees, outside your repository |
 | `runs/` | One record per task, plus worker reports |

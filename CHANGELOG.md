@@ -4,6 +4,16 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- `foreman knowledge show|refresh|stale [--json]` shows where the knowledge about agents came from, its date and the stale model families; `refresh` fetches it and models.dev now instead of at most daily. `foreman knowledge validate <file>` checks a knowledge file and exits 1 when it is invalid.
+- `foreman brief` names the knowledge source (`knowledgeSource`) and warns when the knowledge is older than 30 days or has stale families.
+
+### Changed
+
+- Foreman gets newer knowledge between releases: `knowledgeUrl` defaults to `knowledge/agents.json` on GitHub, which a weekly workflow refreshes. `"knowledgeUrl": false` turns it off.
+- Knowledge from `knowledgeUrl` and `knowledge.override.json` is validated; invalid data is ignored with a warning instead of breaking `foreman brief`. Families merge by `id`, so an override of one family keeps the others, and override `rules` are added to the existing ones. A family without a usable date counts as stale, and an override file that does not parse is reported.
+
 ## [0.8.1] - 2026-11-09
 
 ### Fixed
