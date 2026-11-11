@@ -71,3 +71,14 @@ test('a kind whose program exited at its last start is listed as unavailable', (
   assert.deepEqual(b.unavailable.map((u) => [u.kind, u.status]), [['codex', 'start_failed']]);
   assert.match(b.unavailable[0].reason, /codex exited \(code 2\)/);
 });
+
+test('brief names the knowledge source and warns when knowledge is old or stale', () => {
+  const fresh = buildBrief({ agents, knowledge, knowledgeSource: 'remote', modelsDev, stats: {}, config: { maxWorkers: 6 }, now: Date.parse('2026-11-20') });
+  assert.equal(fresh.knowledgeSource, 'remote');
+  assert.equal(fresh.warnings, undefined);
+  const old = { ...knowledge, families: knowledge.families.map((f) => ({ ...f, stale: f.id === 'grok' })) };
+  const b = buildBrief({ agents, knowledge: old, knowledgeSource: 'builtin', modelsDev, stats: {}, config: { maxWorkers: 6 }, warnings: ['x'], now: Date.parse('2027-01-01') });
+  assert.equal(b.warnings[0], 'x');
+  assert.match(b.warnings[1], /knowledge about agents is from 2026-11-07 \(55 days old\); run "foreman knowledge refresh"/);
+  assert.match(b.warnings[2], /stale: grok;/);
+});

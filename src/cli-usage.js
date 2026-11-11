@@ -16,6 +16,7 @@ const USAGE = {
   read: 'foreman read --task <slug> [--backend app|herdr] [--lines n] <name>',
   keys: 'foreman keys --task <slug> [--backend app|herdr] [--json] <name> <key>...',
   journal: 'foreman journal add <file.json> | foreman journal stats [--json]',
+  knowledge: 'foreman knowledge show|refresh|stale [--json] | foreman knowledge validate <file> [--json]',
   setup: 'foreman setup [--json] [--quiet]',
   doctor: 'foreman doctor [--json]',
   config: 'foreman config [--json]',
