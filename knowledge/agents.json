@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-07",
+  "updated": "2026-11-11",
   "note": "Built from docs/research/2026-11-07-agent-selection.md. Scores go stale within weeks; the user's own journal outweighs this file once a category has trusted stats.",
   "categories": ["analysis", "security-audit", "testing", "bugfix", "feature", "refactor", "test-writing", "docs"],
   "rules": [
@@ -198,6 +198,15 @@
       "tendencies": ["No coding benchmark data found as of 2026-11-07; treat as unproven."],
       "updated": "2026-11-07",
       "sources": []
+    },
+    {
+      "id": "gemma",
+      "vendor": "google",
+      "match": "gemma",
+      "updated": "2026-11-11",
+      "tendencies": [],
+      "sources": [],
+      "auto": true
     }
   ]
 }

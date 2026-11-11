@@ -4,6 +4,10 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Knowledge
+
+- Knowledge refresh 2026-11-11: 1 new unverified model family (gemma).
+
 ## [0.9.1] - 2026-11-11
 
 ### Fixed
