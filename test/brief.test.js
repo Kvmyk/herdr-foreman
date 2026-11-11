@@ -84,3 +84,21 @@ test('brief names the knowledge source and warns when knowledge is old or stale'
   assert.match(b.warnings[1], /knowledge about agents is from 2026-11-07 \(55 days old\); run "foreman knowledge refresh"/);
   assert.match(b.warnings[2], /stale: grok;/);
 });
+
+test('brief passes release, facts and latest through and marks a family without facts unproven', () => {
+  const fact = { text: 'Bench, opus-5.5: 80% (#1 of 9, with Claude Code, 2026-11-11)', date: '2026-11-11', source: 'npm' };
+  const k = {
+    ...knowledge,
+    harnesses: { claude: { strengths: [], release: { version: '2.1.322', date: '2026-11-10', source: 'npm' }, facts: [fact] } },
+    families: [
+      { id: 'claude-opus', match: 'claude-opus|^opus$', vendor: 'anthropic', updated: '2026-11-11', tendencies: [fact.text], facts: [fact], latest: { id: 'claude-opus-5-5', date: '2026-09-01' } },
+      { id: 'claude-sonnet', match: 'claude-sonnet|^sonnet$', vendor: 'anthropic', updated: '2026-08-01', tendencies: [], stale: true },
+    ],
+  };
+  const b = buildBrief({ agents, knowledge: k, modelsDev, stats: {}, config: { maxWorkers: 6 } });
+  assert.equal(b.harnesses.claude.release, '2.1.322 (2026-11-10)');
+  assert.deepEqual(b.harnesses.claude.facts, [fact.text]);
+  const [opus, sonnet] = b.families;
+  assert.deepEqual(opus, { id: 'claude-opus', vendor: 'anthropic', tendencies: [fact.text], latest: 'claude-opus-5-5 (2026-09-01)' });
+  assert.deepEqual(sonnet, { id: 'claude-sonnet', vendor: 'anthropic', stale: true, unproven: true });
+});

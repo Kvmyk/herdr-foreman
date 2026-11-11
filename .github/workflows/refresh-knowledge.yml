@@ -24,8 +24,6 @@ jobs:
 
       - name: Refresh knowledge/agents.json
         run: node scripts/refresh-knowledge.js
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Test
         run: npm test

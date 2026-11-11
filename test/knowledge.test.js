@@ -80,10 +80,10 @@ test('network failure falls back with warning', async () => {
 });
 
 test('overrides deep-merge', async () => {
-  const fs = memfs({ [p.overrides]: JSON.stringify({ harnesses: { pi: { notes: 'only for tiny jobs' } } }) });
+  const fs = memfs({ [p.overrides]: JSON.stringify({ harnesses: { agy: { notes: 'only for tiny jobs' } } }) });
   const r = await loadKnowledge({ paths: p, ...fs, fetchImpl: noFetch, now: NOW, offline: true });
-  assert.equal(r.knowledge.harnesses.pi.notes, 'only for tiny jobs');
-  assert.ok(r.knowledge.harnesses.pi.strengths.length > 0);
+  assert.equal(r.knowledge.harnesses.agy.notes, 'only for tiny jobs');
+  assert.ok(r.knowledge.harnesses.agy.strengths.length > 0);
 });
 
 test('models.dev index strips provider and keeps newest', () => {
@@ -243,4 +243,29 @@ test('describeKnowledge lists source, stale and automatically added families', a
 
 test('knowledge comes from the repository by default', () => {
   assert.equal(DEFAULT_CONFIG.knowledgeUrl, 'https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/knowledge/agents.json');
+});
+
+test('validateKnowledge checks the optional facts, release, latest and sourceMeta fields', () => {
+  const fact = { text: 'Bench: 1% (2026-11-11)', date: '2026-11-11', source: 's', score: 1, rank: 1, of: 2, harness: null };
+  const ok = {
+    updated: '2026-11-11', categories: ['x'], rules: [], sources: { s: 'https://e.test' },
+    sourceMeta: { s: { title: 't', kind: 'data', licence: 'MIT', ttlDays: 30, newest: '2026-11-11', checked: '2026-11-11', ok: true } },
+    harnesses: { pi: { release: { version: '1', date: '2026-11-10', source: 's' }, facts: [fact] } },
+    families: [{ id: 'a', match: 'a', updated: '2026-11-11', latest: { id: 'a-1', date: '2026-11-01' }, facts: [fact] }],
+  };
+  assert.deepEqual(validateKnowledge(ok), []);
+  const bad = structuredClone(ok);
+  bad.sourceMeta.s.ttlDays = 0;
+  bad.harnesses.pi.release.source = 'zz';
+  bad.harnesses.pi.facts = [{ ...fact, source: 'zz' }];
+  bad.families[0].latest = { id: 'a-1' };
+  bad.families[0].facts = [{ ...fact, text: '', rank: 'one' }];
+  assert.deepEqual(validateKnowledge(bad), [
+    'sourceMeta s: ttlDays is not a positive number',
+    'harness pi: a fact cites source zz that is not in sources',
+    'harness pi: release source zz is not in sources',
+    'family a: a fact has no text',
+    'family a: fact rank is not a number',
+    'family a: latest needs an id and a YYYY-MM-DD date',
+  ]);
 });

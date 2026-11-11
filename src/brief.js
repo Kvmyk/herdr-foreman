@@ -40,6 +40,9 @@ export function knowledgeWarnings(knowledge, now) {
   return out;
 }
 
+// A harness's facts as text; a family's facts already are its tendencies.
+const factTexts = (facts) => (Array.isArray(facts) ? facts.map((f) => f.text).slice(0, 6) : null);
+
 const nonEmpty = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => !isEmpty(v)));
 
 // now: when given, old knowledge adds a warning.
@@ -79,7 +82,14 @@ export function buildBrief({ agents, knowledge, knowledgeSource = null, modelsDe
   const kinds = new Set(ready.map((a) => a.kind));
   const harnesses = Object.fromEntries(Object.entries(knowledge.harnesses ?? {})
     .filter(([k]) => kinds.has(k))
-    .map(([k, h]) => [k, nonEmpty({ strengths: h.strengths, weaknesses: h.weaknesses, permissions: h.permissions, notes: h.notes })]));
+    .map(([k, h]) => [k, nonEmpty({
+      release: h.release ? `${h.release.version} (${h.release.date})` : null,
+      strengths: h.strengths,
+      weaknesses: h.weaknesses,
+      facts: factTexts(h.facts),
+      permissions: h.permissions,
+      notes: h.notes,
+    })]));
 
   return nonEmpty({
     agents: ready,
@@ -87,7 +97,15 @@ export function buildBrief({ agents, knowledge, knowledgeSource = null, modelsDe
     harnesses,
     families: (knowledge.families ?? [])
       .filter((f) => families.has(f.id))
-      .map((f) => nonEmpty({ id: f.id, vendor: f.vendor, tendencies: f.tendencies, stale: f.stale || null })),
+      .map((f) => nonEmpty({
+        id: f.id,
+        vendor: f.vendor,
+        // The tendencies are the dated facts as text; a family with no facts is unproven.
+        tendencies: f.tendencies,
+        latest: f.latest ? `${f.latest.id} (${f.latest.date})` : null,
+        stale: f.stale || null,
+        unproven: f.facts?.length ? null : true,
+      })),
     rules: knowledge.rules,
     categories: knowledge.categories,
     modelFacts,
