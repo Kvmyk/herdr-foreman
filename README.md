@@ -115,7 +115,7 @@ foreman setup
 
 **What does it never do?** It never pushes and never opens a pull request, it does not land anything without asking you, and a worker does not change anything until you approved the numbered list. Each worker worktree gets a push guard as a tripwire.
 
-**Does my code leave the computer?** foreman sends nothing anywhere. Your coding agents send what they read to their own providers, as they do when you use them yourself. foreman fetches only public model facts (price, context size) from models.dev.
+**Does my code leave the computer?** foreman sends nothing anywhere. Your coding agents send what they read to their own providers, as they do when you use them yourself. foreman only downloads public data, each at most once a day: model facts (price, context size) from models.dev and the knowledge file `knowledge/agents.json` from GitHub (`knowledgeUrl`; `"knowledgeUrl": false` turns that off).
 
 **How do I undo or remove it?** `foreman cleanup --all` removes leftover worktrees and panes; delete the run branch (`git branch -D <type>/<name>`) if you did not land it. To remove foreman from herdr, run `herdr plugin uninstall herdr-foreman` and delete the `herdr-foreman.start` block in `config.toml`; from the desktop app, delete `mods/foreman` and its line in `keys.json`. `"autoSetup": false` in `~/.herdr-foreman/config.json` stops setup from coming back.
 
