@@ -4,6 +4,8 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-11
+
 ### Added
 
 - `foreman knowledge show|refresh|stale [--json]` shows where the knowledge about agents came from, its date and the stale model families; `refresh` fetches it and models.dev now instead of at most daily. `foreman knowledge validate <file>` checks a knowledge file and exits 1 when it is invalid.
@@ -153,7 +155,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.6.0...v0.7.0
