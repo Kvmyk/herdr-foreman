@@ -4,7 +4,7 @@ import { BACKENDS, checkBackend, detectBackend, callerPane, createBackend, insta
 import { createGit } from './git.js';
 import { loadConfig } from './config.js';
 import { inventory, saveAgents } from './inventory/index.js';
-import { loadKnowledge, builtinKnowledge } from './knowledge.js';
+import { loadKnowledge, builtinKnowledge, describeKnowledge, validateKnowledge } from './knowledge.js';
 import { buildBrief } from './brief.js';
 import { waitForWorkers } from './wait.js';
 import { appendEntries, readEntries, computeStats } from './journal.js';
@@ -77,6 +77,9 @@ Subcommands (used by the leader; add --json for machine-readable output):
                                        (prompt, read and keys also take --backend app|herdr)
   journal add <file.json>              record how each worker did
   journal stats                        results per category and agent
+  knowledge show|refresh|stale         what foreman knows about agents: source, date, stale families;
+                                       refresh fetches it now instead of at most daily
+  knowledge validate <file>            check a knowledge file (exits 1 when it is invalid)
 
 Runs (for you):
   runs                                 earlier and current runs: phase, branch, workers, cost
@@ -117,6 +120,7 @@ const COMMANDS = {
   read: { flags: { '--task': true, '--backend': true, '--lines': true }, required: ['--task'], positionals: (p) => p.length === 1 },
   keys: { flags: { '--task': true, '--backend': true, '--json': false }, required: ['--task'], positionals: (p) => p.length >= 2 },
   journal: { flags: { '--json': false }, positionals: (p) => (p[0] === 'add' && p.length === 2) || (p[0] === 'stats' && p.length === 1) },
+  knowledge: { flags: { '--json': false }, positionals: (p) => (['show', 'refresh', 'stale'].includes(p[0]) && p.length === 1) || (p[0] === 'validate' && p.length === 2) },
   watch: { flags: { '--task': true, '--interval': true }, required: ['--task'], positionals: (p) => p.length === 0 },
   config: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   help: { flags: {}, positionals: (p) => p.length === 0 },
@@ -246,13 +250,21 @@ function defaultOps(deps) {
       return buildBrief({
         agents,
         knowledge: know.knowledge,
+        knowledgeSource: know.source,
         modelsDev: know.modelsDev,
         stats: computeStats(readEntries({ path: deps.paths.journal, readFile: deps.readFile })),
         config: cfg,
         warnings: know.warnings,
         repoDirty,
         startFailures: recentStartFailures({ paths: deps.paths, readFile: deps.readFile, now: deps.now }),
+        now: deps.now(),
       });
+    },
+    // force: fetch the knowledge file and models.dev now instead of using the daily caches.
+    async knowledge({ force = false } = {}) {
+      const cfg = config();
+      const know = await loadKnowledge({ paths: deps.paths, fetchImpl: deps.fetchImpl, readFile: deps.readFile, writeFile: deps.writeFile, now: deps.now(), knowledgeUrl: cfg.knowledgeUrl, force });
+      return describeKnowledge(know, { knowledgeUrl: cfg.knowledgeUrl });
     },
     async wait({ task, phase, only, timeoutMs }) {
       const run = needRun(task);
@@ -538,6 +550,27 @@ export async function main(argv, deps) {
         }
         print(computeStats(readEntries({ path: deps.paths.journal, readFile: deps.readFile })), forPerson((v) => stdout.write(`${fmt.formatStats(v, ui)}\n`)));
         return 0;
+      }
+      case 'knowledge': {
+        const [action, file] = r.positionals;
+        if (action === 'validate') {
+          let errors;
+          try {
+            errors = validateKnowledge(JSON.parse(deps.readFile(file)));
+          } catch (err) {
+            errors = [`cannot read ${file}: ${err.message}`];
+          }
+          print({ file, ok: !errors.length, errors }, (v) => stdout.write(v.ok ? `${v.file} is valid\n` : `${v.file} is invalid:\n${v.errors.map((e) => `  ${e}\n`).join('')}`));
+          return errors.length ? 1 : 0;
+        }
+        const info = await ops.knowledge({ force: action === 'refresh' });
+        if (action === 'stale') {
+          print(info.stale, (v) => stdout.write(v.length ? v.map((f) => `${f.id}  updated ${f.updated ?? 'never'}${f.auto ? '  (added automatically, no data yet)' : ''}\n`).join('') : 'no stale model families\n'));
+          return 0;
+        }
+        print(info, (v) => stdout.write(`${fmt.formatKnowledge(v, ui)}\n`));
+        // refresh fails when the knowledge file could not be fetched.
+        return action === 'refresh' && info.warnings.some((w) => /^knowledge (refresh failed|from)/.test(w)) ? 1 : 0;
       }
       default:
         if (r.name in RUN_COMMANDS) return await runCommand(r, { ops, print, stdout, ui });

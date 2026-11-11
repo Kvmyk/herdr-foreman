@@ -9,7 +9,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   waitTimeoutMs: 540000,
   lean: true,
   leaderArgs: [],
-  knowledgeUrl: null,
+  // Newer knowledge about agents, fetched at most daily; false turns it off.
+  knowledgeUrl: 'https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/knowledge/agents.json',
   excludeKinds: [],
   // false: foreman never adds or restores its herdr shortcut by itself.
   autoSetup: true,

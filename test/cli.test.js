@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { main, route } from '../src/cli.js';
 import { fakeRun } from './helpers.js';
 import { usageOf, START_USAGE } from '../src/cli-usage.js';
@@ -125,6 +126,40 @@ test('agents without --json prints a table', async () => {
   const h = harness();
   assert.equal(await main(['agents'], h.deps), 0);
   assert.match(h.out(), /claude\s+ready/);
+});
+
+test('knowledge validate exits 0 for the builtin file and 1 for invalid data', async () => {
+  const builtin = readFileSync(new URL('../knowledge/agents.json', import.meta.url), 'utf8');
+  const h = harness({}, { files: { 'knowledge/agents.json': builtin } });
+  assert.equal(await main(['knowledge', 'validate', 'knowledge/agents.json', '--json'], h.deps), 0);
+  assert.deepEqual(JSON.parse(h.out()), { file: 'knowledge/agents.json', ok: true, errors: [] });
+  const bad = harness({}, { files: { '/k.json': JSON.stringify({ updated: 'x', families: [] }) } });
+  bad.deps.stdout.isTTY = true;
+  assert.equal(await main(['knowledge', 'validate', '/k.json'], bad.deps), 1);
+  assert.match(bad.out(), /\/k\.json is invalid:\n {2}updated is not a YYYY-MM-DD date/);
+  const missing = harness();
+  assert.equal(await main(['knowledge', 'validate', '/none.json', '--json'], missing.deps), 1);
+  assert.match(JSON.parse(missing.out()).errors[0], /cannot read \/none\.json/);
+});
+
+test('knowledge show, stale and refresh', async () => {
+  const info = { source: 'cache', url: 'https://x/a.json', updated: '2026-12-01', builtinUpdated: '2026-11-07', harnesses: 6, families: 15, stale: [{ id: 'grok', updated: '2026-01-01' }], auto: [], warnings: [] };
+  const seen = [];
+  const ops = { knowledge: async (o) => { seen.push(o); return info; } };
+  const h = harness(ops);
+  h.deps.stdout.isTTY = true;
+  assert.equal(await main(['knowledge', 'show'], h.deps), 0);
+  assert.match(h.out(), /Knowledge.* from https:\/\/x\/a\.json \(cached today\), updated 2026-12-01/);
+  assert.match(h.out(), /stale: grok/);
+  const s = harness(ops);
+  assert.equal(await main(['knowledge', 'stale', '--json'], s.deps), 0);
+  assert.deepEqual(JSON.parse(s.out()), info.stale);
+  const r = harness(ops);
+  assert.equal(await main(['knowledge', 'refresh', '--json'], r.deps), 0);
+  assert.deepEqual(seen.map((o) => o.force), [false, false, true]);
+  const failed = harness({ knowledge: async () => ({ ...info, warnings: ['knowledge refresh failed: offline'] }) });
+  assert.equal(await main(['knowledge', 'refresh', '--json'], failed.deps), 1);
+  assert.equal(route(['knowledge', 'is', 'outdated']).kind, 'start');
 });
 
 test('journal add rejects invalid file with exit 2', async () => {

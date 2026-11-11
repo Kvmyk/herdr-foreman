@@ -84,6 +84,18 @@ export function formatBrief(b, ui) {
   return out.join('\n');
 }
 
+export function formatKnowledge(k, ui) {
+  const from = { builtin: 'the copy installed with foreman', cache: `${k.url} (cached today)`, remote: k.url }[k.source] ?? k.source;
+  const out = [
+    `${ui.bold('Knowledge')} from ${from}, updated ${k.updated}`,
+    `  ${k.harnesses} harnesses, ${k.families} model families${k.url ? '' : ' (knowledgeUrl is off)'}`,
+  ];
+  if (k.stale.length) out.push(`  stale: ${k.stale.map((f) => f.id).join(', ')}`);
+  if (k.auto.length) out.push(`  added automatically, no data yet: ${k.auto.join(', ')}`);
+  for (const w of k.warnings ?? []) out.push(ui.yellow(`warning: ${w}`));
+  return out.join('\n');
+}
+
 const pct = (x) => (x === null || x === undefined ? '-' : `${Math.round(x * 100)}%`);
 
 export function formatStats(stats, ui) {
