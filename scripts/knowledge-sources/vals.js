@@ -57,7 +57,7 @@ export function parseVals(html, page) {
   for (const [, e] of entries) counts[labelOf(e)] = (counts[labelOf(e)] ?? 0) + 1;
   const usual = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
   const kept = entries.filter(([, e]) => String(labelOf(e)) === usual || harnessKind(labelOf(e)));
-  return kept.map(([id, e]) => {
+  const records = kept.map(([id, e]) => {
     const label = labelOf(e);
     const suffix = label ? `-${slug(label)}` : null;
     const bare = suffix && id.toLowerCase().endsWith(suffix) ? id.slice(0, -suffix.length) : id;
@@ -69,6 +69,7 @@ export function parseVals(html, page) {
       date: isoDay(e.run_date) ?? updated, category: null,
     };
   });
+  return Object.assign(records, { updated });
 }
 
 export default {
@@ -79,7 +80,12 @@ export default {
   licence: 'none stated (public site; robots.txt allows the benchmark pages)',
   async read({ fetchImpl }) {
     const records = [];
-    for (const page of Object.keys(BENCHMARKS)) records.push(...parseVals(await getText(fetchImpl, BASE + page), page));
-    return records;
+    const updated = [];
+    for (const page of Object.keys(BENCHMARKS)) {
+      const parsed = parseVals(await getText(fetchImpl, BASE + page), page);
+      records.push(...parsed);
+      updated.push(parsed.updated);
+    }
+    return Object.assign(records, { updated: updated.sort().pop() });
   },
 };

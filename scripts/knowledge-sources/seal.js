@@ -1,8 +1,9 @@
 // Scale SEAL leaderboards. Each page embeds {"variants": [{key, label,
 // entries: [{model, version, rank, score, company, createdAt}]}]} in its
-// Next.js RSC payload. SWE Atlas variants map to foreman categories; SWE-bench
-// Pro V2 is read only for entries that name a foreman harness ("Opus 5 (Claude
-// Code)"), since its scores sit near the ceiling and say little on their own.
+// Next.js RSC payload. SWE Atlas variants become benchmarks (swe-atlas-qna,
+// swe-atlas-testwriting, swe-atlas-refactoring) mapped to foreman categories;
+// SWE-bench Pro V2 is read only for entries that name a foreman harness ("Opus 5
+// (Claude Code)"), since its scores sit near the ceiling and say little on their own.
 import { getText, nextFlight, grabJson, normaliseModel, effortWord, vendorFor, vendorLabel, harnessKind, isoDay, percent, fail } from './normalise.js';
 
 const BASE = 'https://scale.com/leaderboard/';
@@ -48,7 +49,7 @@ export function parseAtlas(html) {
     if (!entries.length) fail(`seal: SWE Atlas variant ${key} empty`);
     for (const e of entries) {
       const { record } = entryRecord(e, `swe-atlas ${key}`);
-      records.push({ ...record, benchmark: 'swe-atlas', harness: null, category });
+      records.push({ ...record, benchmark: `swe-atlas-${key}`, harness: null, category });
     }
   }
   return records;
