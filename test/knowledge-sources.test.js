@@ -116,10 +116,16 @@ test('collectFacts reads every source from the fixtures', async () => {
   }
   assert.deepEqual(Object.fromEntries(Object.entries(status).map(([id, s]) => [id, s.newest])), {
     'lmarena-webdev': '2026-11-10', 'lmarena-agent': '2026-11-08', epoch: '2026-11-11', livebench: '2026-11-06',
-    tbench: '2026-09-29', vals: '2026-11-09', seal: '2026-11-06',
+    tbench: '2026-11-11', vals: '2026-11-09', seal: '2026-11-06',
   });
   const keys = ['source', 'benchmark', 'model', 'vendor', 'harness', 'effort', 'score', 'unit', 'rank', 'of', 'date', 'category'];
-  for (const r of records) assert.deepEqual(Object.keys(r), keys);
+  for (const r of records) {
+    assert.deepEqual(Object.keys(r), keys);
+    assert.ok(Number.isInteger(r.rank) && Number.isInteger(r.of) && r.rank >= 1 && r.rank <= r.of, JSON.stringify(r));
+  }
+  // No two records of one source look identical apart from the score.
+  const facts = records.map((r) => [r.source, r.benchmark, r.model, r.harness, r.category].join('|'));
+  assert.equal(new Set(facts).size, facts.length);
 });
 
 test('every fixture model lands in the intended family of knowledge/agents.json', async () => {
@@ -150,6 +156,16 @@ test('a source that throws or answers garbage is ok false and never throws', asy
     fetchImpl: async () => response('{"rows": "nope"}'), now: NOW,
   });
   assert.deepEqual(broken, { records: [], status: { ok: false, newest: null, count: 0, error: broken.status.error } });
+});
+
+test('status.newest is the later of the source update date and the newest result', async () => {
+  const rec = { source: 'fake', benchmark: 'b', model: 'm', vendor: null, harness: null, effort: null, score: 50, unit: '%', date: '2026-09-01', category: null };
+  const fake = (updated) => ({ id: 'fake', ttlDays: 45, read: async () => Object.assign([rec], updated === undefined ? {} : { updated }) });
+  const newest = async (updated) => (await readSource(fake(updated), { fetchImpl: null, now: NOW })).status;
+  assert.equal((await newest('2026-11-10')).newest, '2026-11-10');
+  assert.equal((await newest(undefined)).newest, '2026-09-01');
+  assert.equal((await newest('2026-08-01')).newest, '2026-09-01');
+  assert.equal((await newest('yesterday')).ok, false);
 });
 
 test('a transient HTTP error is retried, a 404 is not', async () => {
@@ -251,8 +267,9 @@ test('lmarena-webdev: Elo per model, best effort kept', async () => {
 
 test('lmarena-agent: rank only, the IPS score is not passed on as % or Elo', async () => {
   const { records } = await read('lmarena-agent');
-  assert.deepEqual(records.map((r) => [r.rank, r.model, r.score, r.unit]), [
-    [1, 'claude-opus-5.5', null, null], [2, 'gemini-4-carbon', null, null], [3, 'gpt-6-astra', null, null], [4, 'kimi-k3.1-pro', null, null],
+  assert.deepEqual(records.map((r) => [r.rank, r.of, r.model, r.score, r.unit, r.benchmark]), [
+    [1, 4, 'claude-opus-5.5', null, null, 'agent-arena-rank'], [2, 4, 'gemini-4-carbon', null, null, 'agent-arena-rank'],
+    [3, 4, 'gpt-6-astra', null, null, 'agent-arena-rank'], [4, 4, 'kimi-k3.1-pro', null, null, 'agent-arena-rank'],
   ]);
 });
 
@@ -304,6 +321,18 @@ test('tbench: Terminal-Bench 4.1 harness + model pairs with foreman kinds', asyn
   ]);
   assert.ok(records.every((r) => r.benchmark === 'terminal-bench-4.1'));
   assert.equal(find(records, { model: 'claude-opus-5.5' })[0].date, '2026-09-22');
+  // Results keep their submission dates; newest is when the board last changed.
+  assert.equal(status.newest, '2026-11-11');
+});
+
+test('tbench: newest falls back to the newest result without updated_at', async () => {
+  const html = fixture('tbench.html').toString();
+  const noUpdate = html.replace(/,\\"updated_at\\":\\"2026-11-11T[^\\]*\\"\}/, '}');
+  assert.notEqual(noUpdate, html);
+  const { status } = await read('tbench', { 'https://www.tbench.ai/': noUpdate });
+  assert.deepEqual([status.ok, status.newest], [true, '2026-09-29']);
+  const bad = await read('tbench', { 'https://www.tbench.ai/': html.replace('\\"updated_at\\":\\"2026-11-11T', '\\"updated_at\\":\\"soon') });
+  assert.deepEqual([bad.records, bad.status.ok], [[], false]);
 });
 
 test('tbench: an unexpected shape gives ok false, never a wrong number', async () => {
@@ -352,12 +381,15 @@ test('vals: an unexpected shape gives ok false, never a wrong number', async () 
   }
 });
 
-test('seal: SWE Atlas variants become categories, SWE-bench Pro only harness pairs', async () => {
+test('seal: SWE Atlas variants become benchmarks with categories, SWE-bench Pro only harness pairs', async () => {
   const { records, status } = await read('seal');
   assert.equal(status.ok, true);
-  const atlas = find(records, { benchmark: 'swe-atlas' });
-  assert.deepEqual([...new Set(atlas.map((r) => r.category))], ['analysis', 'test-writing', 'refactor']);
-  assert.deepEqual(find(atlas, { category: 'refactor', rank: 1 }).map((r) => [r.model, r.score, r.date]), [['claude-opus-5.5', 77.1, '2026-11-06']]);
+  const atlas = records.filter((r) => r.benchmark.startsWith('swe-atlas'));
+  assert.deepEqual([...new Set(atlas.map((r) => `${r.benchmark}:${r.category}`))], [
+    'swe-atlas-qna:analysis', 'swe-atlas-testwriting:test-writing', 'swe-atlas-refactoring:refactor',
+  ]);
+  assert.deepEqual(find(atlas, { benchmark: 'swe-atlas-refactoring', rank: 1 }).map((r) => [r.model, r.score, r.date]), [['claude-opus-5.5', 77.1, '2026-11-06']]);
+  assert.equal(find(atlas, { model: 'claude-opus-5.5' }).length, 3);
   const pro = find(records, { benchmark: 'swe-bench-pro-v2' });
   assert.deepEqual(pro.map((r) => [r.model, r.harness, r.effort, r.score]), [
     ['claude-opus-5', 'claude', 'xhigh', 99.4], ['gpt-6-astra', 'codex', 'high', 96.9], ['gpt-5.6-sol', 'codex', 'xhigh', 95.5],

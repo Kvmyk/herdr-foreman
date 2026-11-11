@@ -20,7 +20,10 @@ export function parseTbench(html) {
   const rankBy = board.leaderboard.rank_by?.[0]?.accessor;
   if (rankBy !== 'metrics.accuracy') fail(`tbench: ranked by ${rankBy}, expected metrics.accuracy`);
   if (!board.rows.length) fail('tbench: no rows');
-  return board.rows.map((row) => {
+  // Row dates are submission dates; the board's updated_at says when it last changed.
+  const updatedAt = board.leaderboard.updated_at;
+  const updated = updatedAt === undefined ? undefined : isoDay(updatedAt) ?? fail(`tbench: bad updated_at ${updatedAt}`);
+  const records = board.rows.map((row) => {
     const md = row?.metadata ?? fail('tbench: row without metadata');
     const modelLabel = md.model_display?.label;
     const agentLabel = md.agent_display?.label;
@@ -33,6 +36,7 @@ export function parseTbench(html) {
       date: isoDay(md.date) ?? fail(`tbench: bad date ${md.date}`), category: null,
     };
   });
+  return updated ? Object.assign(records, { updated }) : records;
 }
 
 export default {

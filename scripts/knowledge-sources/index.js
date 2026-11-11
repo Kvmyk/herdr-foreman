@@ -9,7 +9,15 @@
 //   harness  foreman kind (claude, codex, opencode, agy, gemini, pi) or null
 //   unit     '%' or 'elo'; null together with score when a board has no comparable number
 //   rank/of  position among the records of the same source, benchmark and category,
-//            after keeping the best effort variant per model and harness
+//            after keeping the best effort variant per model and harness; always set,
+//            also for rank-only boards whose score is null
+//   date     date of the result (a submission date on some boards)
+//
+// status[id].newest is the last time the source itself changed, not the newest
+// result: a board that re-ranks old submissions is still live. An adapter whose
+// payload has its own updated or publish date returns it as records.updated
+// (an array property, so read() still returns records[]); newest is the later
+// of that date and the newest record date.
 import { CATEGORIES, HARNESS_KINDS, isoDay } from './normalise.js';
 import lmarenaWebdev from './lmarena-webdev.js';
 import lmarenaAgent from './lmarena-agent.js';
@@ -82,8 +90,10 @@ export async function readSource(source, { fetchImpl, now }) {
     const raw = await source.read({ fetchImpl, now, ttlDays: source.ttlDays });
     if (!Array.isArray(raw) || !raw.length) throw new Error(`${source.id}: no records`);
     for (const r of raw) checkRecord(r, source.id);
+    if (raw.updated !== undefined && isoDay(raw.updated) !== raw.updated) throw new Error(`${source.id}: bad updated date ${raw.updated}`);
     const records = finalise(raw);
-    const newest = records.map((r) => r.date).sort().pop();
+    for (const r of records) if (!Number.isInteger(r.rank) || !Number.isInteger(r.of) || r.rank < 1 || r.rank > r.of) throw new Error(`${source.id}: bad rank`);
+    const newest = [raw.updated, ...records.map((r) => r.date)].filter(Boolean).sort().pop();
     return { records, status: { ok: true, newest, count: records.length } };
   } catch (err) {
     return { records: [], status: { ok: false, newest: null, count: 0, error: String(err?.message ?? err) } };
