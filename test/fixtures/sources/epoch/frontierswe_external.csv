@@ -1,0 +1,7 @@
+Model version,Harness,Score,Best@5,Worst@5,Implementation,Performance,Research,Average cost (USD),Average duration (hours),Aggregation,Release date,Organization,Country,Training compute (FLOP),Training compute notes,Name,Average rank,Implementation rank,Performance rank,Research rank,Source,Notes
+claude-fable-5-2_max,proximus,0.6994018470588234,0.7919,0.6204999999999999,0.8778,0.6058,0.6357,168.78,16.52,Mean@5,2026-11-09,Anthropic,United States of America,,,Claude Fable 5.2,,,,,https://www.frontierswe.com/,
+gpt-6-astra_max,proximus,0.6550757455882352,0.73,0.5511,0.8695,0.48310000000000003,0.5911,1029.65,12.1,Mean@5,2026-09-03,OpenAI,United States of America,9.4e+26,"per OpenAI and affiliates (e.g. Nvidia), 6 Astra was trained on at least 100,000 GB200s in Abilene, Texas (so 100,000 in ""Hardware quantity"" is a lower bound/underestimate).
+
+This suggests around 9e26 FLOP (corresponding to ~100k GB200s over 90 days at 25% FP8 MFU). See more detailed estimate in this notebook, yielding a CI of ~[5e26, 2e27] FLOP.
+https://colab.research.google.com/drive/1DRlugIQs-_zoV66AJT1gQg6I1-NX7NqN ",GPT-6 Astra,,,,,https://www.frontierswe.com/,
+claude-opus-5-5_max,proximus,0.623309882352941,0.7152,0.5199,0.8039000000000001,0.4529,0.5733,98.87,14.25,Mean@5,2026-09-22,Anthropic,United States of America,,,Claude Opus 5.5,,,,,https://www.frontierswe.com/,

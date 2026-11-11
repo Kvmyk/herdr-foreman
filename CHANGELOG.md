@@ -4,9 +4,13 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
-### Knowledge
+### Changed
 
-- Knowledge refresh 2026-11-11: 1 new unverified model family (gemma).
+- The knowledge about agents now rests only on public leaderboards, the npm registry and models.dev, refreshed weekly with dated facts, and `foreman brief` shows them (`unproven` marks a family with no facts).
+
+### Removed
+
+- The weekly refresh no longer rewrites text with Gemini, so `GEMINI_API_KEY` is not used any more.
 
 ## [0.9.1] - 2026-11-11
 

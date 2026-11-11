@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  detectNewModels, analyzeNewModels, checkSources, validateAnswer, rewriteTendencies, refresh, callGemini,
-  stripHtml, addChangelogLine, serializeKnowledge, renderLogEntry,
+  detectNewModels, analyzeNewModels, checkSources, refresh, serializeKnowledge, renderLogEntry,
+  applyFacts, factText, selectFamilyFacts, selectHarnessFacts, fetchReleases, latestModels,
 } from '../scripts/refresh-knowledge.js';
 
 const NOW = Date.parse('2026-11-11T06:00:00Z');
+const DAY = 24 * 3600 * 1000;
 const knowledge = {
   updated: '2026-11-07',
   sources: { s1: 'https://example.test/a', s2: 'https://example.test/b' },
@@ -14,7 +15,7 @@ const knowledge = {
     { id: 'claude-opus', match: 'claude-opus', vendor: 'anthropic', tendencies: ['Scores 78.9% on bench.'], updated: '2026-11-07', sources: ['s1'] },
   ],
 };
-const model = (id, extra = {}) => ({ id, release_date: '2026-09-01', modalities: { output: ['text'] }, ...extra });
+const model = (id, extra = {}) => ({ id, release_date: '2026-09-01', tool_call: true, modalities: { output: ['text'] }, ...extra });
 const api = {
   anthropic: { models: { a: model('claude-opus-5-5'), b: model('claude-mystic-1', { family: 'claude-mystic' }), c: model('claude-mystic-2', { family: 'claude-mystic' }) } },
   google: { models: { d: model('gemini-9-image-preview'), e: model('gemini-9-pro', { release_date: '2024-01-01' }) } },
@@ -85,7 +86,7 @@ test('aliases and dated duplicates are ignored when a canonical id exists; stub 
 
 test('renderLogEntry reports review items and notes redirects separately from warnings', () => {
   const result = {
-    today: '2026-11-11', stubs: [], rewrites: { changes: [] }, warnings: [],
+    today: '2026-11-11', stubs: [], warnings: [],
     review: [{ family: 'gpt', provider: 'openai', models: ['gpt-x-latest'], reason: 'variant of existing family gpt' }],
     links: [
       { id: 'a', url: 'https://e.test/a', status: 200, verdict: 'moved', finalUrl: 'https://e.test/b' },
@@ -104,7 +105,7 @@ test('refresh adds stubs, bumps updated, and leaves existing entries untouched',
   const result = await refresh({ knowledge, api, fetchImpl, now: NOW });
   assert.equal(result.changed, true);
   assert.equal(result.knowledge.updated, '2026-11-11');
-  assert.deepEqual(result.knowledge.families[0], knowledge.families[0]);
+  assert.deepEqual({ ...result.knowledge.families[0], latest: undefined }, { ...knowledge.families[0], latest: undefined });
   assert.equal(result.knowledge.families.length, 3);
   assert.equal(knowledge.families.length, 1);
   assert.ok(result.knowledge.families.slice(1).every((f) => f.auto === true && !('models' in f)));
@@ -112,9 +113,10 @@ test('refresh adds stubs, bumps updated, and leaves existing entries untouched',
 
 test('refresh keeps updated when nothing changed', async () => {
   const fetchImpl = async () => ({ ok: true, status: 200 });
-  const result = await refresh({ knowledge, api: {}, fetchImpl, now: NOW });
-  assert.equal(result.changed, false);
-  assert.equal(result.knowledge.updated, '2026-11-07');
+  const first = await refresh({ knowledge, api: {}, fetchImpl, now: NOW });
+  const again = await refresh({ knowledge: first.knowledge, api: {}, fetchImpl, now: NOW + 7 * DAY });
+  assert.equal(again.changed, false);
+  assert.equal(again.knowledge.updated, first.knowledge.updated);
 });
 
 test('checkSources: HEAD, GET fallback, dead, unreachable and redirect', async () => {
@@ -154,107 +156,186 @@ test('checkSources never runs more than 4 requests at once', async () => {
   assert.equal(peak, 4);
 });
 
-const family = knowledge.families[0];
-const input = { family, allowedSources: ['s1', 's2'], pages: [{ id: 's1', text: 'Opus scored 79.5% and 80 on the other test.' }] };
-const answer = (over = {}) => JSON.stringify({ id: 'claude-opus', match: 'claude-opus', vendor: 'anthropic', tendencies: ['Scored 79.5%.'], sources: ['s1'], ...over });
-
-test('validateAnswer accepts a grounded answer', () => {
-  const v = validateAnswer(answer(), family, input, ['s1', 's2']);
-  assert.deepEqual(v, { ok: true, entry: { tendencies: ['Scored 79.5%.'], sources: ['s1'] } });
-});
-
-test('validateAnswer rejects bad JSON, changed identity, unknown sources, invented numbers, bad schema', () => {
-  const reject = (text, reason) => {
-    const v = validateAnswer(text, family, input, ['s1', 's2']);
-    assert.equal(v.ok, false);
-    assert.match(v.reason, reason);
-  };
-  reject('not json', /JSON/);
-  reject('[]', /object/);
-  reject(answer({ id: 'other' }), /id changed/);
-  reject(answer({ match: '.*' }), /match changed/);
-  reject(answer({ vendor: 'x' }), /vendor changed/);
-  reject(answer({ sources: ['s9'] }), /unknown source/);
-  reject(answer({ tendencies: ['Scored 91.2%.'] }), /number 91\.2/);
-  reject(answer({ tendencies: ['a', 'b', 'c', 'd', 'e'] }), /schema/);
-  reject(answer({ tendencies: ['x'.repeat(201)] }), /schema/);
-  reject(answer({ tendencies: [5] }), /schema/);
-});
-
-const geminiReply = (text) => ({ ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }) });
-const pageFetch = (geminiHandler) => async (url, opts = {}) => {
-  if (url.startsWith('https://generativelanguage.googleapis.com/')) return geminiHandler(url, opts);
-  return { ok: true, status: 200, text: async () => '<html><script>var x=1</script><p>Opus scored 79.5% here.</p></html>' };
-};
-
-test('rewriteTendencies applies a valid answer and rejects an invalid one without failing', async () => {
-  const k = { ...knowledge, families: [family, { ...family, id: 'second', match: 'second' }] };
-  let n = 0;
-  const fetchImpl = pageFetch(() => geminiReply(++n === 1
-    ? answer({ tendencies: ['Scored 79.5%.'] })
-    : JSON.stringify({ id: 'second', match: 'second', vendor: 'anthropic', tendencies: ['Scored 99%.'], sources: ['s1'] })));
-  const r = await rewriteTendencies({ knowledge: k, fetchImpl, apiKey: 'k' });
-  assert.equal(r.skipped, false);
-  assert.deepEqual(r.changes.map((c) => c.id), ['claude-opus']);
-  assert.deepEqual(r.changes[0].before, ['Scores 78.9% on bench.']);
-  assert.match(r.warnings[0], /second rejected: number 99/);
-});
-
-test('rewriteTendencies skips part B on a quota error and applies nothing', async () => {
-  const fetchImpl = pageFetch(() => ({ ok: false, status: 429 }));
-  const r = await rewriteTendencies({ knowledge, fetchImpl, apiKey: 'k' });
-  assert.equal(r.skipped, true);
-  assert.deepEqual(r.changes, []);
-  assert.match(r.warnings[0], /part B skipped: .*429/);
-});
-
-test('callGemini sends JSON-only config and falls back once on 404', async () => {
-  const urls = [];
-  let body;
-  const fetchImpl = async (url, opts) => {
-    urls.push(url);
-    body = JSON.parse(opts.body);
-    return url.includes('gemini-3.8-flash') ? { ok: false, status: 404 } : geminiReply('{}');
-  };
-  const r = await callGemini({ fetchImpl, apiKey: 'k', model: 'gemini-3.8-flash', input });
-  assert.equal(r.model, 'gemini-3.6-flash');
-  assert.equal(urls.length, 2);
-  assert.equal(body.generationConfig.temperature, 0);
-  assert.equal(body.generationConfig.responseMimeType, 'application/json');
-  assert.ok(body.generationConfig.responseJsonSchema);
-});
-
-test('refresh runs part B only with GEMINI_API_KEY and logs the change', async () => {
-  let gemini = 0;
-  const fetchImpl = pageFetch(() => { gemini++; return geminiReply(answer()); });
-  const without = await refresh({ knowledge, api: {}, fetchImpl, env: {}, now: NOW });
-  assert.equal(gemini, 0);
-  assert.equal(without.changed, false);
-  const withKey = await refresh({ knowledge, api: {}, fetchImpl, env: { GEMINI_API_KEY: 'k' }, now: NOW });
-  assert.equal(withKey.changed, true);
-  assert.deepEqual(withKey.knowledge.families[0].tendencies, ['Scored 79.5%.']);
-  assert.equal(withKey.knowledge.families[0].updated, '2026-11-11');
-  const log = renderLogEntry(withKey);
-  assert.match(log, /## 2026-11-11/);
-  assert.match(log, /old: \["Scores 78\.9% on bench\."\]/);
-  assert.match(log, /new: \["Scored 79\.5%\."\]/);
-});
-
-test('stripHtml drops scripts and tags and caps length', () => {
-  assert.equal(stripHtml('<style>a{}</style><p>Hi &amp; <b>bye</b></p><script>x()</script>'), 'Hi & bye');
-  assert.equal(stripHtml('<p>abcdef</p>', 3), 'abc');
-});
-
-test('addChangelogLine creates and extends the Knowledge section under Unreleased', () => {
-  const base = '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-01-01\n\n### Added\n\n- x\n';
-  const once = addChangelogLine(base, '- one');
-  assert.equal(once, '# Changelog\n\n## [Unreleased]\n\n### Knowledge\n\n- one\n\n## [0.1.0] - 2026-01-01\n\n### Added\n\n- x\n');
-  const twice = addChangelogLine(once, '- two');
-  assert.match(twice, /### Knowledge\n\n- one\n- two\n\n## \[0\.1\.0\]/);
-});
-
 test('serializeKnowledge reproduces the committed file byte for byte', () => {
   const file = new URL('../knowledge/agents.json', import.meta.url);
   const text = readFileSync(file, 'utf8');
   assert.equal(serializeKnowledge(JSON.parse(text)), text);
+});
+
+// ---- Facts, releases, latest models, compatibility ----------------------
+
+const rec = (over = {}) => ({
+  source: 'tbench', benchmark: 'Terminal-Bench 4.1', model: 'claude-opus-5.5', vendor: 'anthropic', harness: 'claude', effort: null,
+  score: 65.8, unit: '%', rank: 1, of: 35, date: '2026-11-11', category: null, ...over,
+});
+const src = (id, over = {}) => ({ id, url: `https://example.test/${id}`, title: id, kind: 'data', licence: 'CC-BY-4.0', ttlDays: 45, read: async () => [], ...over });
+const base = () => ({
+  updated: '2026-11-07',
+  categories: ['bugfix'],
+  rules: [],
+  sources: { tbench: 'https://example.test/tbench' },
+  harnesses: { claude: { strengths: [], weaknesses: [], sources: [] }, pi: { strengths: [] } },
+  families: [
+    { id: 'claude-opus', match: 'claude-opus', vendor: 'anthropic', tendencies: ['old'], updated: '2026-08-01', sources: [] },
+    { id: 'gpt', match: 'gpt-[0-9]', vendor: 'openai', tendencies: ['old'], updated: '2026-08-01', sources: [] },
+  ],
+});
+
+test('factText renders the benchmark, category, model, score, rank, harness and date', () => {
+  assert.equal(factText(rec({ model: 'x' })), 'Terminal-Bench 4.1, x: 65.8% (#1 of 35, with Claude Code, 2026-11-11)');
+  assert.equal(factText(rec({ benchmark: 'SWE Atlas refactoring', category: 'refactor', harness: null, score: 77.1, rank: 1, of: 16, date: '2026-11-06' })),
+    'SWE Atlas refactoring (refactor), claude-opus-5.5: 77.1% (#1 of 16, 2026-11-06)');
+  assert.equal(factText(rec({ harness: null, rank: null, of: null, unit: 'elo', score: 1513.0021, effort: 'max' })),
+    'Terminal-Bench 4.1, claude-opus-5.5 (max): 1513 elo (2026-11-11)');
+});
+
+test('factText reads well when the board has no score', () => {
+  assert.equal(factText(rec({ benchmark: 'Agent Arena', harness: null, score: null, unit: null, rank: 3, of: 55, date: '2026-11-08' })),
+    'Agent Arena, claude-opus-5.5: #3 of 55 (2026-11-08)');
+});
+
+test('applyFacts writes facts, tendencies and updated from the newest fact, and lists unmatched models', () => {
+  const k = base();
+  const records = [
+    rec(), rec({ benchmark: 'Other', score: 70, rank: 2, date: '2026-10-01', harness: null }),
+    rec({ model: 'mystery-1' }), rec({ model: 'mystery-1', benchmark: 'Other' }),
+  ];
+  const { frozen, unmatched } = applyFacts(k, { records, status: { tbench: { ok: true, newest: '2026-11-11', count: 4 } } }, [src('tbench')], '2026-11-11');
+  assert.deepEqual(frozen, []);
+  assert.deepEqual(unmatched, [{ model: 'mystery-1', source: 'tbench' }]);
+  const opus = k.families[0];
+  assert.equal(opus.updated, '2026-11-11');
+  assert.deepEqual(opus.sources, ['tbench']);
+  assert.equal(opus.tendencies[0], 'Terminal-Bench 4.1, claude-opus-5.5: 65.8% (#1 of 35, with Claude Code, 2026-11-11)');
+  assert.equal(opus.facts.length, 2);
+  assert.equal(opus.facts[0].harness, 'claude');
+  assert.equal(k.harnesses.claude.facts.length, 1);
+  assert.equal(k.harnesses.pi.facts, undefined);
+  assert.deepEqual(k.families[1].tendencies, []);
+  assert.equal(k.families[1].updated, '2026-08-01');
+  assert.deepEqual(k.sourceMeta.tbench, { title: 'tbench', kind: 'data', licence: 'CC-BY-4.0', ttlDays: 45, newest: '2026-11-11', checked: '2026-11-11', ok: true });
+});
+
+const F = (over) => ({ ...rec(over), text: `${over.model ?? 'm'} ${over.benchmark ?? 'B'}` });
+
+test('selectFamilyFacts keeps the best model per benchmark, harness and category facts first, at most 8', () => {
+  const facts = [
+    F({ benchmark: 'Arena', harness: null, model: 'claude-opus-5', rank: 5, of: 50 }),
+    F({ benchmark: 'Arena', harness: null, model: 'claude-opus-5.5', rank: 2, of: 50 }),
+    F({ benchmark: 'Arena', harness: null, model: 'claude-opus-4.8', rank: 9, of: 50 }),
+    F({ benchmark: 'TB', harness: 'claude', model: 'claude-opus-5.5', rank: 9, of: 10 }),
+    F({ benchmark: 'SWE', harness: null, category: 'refactor', model: 'claude-opus-5.5', rank: 5, of: 10 }),
+    F({ benchmark: 'Tie', harness: null, model: 'claude-opus-5', rank: 1, of: 5 }),
+    F({ benchmark: 'Tie', harness: null, model: 'claude-opus-5.5', rank: 1, of: 5 }),
+  ];
+  const out = selectFamilyFacts(facts);
+  assert.deepEqual(out.map((f) => `${f.benchmark}:${f.model}`), [
+    'SWE:claude-opus-5.5', 'TB:claude-opus-5.5', 'Arena:claude-opus-5.5', 'Tie:claude-opus-5.5']);
+  const many = Array.from({ length: 12 }, (_, i) => F({ benchmark: `B${i}`, harness: null, rank: i + 1, of: 20 }));
+  assert.equal(selectFamilyFacts(many).length, 8);
+});
+
+test('selectHarnessFacts keeps the best pair per benchmark and model family, best relative rank first', () => {
+  const items = [
+    { ...F({ benchmark: 'TB', model: 'claude-opus-5.5', rank: 4, of: 10 }), family: 'claude-opus' },
+    { ...F({ benchmark: 'TB', model: 'claude-opus-5', rank: 2, of: 10 }), family: 'claude-opus' },
+    { ...F({ benchmark: 'TB', model: 'claude-sonnet-5.5', rank: 3, of: 10 }), family: 'claude-sonnet' },
+    { ...F({ benchmark: 'Other', model: 'claude-opus-5.5', rank: 1, of: 2 }), family: 'claude-opus' },
+  ];
+  assert.deepEqual(selectHarnessFacts(items).map((f) => `${f.benchmark}:${f.model}`),
+    ['TB:claude-opus-5', 'TB:claude-sonnet-5.5', 'Other:claude-opus-5.5']);
+});
+
+test('a source older than its ttl is frozen and its facts are dropped', () => {
+  const k = base();
+  applyFacts(k, { records: [rec()], status: { tbench: { ok: true, newest: '2026-11-11', count: 1 } } }, [src('tbench')], '2026-11-11');
+  const { frozen } = applyFacts(k, { records: [rec({ date: '2026-08-01' })], status: { tbench: { ok: true, newest: '2026-08-01', count: 1 } } }, [src('tbench')], '2026-11-11');
+  assert.match(frozen[0].reason, /last changed 2026-08-01, more than 45 days ago/);
+  assert.equal(k.families[0].facts, undefined);
+  assert.deepEqual(k.families[0].tendencies, []);
+  assert.equal(k.harnesses.claude.facts, undefined);
+});
+
+test('one failure keeps the facts, two failures in a row freeze the source', () => {
+  const k = base();
+  applyFacts(k, { records: [rec()], status: { tbench: { ok: true, newest: '2026-11-11', count: 1 } } }, [src('tbench')], '2026-11-11');
+  const down = { records: [], status: { tbench: { ok: false, newest: null, count: 0, error: 'HTTP 500' } } };
+  const first = applyFacts(k, down, [src('tbench')], '2026-11-18');
+  assert.deepEqual(first.frozen, []);
+  assert.equal(k.families[0].facts.length, 1);
+  assert.equal(k.sourceMeta.tbench.ok, false);
+  assert.equal(k.sourceMeta.tbench.newest, '2026-11-11');
+  const second = applyFacts(k, down, [src('tbench')], '2026-11-25');
+  assert.match(second.frozen[0].reason, /ok false twice in a row \(HTTP 500\)/);
+  assert.equal(k.families[0].facts, undefined);
+});
+
+test('fetchReleases reads dist-tags.latest and its publish time; a failing package is a warning', async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes('claude-code')) return { ok: true, json: async () => ({ 'dist-tags': { latest: '2.1.322' }, time: { '2.1.322': '2026-11-10T01:58:41.811Z' } }) };
+    return { ok: false, status: 503 };
+  };
+  const r = await fetchReleases(fetchImpl, { claude: '@anthropic-ai/claude-code', pi: '@earendil-works/pi-coding-agent' });
+  assert.deepEqual(r.releases, { claude: { version: '2.1.322', date: '2026-11-10', source: 'npm' } });
+  assert.match(r.warnings[0], /pi-coding-agent not read: HTTP 503/);
+});
+
+test('latestModels picks the newest first-party model that can call tools and writes text', () => {
+  const k = base();
+  const dev = { anthropic: { models: { a: { id: 'claude-opus-5-5', release_date: '2026-09-01', tool_call: true }, b: { id: 'claude-opus-4-6', release_date: '2026-02-01', tool_call: true }, v: { id: 'claude-opus-video-1', release_date: '2026-10-01', tool_call: true, modalities: { output: ['video'] } }, n: { id: 'claude-opus-6-notools', release_date: '2026-10-05', tool_call: false } } }, reseller: { models: { c: { id: 'claude-opus-9', release_date: '2026-11-01' } } } };
+  assert.deepEqual(latestModels(k, dev), { 'claude-opus': { id: 'claude-opus-5-5', date: '2026-09-01' } });
+});
+
+test('refresh with a fake collectFacts stores facts, releases and the log lines; a second run changes nothing', async () => {
+  const registry = { 'dist-tags': { latest: '2.1.322' }, time: { '2.1.322': '2026-11-10T01:58:41.811Z' } };
+  const fetchImpl = async (url) => (url.startsWith('https://registry.npmjs.org/') && url.length > 30
+    ? { ok: true, status: 200, url, json: async () => registry }
+    : { ok: true, status: 200, url });
+  const collectFacts = async () => ({
+    records: [rec(), rec({ source: 'dead', model: 'gpt-6.1-sol', harness: null })],
+    status: { tbench: { ok: true, newest: '2026-11-11', count: 1 }, dead: { ok: true, newest: '2026-01-01', count: 1 } },
+  });
+  const sourceList = [src('tbench'), src('dead')];
+  const k = base();
+  const r = await refresh({ knowledge: k, api, fetchImpl, collectFacts, sourceList, packages: { claude: '@anthropic-ai/claude-code' }, now: NOW });
+  assert.equal(r.changed, true);
+  assert.equal(r.knowledge.updated, '2026-11-11');
+  assert.equal(r.knowledge.families[0].facts.length, 1);
+  assert.deepEqual(r.knowledge.harnesses.claude.release, { version: '2.1.322', date: '2026-11-10', source: 'npm' });
+  assert.deepEqual(r.knowledge.families[0].latest, { id: 'claude-opus-5-5', date: '2026-09-01' });
+  assert.deepEqual(r.knowledge.sourceMeta.npm.newest, '2026-11-10');
+  assert.deepEqual(r.frozen.map((f) => f.id), ['dead']);
+  const log = renderLogEntry(r);
+  assert.match(log, /Source `dead` is frozen, its facts were dropped/);
+  assert.match(log, /Harness `claude` release unknown -> 2.1.322/);
+  const again = await refresh({ knowledge: r.knowledge, api, fetchImpl, collectFacts, sourceList, packages: { claude: '@anthropic-ai/claude-code' }, now: NOW + 7 * DAY });
+  assert.equal(again.changed, false);
+});
+
+test('the regenerated shape is valid for the current validator and for foreman v0.9.1 clients', async () => {
+  const { validateKnowledge: validateOld } = await import('./fixtures/validate-knowledge-v0.9.1.js');
+  const { validateKnowledge } = await import('../src/knowledge.js');
+  const committed = JSON.parse(readFileSync(new URL('../knowledge/agents.json', import.meta.url), 'utf8'));
+  const fetchImpl = async (url) => ({ ok: true, status: 200, url, json: async () => ({ 'dist-tags': { latest: '1.0.0' }, time: { '1.0.0': '2026-11-10T00:00:00Z' } }) });
+  const collectFacts = async () => ({
+    records: [rec(), rec({ model: 'gpt-6.1-sol', harness: 'codex', rank: 3 }), rec({ model: 'gemini-4-argon', harness: null, unit: 'elo', score: 1530.1 })],
+    status: { tbench: { ok: true, newest: '2026-11-11', count: 3 } },
+  });
+  const r = await refresh({ knowledge: committed, api, fetchImpl, collectFacts, sourceList: [src('tbench')], now: NOW });
+  assert.ok(r.knowledge.families.some((f) => f.facts?.length));
+  for (const k of [committed, r.knowledge]) {
+    assert.deepEqual(validateOld(k), []);
+    assert.deepEqual(validateKnowledge(k), []);
+  }
+  assert.deepEqual(validateOld(JSON.parse(serializeKnowledge(r.knowledge))), []);
+});
+
+test('serializeKnowledge keeps facts, release and sourceMeta on one line each and round-trips', async () => {
+  const collectFacts = async () => ({ records: [rec()], status: { tbench: { ok: true, newest: '2026-11-11', count: 1 } } });
+  const r = await refresh({ knowledge: base(), api: {}, fetchImpl: async () => ({ ok: false, status: 500 }), collectFacts, sourceList: [src('tbench')], now: NOW });
+  const text = serializeKnowledge(r.knowledge);
+  assert.deepEqual(JSON.parse(text), r.knowledge);
+  assert.equal(serializeKnowledge(JSON.parse(text)), text);
+  assert.match(text, /\n {8}\{"text":"Terminal-Bench 4\.1, claude-opus-5\.5: 65\.8%[^\n]*"source":"tbench"\}\n/);
+  assert.match(text, /\n {4}"tbench": \{"title":"tbench"[^\n]*"ok":true\},?\n/);
 });

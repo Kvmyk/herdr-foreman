@@ -27,7 +27,7 @@ Run `foreman brief --json`. It contains:
 
 - `agents`: agents that work right now, with `models` (`access`: subscription, api, local, free; `family`) and `defaultModel`. `note` flags problems such as a default that is no longer available.
 - `unavailable`: agents left out, with `reason`. Tell the user why in one sentence.
-- `harnesses` and `families`: strengths and tendencies. A family with `stale: true` is older than 90 days.
+- `harnesses` and `families`: strengths, `release` (newest version of the program) and dated facts. A family's `tendencies` are dated benchmark facts (score, rank, harness, date); `latest` is its newest model. `stale: true`: its newest fact is older than 90 days. `unproven: true`: no facts at all, so give it a smaller part.
 - `rules`, `categories`, `modelFacts` (context size, price per million tokens), `stats` (the user's own results; `trusted` from 5 results) and `maxWorkers`.
 
 ## Step 1: read the repository

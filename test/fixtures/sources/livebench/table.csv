@@ -1,0 +1,7 @@
+model,long_agentic,reasoning,coding,browser,data_analysis,research,design
+claude-fable-5.2,82.9,88.8,79.2,86.9,81.5,94.5,85.1
+claude-opus-5.5,72.8,92.2,87.1,88.4,80.3,88.9,83.3
+gemini-4-argon,58.5,95.1,85.7,82.8,85.2,86.8,69.2
+gpt-6.1-sol,65.6,92.6,82.1,93.3,82.7,90.0,79.6
+kimi-k3.1-pro,38.7,91.1,67.8,75.9,79.1,82.1,73.7
+qwen3.8-max,26.6,88.2,60.9,49.4,78.4,72.8,76.6

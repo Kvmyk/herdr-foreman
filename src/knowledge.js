@@ -72,7 +72,24 @@ export function mergeKnowledge(base, extra, { appendRules = true } = {}) {
 const isIsoDate = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
 const isStringList = (v) => Array.isArray(v) && v.every((x) => typeof x === 'string');
 
+const isNumberOrNull = (v) => v === null || v === undefined || (typeof v === 'number' && Number.isFinite(v));
+const isTextOrNull = (v) => v === null || v === undefined || typeof v === 'string';
+
+// A dated fact tied to a source: { text, date, source, ...optional benchmark fields }.
+function factProblems(f, where, sources) {
+  if (!isObject(f)) return [`${where}: a fact is not an object`];
+  const out = [];
+  if (typeof f.text !== 'string' || !f.text) out.push(`${where}: a fact has no text`);
+  if (!isIsoDate(f.date)) out.push(`${where}: a fact has no YYYY-MM-DD date`);
+  if (typeof f.source !== 'string' || !(f.source in sources)) out.push(`${where}: a fact cites source ${f.source} that is not in sources`);
+  for (const n of ['score', 'rank', 'of']) if (!isNumberOrNull(f[n])) out.push(`${where}: fact ${n} is not a number`);
+  for (const t of ['benchmark', 'unit', 'harness', 'category', 'model', 'effort']) if (!isTextOrNull(f[t])) out.push(`${where}: fact ${t} is not a string`);
+  return out;
+}
+
 // Problems with knowledge data, one sentence each; empty when it is usable.
+// The optional fields facts, release, latest and sourceMeta are checked when present;
+// foreman 0.9.x clients ignore them (see test/fixtures/validate-knowledge-v0.9.1.js).
 export function validateKnowledge(k) {
   if (!isObject(k)) return ['knowledge is not a JSON object'];
   const errors = [];
@@ -81,6 +98,25 @@ export function validateKnowledge(k) {
   if (!isStringList(k.rules)) errors.push('rules is not a list of strings');
   if (k.sources !== undefined && (!isObject(k.sources) || Object.values(k.sources).some((u) => typeof u !== 'string'))) errors.push('sources is not an object of URLs');
   const sources = isObject(k.sources) ? k.sources : {};
+  if (k.sourceMeta !== undefined) {
+    if (!isObject(k.sourceMeta)) errors.push('sourceMeta is not an object');
+    else {
+      for (const [id, m] of Object.entries(k.sourceMeta)) {
+        if (!isObject(m)) errors.push(`sourceMeta ${id} is not an object`);
+        else {
+          if (m.ttlDays !== undefined && !(typeof m.ttlDays === 'number' && m.ttlDays > 0)) errors.push(`sourceMeta ${id}: ttlDays is not a positive number`);
+          for (const d of ['newest', 'checked']) if (m[d] !== undefined && m[d] !== null && !isIsoDate(m[d])) errors.push(`sourceMeta ${id}: ${d} is not a YYYY-MM-DD date`);
+          if (m.ok !== undefined && typeof m.ok !== 'boolean') errors.push(`sourceMeta ${id}: ok is not true or false`);
+          for (const t of ['title', 'kind', 'licence']) if (!isTextOrNull(m[t])) errors.push(`sourceMeta ${id}: ${t} is not a string`);
+        }
+      }
+    }
+  }
+  const checkFacts = (list, where) => {
+    if (list === undefined) return;
+    if (!Array.isArray(list)) errors.push(`${where}: facts is not a list`);
+    else for (const f of list) errors.push(...factProblems(f, where, sources));
+  };
   const checkSources = (list, where) => {
     if (list === undefined) return;
     if (!isStringList(list)) errors.push(`${where}: sources is not a list of source ids`);
@@ -96,6 +132,11 @@ export function validateKnowledge(k) {
       }
       for (const f of ['strengths', 'weaknesses']) if (h[f] !== undefined && !isStringList(h[f])) errors.push(`harness ${name}: ${f} is not a list of strings`);
       checkSources(h.sources, `harness ${name}`);
+      checkFacts(h.facts, `harness ${name}`);
+      if (h.release !== undefined) {
+        if (!isObject(h.release) || typeof h.release.version !== 'string' || !isIsoDate(h.release.date)) errors.push(`harness ${name}: release needs a version and a YYYY-MM-DD date`);
+        else if (!(h.release.source in sources)) errors.push(`harness ${name}: release source ${h.release.source} is not in sources`);
+      }
     }
   }
   if (!Array.isArray(k.families)) {
@@ -126,6 +167,8 @@ export function validateKnowledge(k) {
     // auto: true marks a family a script added with no data about it yet.
     if (f.auto !== undefined && typeof f.auto !== 'boolean') errors.push(`${where}: auto is not true or false`);
     checkSources(f.sources, where);
+    checkFacts(f.facts, where);
+    if (f.latest !== undefined && (!isObject(f.latest) || typeof f.latest.id !== 'string' || !isIsoDate(f.latest.date))) errors.push(`${where}: latest needs an id and a YYYY-MM-DD date`);
   });
   return errors;
 }

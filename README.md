@@ -111,6 +111,8 @@ foreman setup
 
 **Does it cost money?** foreman itself is free. The agents it starts use your own subscriptions or API keys, and a run uses one session for the leader plus one per worker, so more workers mean more tokens. To spend less, use fewer workers (`maxWorkers` in `config.json`), ask for `--effort low` on simple parts, and read [Token use](#token-use).
 
+**Where do the benchmark numbers come from?** Only from public sources that a maintained organisation keeps updating and a script can read without a key (leaderboard datasets, npm, models.dev); see `docs/research/2026-11-11-renewable-sources.md` for what was chosen and rejected. Blog posts and papers are not used, because they never change. Your own journal still outweighs all of it once a category has 5 results.
+
 **What does it change on my computer?** Workers edit copies of your project (git worktrees in `~/.herdr-foreman/worktrees`, on branches `wip/<name>/<worker>`), never your working folder. Your branch changes only when you agree to `foreman land`. foreman also writes `.foreman/` to the repository's `.git/info/exclude`, its own files to `~/.herdr-foreman/`, a block in herdr's `config.toml` and, for the desktop app, `mods/foreman` and one line in `keys.json` (see above).
 
 **What does it never do?** It never pushes and never opens a pull request, it does not land anything without asking you, and a worker does not change anything until you approved the numbered list. Each worker worktree gets a push guard as a tripwire.
@@ -206,15 +208,15 @@ A task that starts with a subcommand name still starts a leader (`foreman status
 Choosing is based on three layers:
 
 1. **What works right now:** every run probes the installed agents, for example `claude auth status`, `agy models`, `opencode models`, `pi --list-models`. An agent that is not signed in is left out, with the reason.
-2. **General knowledge:** `knowledge/agents.json` holds harness strengths and model family tendencies, with dates and sources. Model facts (context, price, release date) come from [models.dev](https://models.dev), fetched at most once a day.
+2. **General knowledge:** `knowledge/agents.json` holds dated facts (benchmark scores with rank, harness and date; the newest release of each program; the newest model of each family), each tied to a renewable public source. Model facts (context, price, release date) come from [models.dev](https://models.dev), fetched at most once a day.
 3. **Your results:** the journal in `~/.herdr-foreman/journal.jsonl`. Once a category has 5 or more results, they outweigh the general knowledge.
 
 ### Keeping the knowledge up to date
 
-- **Weekly refresh on the repository:** the `.github/workflows/refresh-knowledge.yml` workflow runs `scripts/refresh-knowledge.js` once a week. Model families that models.dev lists but `knowledge/agents.json` does not know are added with `"auto": true` (no data yet, so the leader treats them as unproven), and every change is checked with `foreman knowledge validate knowledge/agents.json`.
+- **Weekly refresh on the repository:** the `.github/workflows/refresh-knowledge.yml` workflow runs `scripts/refresh-knowledge.js` once a week, with no LLM and no API key. It reads benchmark leaderboards (`scripts/knowledge-sources/`) into `families[].facts` and `harnesses.<kind>.facts` and generates the `tendencies` text from them; takes each program's newest version from the npm registry (`harnesses.<kind>.release`) and each family's newest model from models.dev (`families[].latest`); checks every source link; and adds model families that models.dev lists but the file does not know with `"auto": true` (no facts, so the leader treats them as unproven). A family's `updated` is the date of its newest fact. A source that has not changed for its `ttlDays`, or that failed two weeks in a row, is frozen: its facts are dropped and `docs/research/knowledge-log.md` says so. `sourceMeta` records each source's licence, ttl, newest record and last check. Every change is checked with `foreman knowledge validate knowledge/agents.json`.
 - **Between releases:** `knowledgeUrl` defaults to `https://raw.githubusercontent.com/Kvmyk/herdr-foreman/main/knowledge/agents.json`. Foreman fetches it at most once a day into `~/.herdr-foreman/knowledge-cache.json` and uses it only when it is valid and newer than the copy installed with foreman. Set `"knowledgeUrl": false` to use only the installed copy, or point it at your own file.
 - **Your corrections:** `~/.herdr-foreman/knowledge.override.json` is merged on top. Families merge by `id`, so `{"families": [{"id": "grok", "tendencies": ["fine for docs"]}]}` changes one family and keeps the rest; `rules` are added to the existing ones. An override that does not parse or makes the knowledge invalid is ignored with a warning.
-- **Checking:** `foreman knowledge show` says where the knowledge came from and how old it is, `foreman knowledge stale` lists families whose entry is older than 90 days (or has no date), and `foreman knowledge refresh` fetches the knowledge file and models.dev now. `foreman brief` warns when the knowledge is older than 30 days or has stale families.
+- **Checking:** `foreman knowledge show` says where the knowledge came from and how old it is, `foreman knowledge stale` lists families whose newest fact is older than 90 days (or has no date), and `foreman knowledge refresh` fetches the knowledge file and models.dev now. `foreman brief` warns when the knowledge is older than 30 days or has stale families.
 
 ## Token use
 
