@@ -1,0 +1,6 @@
+Model version,Score,Reasoning level,Cost per task,Tokens per task,Steps per task,Release date,Organization,Country,Training compute (FLOP),Training compute notes,Name,Rank,Source,Notes
+grok-4.7_xhigh,0.46299999999999997,Extra High,6.01,70141,88,2026-09-21,xAI,United States of America,,,Grok 4.7 Extra High,28,https://cursor.com/cursorbench,
+claude-opus-5-5_max,0.578,Max,13.43,218363,185,2026-09-22,Anthropic,United States of America,,,Opus 5.5 Max,5,https://cursor.com/cursorbench,
+gemini-4-carbon_high,0.604,High,9.22,39960,71,2026-10-28,Google DeepMind,United States of America,,,Gemini 4 Carbon High,1,https://cursor.com/cursorbench,
+claude-fable-5-2_max,0.6,Max,32.79,352794,218,2026-11-09,Anthropic,United States of America,,,Fable 5.2 Max,3,https://cursor.com/cursorbench,
+claude-fable-5-2_high,0.569,High,9.7,99259,69,2026-11-09,Anthropic,United States of America,,,Fable 5.2 High,6,https://cursor.com/cursorbench,
