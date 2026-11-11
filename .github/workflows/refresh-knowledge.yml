@@ -1,0 +1,54 @@
+name: Refresh knowledge
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-knowledge
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # TODO: pin both actions to a commit SHA (could not be looked up when this was written).
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Refresh knowledge/agents.json
+        run: node scripts/refresh-knowledge.js
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      - name: Test
+        run: npm test
+
+      - name: Validate knowledge
+        run: node bin/foreman.js knowledge validate knowledge/agents.json
+
+      - name: Commit and push
+        run: |
+          changed=$( (git diff --name-only; git ls-files --others --exclude-standard) | sort -u )
+          if [ -z "$changed" ]; then
+            echo "No changes."
+            exit 0
+          fi
+          unexpected=$(echo "$changed" | grep -v -x -e knowledge/agents.json -e CHANGELOG.md -e docs/research/knowledge-log.md || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::Refusing to commit unexpected changes:"
+            echo "$unexpected"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add knowledge/agents.json CHANGELOG.md docs/research/knowledge-log.md
+          git commit -m "chore(knowledge): refresh $(date -u +%F)"
+          git push origin HEAD:main
