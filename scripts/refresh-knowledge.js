@@ -16,15 +16,13 @@ import { familyFor, MODELS_DEV_URL } from '../src/knowledge.js';
 const DAY = 24 * 3600 * 1000;
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const KNOWLEDGE_FILE = `${ROOT}knowledge/agents.json`;
-const CHANGELOG_FILE = `${ROOT}CHANGELOG.md`;
 const LOG_FILE = `${ROOT}docs/research/knowledge-log.md`;
 
 export const FIRST_PARTY = ['anthropic', 'openai', 'google', 'alibaba', 'zhipuai', 'moonshotai', 'deepseek', 'xai'];
 export const NEW_MODEL_WINDOW = 365 * DAY;
 const NOT_CODING = /embed|tts|image|audio|transcribe|live|moderation|whisper|realtime|speech|vision|ocr/i;
 const MAX_TENDENCIES = 6;
-const MAX_FACTS = 12;
-const PER_BENCHMARK = 2;
+const MAX_FACTS = 8;
 export const NPM_PACKAGES = Object.freeze({
   claude: '@anthropic-ai/claude-code',
   codex: '@openai/codex',
@@ -183,60 +181,65 @@ export async function checkSources(sources, fetchImpl, { timeoutMs = 10000, conc
 const daysBetween = (a, b) => (Date.parse(a) - Date.parse(b)) / DAY;
 const number = (n) => (Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10));
 
-// 'Terminal-Bench 4.1, claude-opus-5.5: 65.8% (#1 of 35, with Claude Code, 2026-11-11)'
+// 'SWE Atlas refactoring (refactor), claude-opus-5.5: 77.1% (#1 of 16, 2026-11-06)'
+// 'Agent Arena, claude-opus-5.5: #3 of 55 (2026-11-08)' when the board has no comparable score.
 export function factText(r) {
   const model = r.effort ? `${r.model} (${r.effort})` : r.model;
-  const score = r.unit === '%' ? `${number(r.score)}%` : r.unit ? `${number(r.score)} ${r.unit}` : number(r.score);
-  const details = [
-    Number.isFinite(r.rank) ? (Number.isFinite(r.of) ? `#${r.rank} of ${r.of}` : `#${r.rank}`) : null,
-    r.harness ? `with ${HARNESS_NAMES[r.harness] ?? r.harness}` : null,
-    r.date,
-  ].filter(Boolean).join(', ');
-  return `${r.benchmark}, ${model}: ${score} (${details})`;
+  const head = `${r.benchmark}${r.category ? ` (${r.category})` : ''}, ${model}`;
+  const rank = Number.isFinite(r.rank) ? (Number.isFinite(r.of) ? `#${r.rank} of ${r.of}` : `#${r.rank}`) : null;
+  const harness = r.harness ? `with ${HARNESS_NAMES[r.harness] ?? r.harness}` : null;
+  if (Number.isFinite(r.score)) {
+    const score = r.unit === '%' ? `${number(r.score)}%` : r.unit ? `${number(r.score)} ${r.unit}` : number(r.score);
+    return `${head}: ${score} (${[rank, harness, r.date].filter(Boolean).join(', ')})`;
+  }
+  return `${head}: ${[rank ?? 'listed', harness].filter(Boolean).join(' ')} (${r.date})`;
 }
 
 export function toFact(r) {
   return {
     text: factText(r), benchmark: r.benchmark, model: r.model, ...(r.effort ? { effort: r.effort } : {}),
-    score: r.score, unit: r.unit ?? null, rank: r.rank ?? null, of: r.of ?? null,
+    score: r.score ?? null, unit: r.unit ?? null, rank: r.rank ?? null, of: r.of ?? null,
     harness: r.harness ?? null, category: r.category ?? null, date: r.date, source: r.source,
   };
 }
 
-const bySignal = (a, b) => b.date.localeCompare(a.date) || (a.rank ?? 1e9) - (b.rank ?? 1e9) || (b.score ?? 0) - (a.score ?? 0);
+// rank / of, 0 is the best; a fact without a rank counts as the worst.
+const relative = (f) => (Number.isFinite(f.rank) && Number.isFinite(f.of) && f.of > 0 ? f.rank / f.of : 1);
+const byRank = (a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9) || (b.score ?? 0) - (a.score ?? 0) || b.date.localeCompare(a.date) || b.model.localeCompare(a.model, 'en', { numeric: true });
+const byRelative = (a, b) => relative(a) - relative(b) || byRank(a, b);
 
-// One fact per source, benchmark, model, effort, harness and category: the best, then the newest.
-function dedupe(facts) {
+// The best-ranked fact of each group; ties go to the newer model.
+function bestPer(facts, keyOf) {
   const best = new Map();
   for (const f of facts) {
-    const key = [f.source, f.benchmark, f.model, f.effort ?? '', f.harness ?? '', f.category ?? ''].join('|');
+    const key = keyOf(f);
     const cur = best.get(key);
-    if (!cur || bySignal(f, cur) < 0) best.set(key, f);
+    if (!cur || byRank(f, cur) < 0) best.set(key, f);
   }
-  return [...best.values()].sort(bySignal);
+  return [...best.values()];
 }
 
-// Best and newest first, at most PER_BENCHMARK per benchmark before the list is filled up.
-export function pickTendencies(facts, max = MAX_TENDENCIES) {
-  const picked = [];
-  const count = {};
-  for (const f of facts) {
-    if ((count[f.benchmark] ?? 0) >= PER_BENCHMARK) continue;
-    count[f.benchmark] = (count[f.benchmark] ?? 0) + 1;
-    picked.push(f);
-    if (picked.length === max) return picked.sort(bySignal);
-  }
-  for (const f of facts) {
-    if (picked.length === max) break;
-    if (!picked.includes(f)) picked.push(f);
-  }
-  return picked.sort(bySignal);
+// A family keeps one fact per benchmark (and category): the one of its best-ranked model.
+// Harness pairs and category facts come first, then by relative rank; at most MAX_FACTS.
+export function selectFamilyFacts(facts, max = MAX_FACTS) {
+  const picked = bestPer(facts, (f) => [f.source, f.benchmark, f.category ?? ''].join('|'));
+  const specific = (f) => (f.harness || f.category ? 0 : 1);
+  return picked.sort((a, b) => specific(a) - specific(b) || byRelative(a, b)).slice(0, max);
 }
+
+// A harness keeps, per benchmark and model family, its best-ranked pair; best relative rank first.
+export function selectHarnessFacts(items, max = MAX_FACTS) {
+  const picked = bestPer(items, (f) => [f.source, f.benchmark, f.category ?? '', f.family].join('|'));
+  return picked.sort(byRelative).slice(0, max);
+}
+
+export const pickTendencies = (facts, max = MAX_TENDENCIES) => facts.slice(0, max);
 
 const newest = (facts) => facts.reduce((m, f) => (f.date > m ? f.date : m), '');
 
 // Replaces the facts of every source that answered and is not frozen; keeps the
 // facts of a source that failed once; drops those of a frozen source. Mutates next.
+// status[id].newest is the last time the source itself changed.
 // Returns { frozen: [{id, reason}], unmatched: [{model, source}] }.
 export function applyFacts(next, { records = [], status = {} }, sourceList, today) {
   const frozen = [];
@@ -255,7 +258,7 @@ export function applyFacts(next, { records = [], status = {} }, sourceList, toda
     } else if (age === null) {
       reason = 'returned no dated record';
     } else if (age > s.ttlDays) {
-      reason = `newest record ${st.newest} is older than ${s.ttlDays} days`;
+      reason = `last changed ${st.newest}, more than ${s.ttlDays} days ago`;
     }
     if (reason) frozen.push({ id: s.id, reason });
     else if (st.ok) live.add(s.id);
@@ -280,23 +283,25 @@ export function applyFacts(next, { records = [], status = {} }, sourceList, toda
     }
     const fact = toFact(r);
     add(`family:${family.id}`, fact);
-    if (r.harness && next.harnesses?.[r.harness]) add(`harness:${r.harness}`, fact);
+    if (r.harness && next.harnesses?.[r.harness]) add(`harness:${r.harness}`, { ...fact, family: family.id });
   }
 
-  const settle = (owner, key) => {
-    const old = (owner.facts ?? []).filter((f) => keep.has(f.source));
-    const facts = dedupe([...old, ...(fresh.get(key) ?? [])]).slice(0, MAX_FACTS);
-    if (facts.length) owner.facts = facts;
-    else delete owner.facts;
-    return facts;
-  };
+  const kept = (owner) => (owner.facts ?? []).filter((f) => keep.has(f.source));
+  const strip = ({ family, ...fact }) => fact;
   for (const f of next.families ?? []) {
-    const facts = settle(f, `family:${f.id}`);
+    const facts = selectFamilyFacts([...kept(f), ...(fresh.get(`family:${f.id}`) ?? [])]);
+    if (facts.length) f.facts = facts;
+    else delete f.facts;
     f.tendencies = pickTendencies(facts).map((x) => x.text);
     f.sources = [...new Set(facts.map((x) => x.source))];
     if (facts.length) f.updated = newest(facts);
   }
-  for (const [kind, h] of Object.entries(next.harnesses ?? {})) settle(h, `harness:${kind}`);
+  for (const [kind, h] of Object.entries(next.harnesses ?? {})) {
+    const old = kept(h).map((fact) => ({ ...fact, family: familyFor(next, fact.model)?.id ?? fact.model }));
+    const facts = selectHarnessFacts([...old, ...(fresh.get(`harness:${kind}`) ?? [])]).map(strip);
+    if (facts.length) h.facts = facts;
+    else delete h.facts;
+  }
   return { frozen, unmatched };
 }
 
@@ -325,12 +330,15 @@ export async function fetchReleases(fetchImpl, packages = NPM_PACKAGES) {
   return { releases, warnings };
 }
 
+// Tool calling and text output only: no image, video, audio or embedding models.
+const canDoTheWork = (m) => m.tool_call === true && !NOT_CODING.test(m.id) && (!m.modalities?.output || m.modalities.output.join() === 'text');
+
 // families[].latest: the newest first-party model of each family on models.dev.
 export function latestModels(knowledge, api, providers = FIRST_PARTY) {
   const latest = {};
   for (const provider of providers) {
     for (const m of Object.values(api?.[provider]?.models ?? {})) {
-      if (!m.id || !/^\d{4}-\d{2}-\d{2}$/.test(m.release_date ?? '')) continue;
+      if (!m.id || !/^\d{4}-\d{2}-\d{2}$/.test(m.release_date ?? '') || !canDoTheWork(m)) continue;
       const family = familyFor(knowledge, m.id);
       if (!family) continue;
       const cur = latest[family.id];
@@ -420,35 +428,6 @@ export function renderLogEntry(result) {
   return `${lines.join('\n')}\n`;
 }
 
-export function changelogLine(result) {
-  const parts = [];
-  if (result.stubs.length) parts.push(`${result.stubs.length} new unverified model ${result.stubs.length === 1 ? 'family' : 'families'} (${result.stubs.map((s) => s.id).join(', ')})`);
-  if (result.releaseChanges?.length) parts.push(`harness releases (${result.releaseChanges.map((c) => `${c.kind} ${c.to}`).join(', ')})`);
-  if (result.frozen?.length) parts.push(`frozen sources (${result.frozen.map((f) => f.id).join(', ')})`);
-  const withFacts = result.knowledge.families.filter((f) => f.facts?.length);
-  parts.push(`${withFacts.reduce((n, f) => n + f.facts.length, 0)} dated facts in ${withFacts.length} families`);
-  return `- Knowledge refresh ${result.today}: ${parts.join('; ')}.`;
-}
-
-// Adds a bullet under "### Knowledge" in the [Unreleased] section, creating it if needed.
-export function addChangelogLine(text, line) {
-  const lines = text.split('\n');
-  const u = lines.findIndex((l) => /^## \[Unreleased\]/.test(l));
-  if (u === -1) return text;
-  let end = lines.findIndex((l, i) => i > u && /^## /.test(l));
-  if (end === -1) end = lines.length;
-  const k = lines.findIndex((l, i) => i > u && i < end && /^### Knowledge/.test(l));
-  if (k === -1) {
-    lines.splice(u + 1, 0, '', '### Knowledge', '', line);
-    return lines.join('\n');
-  }
-  let at = lines.findIndex((l, i) => i > k && i < end && /^### /.test(l));
-  if (at === -1) at = end;
-  while (at > k + 1 && lines[at - 1].trim() === '') at--;
-  lines.splice(at, 0, line);
-  return lines.join('\n');
-}
-
 // Same layout as the hand-edited file: arrays of strings inline, except "rules";
 // facts, releases, latest models and source metadata are one line each.
 export function serializeKnowledge(value) {
@@ -501,8 +480,7 @@ async function main() {
   const header = '# Knowledge log\n\nWhat each refresh of `knowledge/agents.json` changed, newest last. Written by `scripts/refresh-knowledge.js`.\n\n';
   const log = existsSync(LOG_FILE) ? readFileSync(LOG_FILE, 'utf8') : header;
   writeFileSync(LOG_FILE, `${log.replace(/\n*$/, '\n\n')}${renderLogEntry(result)}`);
-  writeFileSync(CHANGELOG_FILE, addChangelogLine(readFileSync(CHANGELOG_FILE, 'utf8'), changelogLine(result)));
-  console.log(changelogLine(result));
+  console.log(`knowledge written; see ${LOG_FILE.replace(ROOT, '')}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

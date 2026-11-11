@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  detectNewModels, analyzeNewModels, checkSources, refresh, addChangelogLine, serializeKnowledge, renderLogEntry,
-  applyFacts, factText, pickTendencies, fetchReleases, latestModels, changelogLine,
+  detectNewModels, analyzeNewModels, checkSources, refresh, serializeKnowledge, renderLogEntry,
+  applyFacts, factText, selectFamilyFacts, selectHarnessFacts, fetchReleases, latestModels,
 } from '../scripts/refresh-knowledge.js';
 
 const NOW = Date.parse('2026-11-11T06:00:00Z');
@@ -15,7 +15,7 @@ const knowledge = {
     { id: 'claude-opus', match: 'claude-opus', vendor: 'anthropic', tendencies: ['Scores 78.9% on bench.'], updated: '2026-11-07', sources: ['s1'] },
   ],
 };
-const model = (id, extra = {}) => ({ id, release_date: '2026-09-01', modalities: { output: ['text'] }, ...extra });
+const model = (id, extra = {}) => ({ id, release_date: '2026-09-01', tool_call: true, modalities: { output: ['text'] }, ...extra });
 const api = {
   anthropic: { models: { a: model('claude-opus-5-5'), b: model('claude-mystic-1', { family: 'claude-mystic' }), c: model('claude-mystic-2', { family: 'claude-mystic' }) } },
   google: { models: { d: model('gemini-9-image-preview'), e: model('gemini-9-pro', { release_date: '2024-01-01' }) } },
@@ -156,14 +156,6 @@ test('checkSources never runs more than 4 requests at once', async () => {
   assert.equal(peak, 4);
 });
 
-test('addChangelogLine creates and extends the Knowledge section under Unreleased', () => {
-  const base = '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-01-01\n\n### Added\n\n- x\n';
-  const once = addChangelogLine(base, '- one');
-  assert.equal(once, '# Changelog\n\n## [Unreleased]\n\n### Knowledge\n\n- one\n\n## [0.1.0] - 2026-01-01\n\n### Added\n\n- x\n');
-  const twice = addChangelogLine(once, '- two');
-  assert.match(twice, /### Knowledge\n\n- one\n- two\n\n## \[0\.1\.0\]/);
-});
-
 test('serializeKnowledge reproduces the committed file byte for byte', () => {
   const file = new URL('../knowledge/agents.json', import.meta.url);
   const text = readFileSync(file, 'utf8');
@@ -189,10 +181,17 @@ const base = () => ({
   ],
 });
 
-test('factText renders the benchmark, model, score, rank, harness and date', () => {
+test('factText renders the benchmark, category, model, score, rank, harness and date', () => {
   assert.equal(factText(rec({ model: 'x' })), 'Terminal-Bench 4.1, x: 65.8% (#1 of 35, with Claude Code, 2026-11-11)');
+  assert.equal(factText(rec({ benchmark: 'SWE Atlas refactoring', category: 'refactor', harness: null, score: 77.1, rank: 1, of: 16, date: '2026-11-06' })),
+    'SWE Atlas refactoring (refactor), claude-opus-5.5: 77.1% (#1 of 16, 2026-11-06)');
   assert.equal(factText(rec({ harness: null, rank: null, of: null, unit: 'elo', score: 1513.0021, effort: 'max' })),
     'Terminal-Bench 4.1, claude-opus-5.5 (max): 1513 elo (2026-11-11)');
+});
+
+test('factText reads well when the board has no score', () => {
+  assert.equal(factText(rec({ benchmark: 'Agent Arena', harness: null, score: null, unit: null, rank: 3, of: 55, date: '2026-11-08' })),
+    'Agent Arena, claude-opus-5.5: #3 of 55 (2026-11-08)');
 });
 
 test('applyFacts writes facts, tendencies and updated from the newest fact, and lists unmatched models', () => {
@@ -217,21 +216,41 @@ test('applyFacts writes facts, tendencies and updated from the newest fact, and 
   assert.deepEqual(k.sourceMeta.tbench, { title: 'tbench', kind: 'data', licence: 'CC-BY-4.0', ttlDays: 45, newest: '2026-11-11', checked: '2026-11-11', ok: true });
 });
 
-test('pickTendencies takes at most 6, best and newest first, at most 2 per benchmark while others exist', () => {
-  const facts = [];
-  for (let i = 1; i <= 5; i++) facts.push({ ...rec({ rank: i }), text: `A${i}` });
-  for (let i = 1; i <= 3; i++) facts.push({ ...rec({ benchmark: 'B', rank: i, date: '2026-10-01' }), text: `B${i}` });
-  const picked = pickTendencies(facts.sort((a, b) => b.date.localeCompare(a.date))).map((f) => f.text);
-  assert.equal(picked.length, 6);
-  assert.deepEqual(picked.slice(0, 2), ['A1', 'A2']);
-  assert.ok(picked.includes('B1') && picked.includes('B2'));
+const F = (over) => ({ ...rec(over), text: `${over.model ?? 'm'} ${over.benchmark ?? 'B'}` });
+
+test('selectFamilyFacts keeps the best model per benchmark, harness and category facts first, at most 8', () => {
+  const facts = [
+    F({ benchmark: 'Arena', harness: null, model: 'claude-opus-5', rank: 5, of: 50 }),
+    F({ benchmark: 'Arena', harness: null, model: 'claude-opus-5.5', rank: 2, of: 50 }),
+    F({ benchmark: 'Arena', harness: null, model: 'claude-opus-4.8', rank: 9, of: 50 }),
+    F({ benchmark: 'TB', harness: 'claude', model: 'claude-opus-5.5', rank: 9, of: 10 }),
+    F({ benchmark: 'SWE', harness: null, category: 'refactor', model: 'claude-opus-5.5', rank: 5, of: 10 }),
+    F({ benchmark: 'Tie', harness: null, model: 'claude-opus-5', rank: 1, of: 5 }),
+    F({ benchmark: 'Tie', harness: null, model: 'claude-opus-5.5', rank: 1, of: 5 }),
+  ];
+  const out = selectFamilyFacts(facts);
+  assert.deepEqual(out.map((f) => `${f.benchmark}:${f.model}`), [
+    'SWE:claude-opus-5.5', 'TB:claude-opus-5.5', 'Arena:claude-opus-5.5', 'Tie:claude-opus-5.5']);
+  const many = Array.from({ length: 12 }, (_, i) => F({ benchmark: `B${i}`, harness: null, rank: i + 1, of: 20 }));
+  assert.equal(selectFamilyFacts(many).length, 8);
+});
+
+test('selectHarnessFacts keeps the best pair per benchmark and model family, best relative rank first', () => {
+  const items = [
+    { ...F({ benchmark: 'TB', model: 'claude-opus-5.5', rank: 4, of: 10 }), family: 'claude-opus' },
+    { ...F({ benchmark: 'TB', model: 'claude-opus-5', rank: 2, of: 10 }), family: 'claude-opus' },
+    { ...F({ benchmark: 'TB', model: 'claude-sonnet-5.5', rank: 3, of: 10 }), family: 'claude-sonnet' },
+    { ...F({ benchmark: 'Other', model: 'claude-opus-5.5', rank: 1, of: 2 }), family: 'claude-opus' },
+  ];
+  assert.deepEqual(selectHarnessFacts(items).map((f) => `${f.benchmark}:${f.model}`),
+    ['TB:claude-opus-5', 'TB:claude-sonnet-5.5', 'Other:claude-opus-5.5']);
 });
 
 test('a source older than its ttl is frozen and its facts are dropped', () => {
   const k = base();
   applyFacts(k, { records: [rec()], status: { tbench: { ok: true, newest: '2026-11-11', count: 1 } } }, [src('tbench')], '2026-11-11');
   const { frozen } = applyFacts(k, { records: [rec({ date: '2026-08-01' })], status: { tbench: { ok: true, newest: '2026-08-01', count: 1 } } }, [src('tbench')], '2026-11-11');
-  assert.match(frozen[0].reason, /2026-08-01 is older than 45 days/);
+  assert.match(frozen[0].reason, /last changed 2026-08-01, more than 45 days ago/);
   assert.equal(k.families[0].facts, undefined);
   assert.deepEqual(k.families[0].tendencies, []);
   assert.equal(k.harnesses.claude.facts, undefined);
@@ -261,9 +280,9 @@ test('fetchReleases reads dist-tags.latest and its publish time; a failing packa
   assert.match(r.warnings[0], /pi-coding-agent not read: HTTP 503/);
 });
 
-test('latestModels picks the newest first-party model per family', () => {
+test('latestModels picks the newest first-party model that can call tools and writes text', () => {
   const k = base();
-  const dev = { anthropic: { models: { a: { id: 'claude-opus-5-5', release_date: '2026-09-01' }, b: { id: 'claude-opus-4-6', release_date: '2026-02-01' } } }, reseller: { models: { c: { id: 'claude-opus-9', release_date: '2026-11-01' } } } };
+  const dev = { anthropic: { models: { a: { id: 'claude-opus-5-5', release_date: '2026-09-01', tool_call: true }, b: { id: 'claude-opus-4-6', release_date: '2026-02-01', tool_call: true }, v: { id: 'claude-opus-video-1', release_date: '2026-10-01', tool_call: true, modalities: { output: ['video'] } }, n: { id: 'claude-opus-6-notools', release_date: '2026-10-05', tool_call: false } } }, reseller: { models: { c: { id: 'claude-opus-9', release_date: '2026-11-01' } } } };
   assert.deepEqual(latestModels(k, dev), { 'claude-opus': { id: 'claude-opus-5-5', date: '2026-09-01' } });
 });
 
@@ -289,7 +308,6 @@ test('refresh with a fake collectFacts stores facts, releases and the log lines;
   const log = renderLogEntry(r);
   assert.match(log, /Source `dead` is frozen, its facts were dropped/);
   assert.match(log, /Harness `claude` release unknown -> 2.1.322/);
-  assert.match(changelogLine(r), /1 dated facts in 1 families/);
   const again = await refresh({ knowledge: r.knowledge, api, fetchImpl, collectFacts, sourceList, packages: { claude: '@anthropic-ai/claude-code' }, now: NOW + 7 * DAY });
   assert.equal(again.changed, false);
 });
