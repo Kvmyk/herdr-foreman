@@ -27,9 +27,23 @@ export function summarizeModels(agent, limit = 25, { knowledge = null } = {}) {
 const isEmpty = (v) => v === null || v === undefined || v === ''
   || (Array.isArray(v) && !v.length)
   || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length);
+const DAY = 24 * 3600 * 1000;
+const OLD_AFTER_DAYS = 30;
+
+// Tell the leader and the user when what foreman knows needs a refresh.
+export function knowledgeWarnings(knowledge, now) {
+  const out = [];
+  const age = Math.floor((now - Date.parse(knowledge.updated)) / DAY);
+  if (!(age <= OLD_AFTER_DAYS)) out.push(`knowledge about agents is from ${knowledge.updated ?? 'an unknown date'}${Number.isNaN(age) ? '' : ` (${age} days old)`}; run "foreman knowledge refresh"`);
+  const stale = (knowledge.families ?? []).filter((f) => f.stale).map((f) => f.id);
+  if (stale.length) out.push(`knowledge about these model families is stale: ${stale.join(', ')}; see "foreman knowledge stale"`);
+  return out;
+}
+
 const nonEmpty = (obj) => Object.fromEntries(Object.entries(obj).filter(([, v]) => !isEmpty(v)));
 
-export function buildBrief({ agents, knowledge, modelsDev, stats, config, warnings = [], repoDirty = null, limit = 25, startFailures = {} }) {
+// now: when given, old knowledge adds a warning.
+export function buildBrief({ agents, knowledge, knowledgeSource = null, modelsDev, stats, config, warnings = [], repoDirty = null, limit = 25, startFailures = {}, now = null }) {
   const families = new Set();
   const modelFacts = {};
   const ready = [];
@@ -82,6 +96,7 @@ export function buildBrief({ agents, knowledge, modelsDev, stats, config, warnin
     // Only when true: the leader asks the user about unsaved changes before spawning.
     repoDirty: repoDirty === true ? true : null,
     knowledgeUpdated: knowledge.updated,
-    warnings,
+    knowledgeSource,
+    warnings: now === null ? warnings : [...warnings, ...knowledgeWarnings(knowledge, now)],
   });
 }
