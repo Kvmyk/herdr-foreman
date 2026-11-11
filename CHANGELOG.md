@@ -4,6 +4,13 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-11
+
+### Fixed
+
+- The weekly knowledge refresh adds a new model family only for models no existing family covers, with a match for just those models; aliases such as `*-latest` and variants of known families are listed for a manual look instead.
+- The weekly knowledge refresh no longer fails its own tests once it has changed the date of `knowledge/agents.json`.
+
 ## [0.9.0] - 2026-11-11
 
 ### Added
@@ -155,7 +162,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.7.0...v0.8.0
