@@ -4,6 +4,11 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- The knowledge about agents rests only on renewable sources. `knowledge/agents.json` drops the one-off blogs, aggregators and papers and every claim that rested only on them. The weekly refresh now needs no API key: it writes dated benchmark facts (`families[].facts`, `harnesses.<kind>.facts`) and the `tendencies` generated from them, the newest release of each program from npm (`harnesses.<kind>.release`), the newest model of each family from models.dev (`families[].latest`) and `sourceMeta`. A family's `updated` is the date of its newest fact, so stale families show up; a source that stops updating or keeps failing is frozen and its facts are dropped. The Gemini rewrite (`GEMINI_API_KEY`) is gone.
+- `foreman brief` passes `release` and facts for harnesses, `latest` for families, and marks a family with no facts `unproven`. foreman 0.9.x clients still validate the new file; they ignore the new fields.
+
 ### Knowledge
 
 - Knowledge refresh 2026-11-11: 1 new unverified model family (gemma).
