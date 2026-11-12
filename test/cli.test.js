@@ -500,7 +500,7 @@ test('foreman new opens the task prompt, and a task that begins with "new" still
 test('plain foreman on a terminal asks for the task once setup has run; before that, and in a pipe, it is setup', async () => {
   const seen = [];
   const go = (deps) => main([], harness({ setup: async () => { seen.push('setup'); return setupResult(); } }, {
-    deps: { readStdin: async () => null, ask: async () => { seen.push('ask'); return 0; }, ...deps },
+    deps: { readStdin: async () => null, ask: async () => { seen.push('ask'); return 0; }, confirm: async () => null, ...deps },
   }).deps);
   const tty = { stdout: { isTTY: true, write() {} }, stdin: { isTTY: true } };
   assert.equal(await go({ ...tty, exists: () => true }), 0);
@@ -531,7 +531,7 @@ test('with "launcher" unset or false, a foreman start and launcher --ensure run 
     assert.equal(await main(['fix the login'], h.deps), 0);
     assert.equal(h.out(), '');
     assert.equal(await main(['launcher', '--ensure'], h.deps), 0);
-    assert.match(h.out(), /The launcher is off\. .*put "launcher": true in \/s\/config\.json/);
+    assert.match(h.out(), /The launcher is off\. .*type: foreman launcher on\./);
     assert.deepEqual(run.calls, [], `config ${config}`);
   }
 });
@@ -579,4 +579,98 @@ test('a watch that fails says why in one line, like every other command', async 
   const h = harness({ status: async () => { throw new Error('git rev-list failed in /wt/w1'); } }, { deps: { sleep: async () => {} } });
   assert.equal(await main(['watch', '--task', 't'], h.deps), 1);
   assert.equal(h.err(), 'git rev-list failed in /wt/w1\n');
+});
+
+// ---- the launcher as a choice: setup's question, foreman launcher on|off ----
+
+// A person at a terminal (tty) or not, with config.json in a map.
+function launcherChoice({ config = null, tty = true, answer = true, run = fakeRun([]) } = {}) {
+  const files = config === null ? {} : { '/s/config.json': config };
+  const asked = [];
+  const h = harness({ setup: async () => setupResult() }, {
+    files,
+    deps: {
+      run, which: (n) => (n === 'hc' ? '/bin/hc' : null), homedir: '/h',
+      writeFile: (f, data) => { files[f] = data; },
+      stdout: undefined,
+      stdin: { isTTY: tty },
+      confirm: async ({ question }) => { asked.push(question); return answer; },
+    },
+  });
+  let out = '';
+  h.deps.stdout = { isTTY: tty, write: (s) => { out += s; } };
+  return { ...h, files, asked, out: () => out, saved: () => JSON.parse(files['/s/config.json']) };
+}
+
+test('route: launcher on and launcher off are commands; other words are still a task', () => {
+  assert.deepEqual(route(['launcher', 'on']).positionals, ['on']);
+  assert.deepEqual(route(['launcher', 'off', '--json']).flags, { '--json': true });
+  assert.deepEqual(route(['launcher', 'on', 'the', 'phone']), { kind: 'start', task: 'launcher on the phone' });
+});
+
+test('setup at a terminal asks once about the phone launcher; yes saves true, keeps the other keys, and opens it', async () => {
+  const live = [];
+  const run = fakeRun([
+    [/ server status --json$/, { stdout: '{}' }],
+    [/ ls --json --label foreman\.launcher=1$/, () => ({ stdout: JSON.stringify({ terminals: live }) })],
+    [/ run --json --bg /, () => { live.push({ address: 't9' }); return { stdout: '{"address":"t9"}' }; }],
+  ]);
+  const w = launcherChoice({ config: '{\n  "leader": "codex"\n}\n', run });
+  assert.equal(await main(['setup'], w.deps), 0);
+  assert.equal(w.asked.length, 1);
+  assert.match(w.asked[0], /Herdr phone app.*\(y\/N\)/);
+  assert.equal(w.files['/s/config.json'], '{\n  "leader": "codex",\n  "launcher": true\n}\n');
+  assert.match(w.out(), /The launcher is on \(saved in \/s\/config\.json\)\. foreman opened its launcher: a terminal named foreman \(t9\)/);
+  assert.equal(run.calls.filter((c) => c.args[0] === 'run').length, 1);
+  // The key is there now: never asked again.
+  assert.equal(await main(['setup'], w.deps), 0);
+  assert.equal(w.asked.length, 1);
+});
+
+test('setup: no saves false and starts nothing; an unanswered question saves nothing', async () => {
+  const no = launcherChoice({ answer: false });
+  assert.equal(await main(['setup'], no.deps), 0);
+  assert.deepEqual(no.saved(), { launcher: false });
+  assert.match(no.out(), /The launcher is off \(saved in \/s\/config\.json\)\. To turn it on later, type: foreman launcher on/);
+  assert.ok(!no.deps.run.calls.some((c) => c.args[0] === 'run'));
+  const gone = launcherChoice({ answer: null });
+  assert.equal(await main(['setup'], gone.deps), 0);
+  assert.equal(gone.files['/s/config.json'], undefined);
+});
+
+test('setup never asks without a terminal, in quiet (plugin) runs, with --json, or once the key is there', async () => {
+  const cases = [
+    [launcherChoice({ tty: false }), ['setup']],
+    [launcherChoice(), ['setup', '--quiet']],
+    [launcherChoice(), ['setup', '--postinstall']],
+    [launcherChoice(), ['setup', '--json']],
+    [launcherChoice({ config: '{"launcher":false}' }), ['setup']],
+    [launcherChoice({ config: '{"launcher":true}' }), ['doctor']],
+    [launcherChoice({ config: '{ not json' }), ['setup']],
+  ];
+  for (const [w, argv] of cases) {
+    await main(argv, w.deps);
+    assert.deepEqual(w.asked, [], argv.join(' '));
+  }
+});
+
+test('launcher on saves true and opens it; launcher off saves false and closes the one --ensure started', async () => {
+  const live = [{ address: 't9', name: 'foreman' }];
+  const run = fakeRun([
+    [/ server status --json$/, { stdout: '{}' }],
+    [/ ls --json --label foreman\.launcher=1$/, () => ({ stdout: JSON.stringify({ terminals: live }) })],
+    [/ get --json t9$/, { stdout: JSON.stringify({ address: 't9', argv: ['/n/node', '/f/bin/foreman.js', 'launcher'] }) }],
+    [/ kill --json t9$/, () => { live.length = 0; return { stdout: '{}' }; }],
+    [/ rm --json t9$/, { stdout: '{}' }],
+  ]);
+  const w = launcherChoice({ config: '{"leader":"claude"}', run, tty: false });
+  assert.equal(await main(['launcher', 'on', '--json'], w.deps), 0);
+  assert.deepEqual(JSON.parse(w.out()), { launcher: true, status: 'already', terminal: 't9' });
+  assert.deepEqual(w.saved(), { leader: 'claude', launcher: true });
+  const off = launcherChoice({ config: w.files['/s/config.json'], run, tty: true });
+  assert.equal(await main(['launcher', 'off'], off.deps), 0);
+  assert.deepEqual(off.saved(), { leader: 'claude', launcher: false });
+  assert.match(off.out(), /The launcher is off \(saved in \/s\/config\.json\)\. The launcher terminal t9 is closed\./);
+  assert.ok(run.calls.some((c) => c.line === '/bin/hc kill --json t9'));
+  assert.equal(await main(['launcher', 'on', '--ensure'], off.deps), 2);
 });
