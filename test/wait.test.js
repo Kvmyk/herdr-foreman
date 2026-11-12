@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { waitForWorkers, screenTail } from '../src/wait.js';
+import { waitForWorkers, screenTail, notify } from '../src/wait.js';
 
 const run = {
   task: 't',
@@ -121,4 +121,66 @@ test('without a recorded brief time a report counts as before', async () => {
   const w = world({ script: [{ w1: 'idle' }], reports: { w1: 0 } });
   const res = await waitForWorkers({ run, only: ['w1'], ...w, mtimeMs: () => 1, phase: 'investigate' });
   assert.equal(res.workers.w1, 'done');
+});
+
+const notifyArgs = (cmd, script, extra = {}) => {
+  const calls = [];
+  const spawnImpl = (c, a, o) => { calls.push({ c, a, o }); return { on() {}, unref() {} }; };
+  const w = world({ script, reports: { w1: 1, w2: 1 }, ...extra });
+  return { calls, go: () => waitForWorkers({ run, ...w, phase: 'investigate', pollMs: 3000, stableMs: 6000, notifyCommand: cmd, spawnImpl }) };
+};
+
+test('notifyCommand runs without a shell with {title} and {body} filled in when wait is done', async () => {
+  const n = notifyArgs(['ntfy', 'pub', '-t', '{title}', 'x:{body}'], [{ w1: 'idle', w2: 'idle' }]);
+  const res = await n.go();
+  assert.equal(res.result, 'done');
+  assert.equal(n.calls.length, 1);
+  assert.equal(n.calls[0].c, 'ntfy');
+  assert.deepEqual(n.calls[0].a, ['pub', '-t', 'foreman: t', 'x:done']);
+  assert.equal(n.calls[0].o.shell, false);
+});
+
+test('notifyCommand also runs on attention and names the worker', async () => {
+  const n = notifyArgs(['n', '{body}'], [{ w1: 'idle', w2: undefined }]);
+  const res = await n.go();
+  assert.equal(res.result, 'attention');
+  assert.deepEqual(n.calls[0].a, ['attention: w2 gone']);
+});
+
+test('no notifyCommand, or a timeout, runs nothing', async () => {
+  const off = notifyArgs(null, [{ w1: 'idle', w2: 'idle' }]);
+  await off.go();
+  assert.equal(off.calls.length, 0);
+  const timed = notifyArgs(['n'], [{ w1: 'working', w2: 'working' }]);
+  assert.equal((await timed.go()).result, 'timeout');
+  assert.equal(timed.calls.length, 0);
+});
+
+test('a notifyCommand that fails to start never breaks or blocks wait', async () => {
+  const w = world({ script: [{ w1: 'idle', w2: 'idle' }], reports: { w1: 0, w2: 0 } });
+  const boom = () => { throw new Error('ENOENT'); };
+  const res = await waitForWorkers({ run, ...w, phase: 'investigate', pollMs: 3000, notifyCommand: ['nope'], spawnImpl: boom });
+  assert.equal(res.result, 'done');
+  assert.equal(notify(['nope'], 't', res, boom), false);
+  assert.equal(notify(['nope'], 't', { result: 'timeout', workers: {} }, boom), false);
+});
+
+// Greedy word wrap, like a pane of that many columns.
+const wrapCols = (text, cols) => text.split('\n').flatMap((p) => {
+  const out = []; let line = '';
+  for (const word of p.split(' ')) {
+    if (line && line.length + 1 + word.length > cols) { out.push(line); line = word; } else line = line ? `${line} ${word}` : word;
+  }
+  out.push(line); return out;
+}).join('\n');
+
+test('wrapped dialogs keep their question and are classified at 24, 44 and 200 columns', async () => {
+  const body = 'Quick safety check: is this a project you created or one you trust? Do you trust the files in this folder?';
+  for (const cols of [24, 44, 200]) {
+    const screen = `${wrapCols(body, cols)}\n\n > Yes, I trust this folder\n   No, exit`;
+    const w = world({ script: [{ w1: 'blocked', w2: 'working' }], screens: { w1: () => screen } });
+    const res = await waitForWorkers({ run, ...w, phase: 'investigate', pollMs: 3000, stableMs: 6000 });
+    assert.match(res.workers.w1.hint, /asks to trust this folder; answer it with: foreman keys --task t w1 enter/, `${cols} columns`);
+    assert.match(res.workers.w1.screen, /Quick/);
+  }
 });

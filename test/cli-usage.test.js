@@ -59,3 +59,16 @@ test('config shows the value the environment decides', () => {
   assert.equal(c.config.autoSetup, false);
   assert.match(formatConfig(c, createUi()), /autoSetup\s+false\s+\(set by the environment: FOREMAN_NO_SETUP\)/);
 });
+
+test('watch reports OSC 7501 working then done only on a tty with HC_TERMINAL_ID', async () => {
+  const states = [[{ name: 'a', state: 'working', report: false }], [{ name: 'a', state: 'idle', report: true }]];
+  const go = async (tty, env) => {
+    let n = 0; let out = '';
+    await runWatch({ status: async () => states[n++], render: () => 'x', stdout: { write: (s) => { out += s; } }, sleep: async () => {}, tty, env });
+    return out;
+  };
+  const on = await go(true, { HC_TERMINAL_ID: 't1' });
+  assert.ok(on.indexOf('\x1b]7501;working\x07') >= 0 && on.indexOf('\x1b]7501;done\x07') > on.indexOf('\x1b]7501;working\x07'));
+  assert.ok(!(await go(true, {})).includes('7501'));
+  assert.ok(!(await go(false, { HC_TERMINAL_ID: 't1' })).includes('7501'));
+});
