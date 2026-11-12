@@ -35,6 +35,7 @@ herdr plugin install Kvmyk/herdr-foreman
 That is all: either command sets everything up, and the desktop script also prints what, if anything, is left to do (for example an agent to sign in). If you have both apps, the herdr command sets up the desktop app too.
 
 - **Start a task:** open a terminal in your project folder (a git repository with at least one commit). In the desktop app press `Ctrl+Shift+Y`, type the task and press `Ctrl+Enter`. In herdr press `Ctrl+B`, then `F`. The leader opens in a new tab and tells you what it plans before anything changes.
+- **From your phone:** the Herdr phone app works with the same install on the machine it connects to. See [From your phone](#from-your-phone).
 - **Update:** run the same command again (for herdr: `herdr plugin update`).
 - **Something does not work:** type `foreman setup`; it checks everything, fixes what it can and says what is left. See [If something does not work](#if-something-does-not-work).
 
@@ -69,6 +70,33 @@ Setup reruns quietly whenever herdr starts. `"autoSetup": false` in `~/.herdr-fo
 
 The prompt starts foreman as `node <foreman>/bin/foreman.js --backend app -- "<task>"` in a terminal tab of the app, in the folder of the focused terminal.
 
+## From your phone
+
+The Herdr phone app (iPhone, iPad, Android, [herdr.dev/mobile](https://herdr.dev/mobile/)) is a remote client. It connects over SSH to herdr-core on your machine, lists your agents in an Inbox (needs you, done, working, idle) and gives you a terminal with a key bar and a box for composing text.
+
+**What you need**
+
+- the Herdr phone app, connected to your machine
+- herdr-core or the Herdr desktop app on that machine
+- foreman installed on that machine (see [Install](#install))
+
+Runs use the app backend. A run started in the Herdr terminal app (TUI) does not show on the phone.
+
+**Start a task**
+
+1. With the launcher. Put `"launcher": true` in `~/.herdr-foreman/config.json` and run `foreman setup` (or `foreman launcher --ensure`). A terminal titled `foreman: new task` then sits in your Inbox. Open it, paste or dictate the task and send it. It asks for the project, the leader, auto and uncommitted changes; answer each by sending a number. It starts the leader, then waits for the next task.
+2. Without the launcher. Open any terminal on the machine and type `foreman new` (or just `foreman`). It asks for the task the same way.
+
+**Answer questions**
+
+Answer everything in the terminal of the leader, with short replies such as `1` or `yes`. The leader names the worker, asks one question at a time and passes your answer to the worker itself. You only go to another terminal to sign in to an agent.
+
+**What the phone does not do**
+
+- There is no shortcut and no prompt window; use the launcher or `foreman new`.
+- Banners show only while the app is open. To get a message when a worker needs you, set `notifyCommand` in `config.json` (see the table under [Files](#files)).
+- When you type into a terminal from the phone, it gets the width of the phone until you click it on the desktop. Workers are then shown one per tab (`"layout": "tabs"`), and output is shorter under 60 columns.
+
 ## Start a task (terminal)
 
 1. Open a terminal in your project folder and type `herdr`.
@@ -100,6 +128,7 @@ foreman setup
 | Desktop app: `Ctrl+Shift+Y` does nothing | Open the app once, then run `foreman setup`. It binds the first free key of `ctrl-shift-y`, `ctrl-alt-shift-f`, `ctrl-shift-f10` and prints which. A `mods/foreman` that is not foreman's, or a `main.js` you edited, is left alone. |
 | Desktop prompt: "foreman is not set up" or "moved or was removed" | Run `foreman setup`; it rewrites the prompt with the right paths. |
 | "This folder is not one" / "has no saved version yet" | Run `git init`, then `git add -A` and `git commit -m "first version"`. |
+| Phone: nothing shows in the Inbox | The run was probably started in the Herdr terminal app. Start it with `foreman new` or the launcher; the app backend is the one the phone sees. |
 | An agent is not signed in | `foreman setup` or `foreman agents` shows the exact line to type to sign in. |
 | "did not report ready within ...s; it may be asking whether to trust the folder" | The worker is waiting for you. See what it asks with `foreman read --task <slug> <name>`, then answer in its pane or tab (in the app its title starts with `⚠`) or with `foreman keys --task <slug> <name> down enter`. Raise `startTimeoutMs` in `config.json` if the agent is only slow. |
 | A worker exits right after starting, or an agent crashes | `foreman read --task <slug> <name>` shows its last screen. Update that agent, or leave it out with `"excludeKinds": ["<kind>"]` in `config.json`; the leader then picks others. |
@@ -234,7 +263,7 @@ Everything lives in `~/.herdr-foreman/` (set `FOREMAN_HOME` to move it):
 
 | Path | Contents |
 |---|---|
-| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl` (default: `knowledge/agents.json` on GitHub; `false` turns it off), `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr and Herdr app shortcuts), `worktreeSetup` (a command run in each new worker worktree, e.g. `"npm ci"`), `copyFiles` (globs of untracked files such as `.env*` copied into each worktree), `layout` (`"stack"`, the default: the leader keeps about 40% on the left and up to 4 workers are stacked on the right, more go to a new tab; `"grid"`: the earlier equal columns of up to 3 workers). A `.foreman.json` at the root of a repository can set `worktreeSetup` and `copyFiles` for that repository; it runs commands, so check it in repositories you did not write |
+| `config.json` | Optional: `leader`, `maxWorkers` (default 6), `startTimeoutMs`, `waitTimeoutMs` (default 540000; use 240000 with an API key, whose cache lasts 5 minutes), `lean` (default true), `leaderArgs` (extra leader flags, e.g. `["--effort", "high"]`), `knowledgeUrl` (default: `knowledge/agents.json` on GitHub; `false` turns it off), `excludeKinds`, `autoSetup` (default true; false stops foreman adding or restoring its herdr and Herdr app shortcuts), `worktreeSetup` (a command run in each new worker worktree, e.g. `"npm ci"`), `copyFiles` (globs of untracked files such as `.env*` copied into each worktree), `notifyCommand` (off by default: an argv array run, without a shell, when `foreman wait` returns attention or done, with `{title}` and `{body}` filled in; failures are ignored; e.g. `["curl", "-s", "-H", "Title: {title}", "-d", "{body}", "https://ntfy.sh/my-topic"]`), `launcher` (default false; true keeps a terminal titled `foreman: new task` for starting tasks from the phone, started by `foreman setup` or `foreman launcher --ensure`), `layout` (`"auto"`, the default, and `"tabs"`, each worker in its own tab, chosen automatically on narrow terminals; also `"stack"`: the leader keeps about 40% on the left and up to 4 workers are stacked on the right, more go to a new tab; `"grid"`: the earlier equal columns of up to 3 workers). A `.foreman.json` at the root of a repository can set `worktreeSetup` and `copyFiles` for that repository; it runs commands, so check it in repositories you did not write |
 | `knowledge.override.json` | Optional: your corrections to the knowledge file, deep-merged; families by `id` |
 | `knowledge-cache.json`, `models-dev-cache.json` | The knowledge file and models.dev facts, fetched at most once a day |
 | `journal.jsonl` | Your results |

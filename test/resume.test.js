@@ -153,6 +153,25 @@ test('respawn in the Herdr app starts in the caller\'s tab', async () => {
   assert.equal(start.space, 'sp1');
   assert.equal(start.tab, 'tb1');
   assert.equal(res.worker.paneId, 'term5');
+  // The calling leader becomes its parent, and the labels name the run.
+  assert.equal(start.parent, 'p1');
+  assert.deepEqual(start.labels, { 'foreman.task': 'fix-login', 'foreman.role': 'worker' });
+  assert.equal(start.where, 'shop / fix-login');
+  assert.equal(start.ownTab, false);
+});
+
+test('respawn in a run with layout tabs gives the worker a tab of its own again', async () => {
+  const h = fakeHerdr({ kind: 'app' });
+  await respawn(h, { run: run({ backend: 'app', layout: 'tabs' }) });
+  assert.deepEqual(h.log.find(([k]) => k === 'tab')[1], { workspaceId: 'sp1', cwd: wt('w1'), label: 'w1 · fix-login', focus: false });
+  const start = h.log.find(([k]) => k === 'start')[1];
+  assert.deepEqual([start.space, start.tab, start.label, start.ownTab], ['sp2', 't2', 'w1 · fix-login', true]);
+  // In herdr: a new tab instead of a split beside the caller.
+  const tui = fakeHerdr();
+  await respawn(tui, { run: run({ layout: 'tabs' }) });
+  assert.equal(tui.log.some(([k]) => k === 'split'), false);
+  assert.equal(tui.log.find(([k]) => k === 'tab')[1].label, 'w1 · fix-login');
+  assert.equal(tui.log.find(([k]) => k === 'start')[1].pane, 'p8');
 });
 
 test('respawn refuses: unknown worker, live agent, gone worktree, other backend, unknown kind', async () => {

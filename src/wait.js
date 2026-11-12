@@ -2,13 +2,14 @@
 // something to do: every worker finished, or one needs attention. It replaces
 // polling from the leader, where every check is a full model turn.
 import path from 'node:path';
+import { spawn as nodeSpawn } from 'node:child_process';
 import { describeBlocked } from './blocked.js';
 
 const REPORT = { investigate: 'proposals.md', implement: 'report.md' };
 const RULE_ONLY = /^[\s─-╿]+$/;
 
 // The end of a pane, without blank lines and box-drawing rules.
-export function screenTail(text, lines = 15, maxChars = 1500) {
+export function screenTail(text, lines = 40, maxChars = 1500) {
   const kept = String(text)
     .split(/\r?\n/)
     .map((l) => l.trimEnd())
@@ -18,11 +19,37 @@ export function screenTail(text, lines = 15, maxChars = 1500) {
   return kept.length > maxChars ? kept.slice(-maxChars) : kept;
 }
 
+// What the notification says: the result, and which workers need you.
+export function notification(task, result) {
+  const need = Object.entries(result.workers)
+    .map(([name, w]) => [name, typeof w === 'string' ? w : w.state])
+    .filter(([, state]) => !['working', 'starting', 'done'].includes(state))
+    .map(([name, state]) => `${name} ${state}`);
+  return { title: `foreman: ${task}`, body: `${result.result}${need.length ? `: ${need.join(', ')}` : ''}` };
+}
+
+// Runs notifyCommand (an argv array) for an attention or done result: no shell,
+// {title} and {body} replaced in every argument, never waited for, and any
+// failure is ignored. Returns true when a command was started.
+export function notify(notifyCommand, task, result, spawnImpl = nodeSpawn) {
+  if (!Array.isArray(notifyCommand) || !notifyCommand.length || !['attention', 'done'].includes(result?.result)) return false;
+  try {
+    const { title, body } = notification(task, result);
+    const [cmd, ...args] = notifyCommand.map((a) => String(a).replaceAll('{title}', () => title).replaceAll('{body}', () => body));
+    const child = spawnImpl(cmd, args, { shell: false, stdio: 'ignore', windowsHide: true });
+    child?.on?.('error', () => {});
+    child?.unref?.();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const hintObj = (hint) => (hint ? { hint } : {});
 
 export async function waitForWorkers({
   run, herdr, foremanCmd = 'foreman', exists, mtimeMs = null, sleep, now, phase = null, only = null,
-  timeoutMs = 540000, pollMs = 3000, stableMs = 6000, quietMs = 30000,
+  timeoutMs = 540000, pollMs = 3000, stableMs = 6000, quietMs = 30000, notifyCommand = null, spawnImpl,
 }) {
   const report = REPORT[phase] ?? null;
   const workers = run.workers.filter((w) => !only || only.includes(w.name));
@@ -106,8 +133,18 @@ export async function waitForWorkers({
     }
 
     const elapsedS = Math.round((now() - start) / 1000);
-    if (attention) return { result: 'attention', elapsedS, workers: out };
-    if (allDone) return { result: 'done', elapsedS, workers: out };
+    if (attention || allDone) {
+      // A worker that waits for the person is pinned, so every Herdr client
+      // (desktop, phone) lists it first. Only the Herdr app backend can; a
+      // worker whose terminal is gone has nothing to pin.
+      for (const w of workers) {
+        const state = out[w.name]?.state;
+        if (['blocked', 'error', 'idle'].includes(state)) await Promise.resolve().then(() => herdr.needsPerson?.(w.paneId ?? w.name)).catch(() => {});
+      }
+      const result = { result: attention ? 'attention' : 'done', elapsedS, workers: out };
+      notify(notifyCommand, run.task, result, spawnImpl);
+      return result;
+    }
     if (now() - start >= timeoutMs) return { result: 'timeout', elapsedS, workers: out };
     await sleep(pollMs);
   }

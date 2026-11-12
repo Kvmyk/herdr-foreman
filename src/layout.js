@@ -1,12 +1,20 @@
 // Pane layout for workers. herdr's split ratio is the share that stays in the
 // pane being split.
-//   stack (default): the leader keeps a full-height column of LEADER_SHARE on
-//     the left; workers are stacked in one column on the right, and in a tab
-//     of their own use a second column only past MAX_ROWS.stack workers.
+//   stack: the leader keeps a full-height column of LEADER_SHARE on the left;
+//     workers are stacked in one column on the right, and in a tab of their
+//     own use a second column only past MAX_ROWS.stack workers.
 //   grid: equal columns, at most MAX_ROWS.grid panes per column.
+//   tabs: every worker in a tab of its own, so each terminal is full size on
+//     a small screen (a phone shows one pane at a time).
+//   auto (default): tabs where a stack would be too narrow to read, else
+//     stack; see chooseLayout.
 
-export const LAYOUTS = Object.freeze(['stack', 'grid']);
+export const LAYOUTS = Object.freeze(['auto', 'stack', 'grid', 'tabs']);
 export const LEADER_SHARE = 0.4;
+// The task was typed in a terminal narrower than this: a small screen.
+export const NARROW_TYPED_COLS = 80;
+// A leader narrower than this would keep under 40 columns beside a stack.
+export const NARROW_LEADER_COLS = 100;
 const MAX_ROWS = Object.freeze({ stack: 4, grid: 3 });
 
 // More workers than this beside the leader leave panes too narrow (or too
@@ -14,7 +22,28 @@ const MAX_ROWS = Object.freeze({ stack: 4, grid: 3 });
 // a tab of their own.
 export const MAX_BESIDE_LEADER = Object.freeze({ stack: 4, grid: 3 });
 
-export const layoutOf = (config) => (config?.layout === 'grid' ? 'grid' : 'stack');
+// The configured layout; anything unknown counts as auto.
+export const layoutOf = (config) => (LAYOUTS.includes(config?.layout) ? config.layout : 'auto');
+
+// What the terminal the task was typed in says about the screen: 'tabs' for
+// a narrow one, else null. A terminal has the size of its last active
+// viewer, so a phone that just typed there shows as about 45 columns.
+export const layoutHint = (cols) => (Number.isFinite(cols) && cols > 0 && cols < NARROW_TYPED_COLS ? 'tabs' : null);
+
+// The layout of a new run. A layout named in config.json always wins. With
+// auto, workers get tabs of their own when the task was typed on a narrow
+// screen (hint, from layoutHint), when the leader's terminal is too narrow to
+// share (leaderCols), or when the desktop window is not open (windowOpen
+// false: nothing can be stacked there); otherwise they are stacked.
+// Unknown facts are null and decide nothing.
+export function chooseLayout({ config = {}, hint = null, leaderCols = null, windowOpen = null } = {}) {
+  const wanted = layoutOf(config);
+  if (wanted !== 'auto') return wanted;
+  if (hint === 'tabs') return 'tabs';
+  if (Number.isFinite(leaderCols) && leaderCols > 0 && leaderCols < NARROW_LEADER_COLS) return 'tabs';
+  if (windowOpen === false) return 'tabs';
+  return 'stack';
+}
 
 export function planLayout(n, maxRows = 3) {
   const cols = Math.ceil(n / maxRows);

@@ -316,7 +316,8 @@ test('prompt goes through the backend of the run; read and keys follow the termi
   assert.equal(await main(['prompt', '--task', 'fix-login', 'w1', 'go'], h.deps), 0);
   assert.equal(await main(['read', '--task', 'other', 'w1'], h.deps), 0);
   assert.equal(await main(['keys', '--task', 'other', '--backend', 'app', 'w1', 'esc'], h.deps), 0);
-  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'send'], ['hc', 'read'], ['herdr', 'agent'], ['hc', 'keys']]);
+  // After a message or keys the app backend looks once whether foreman pinned the terminal (hc get).
+  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'send'], ['hc', 'get'], ['hc', 'read'], ['herdr', 'agent'], ['hc', 'keys'], ['hc', 'get']]);
 });
 
 test('close-leader in the Herdr app ends the calling hc terminal', async () => {
@@ -473,4 +474,109 @@ test('spawn --base reaches the operation; land names the branch it merged into',
   assert.deepEqual(h.calls, [['spawn', 'develop']]);
   await main(['land', '--task', 't'], h.deps);
   assert.match(h.text, /merged feat\/x into develop/);
+});
+
+// ---- starting without a shortcut: foreman new, plain foreman, the launcher ----
+
+test('route: new and launcher are commands on their own; followed by words they are a task', () => {
+  assert.deepEqual(route(['new']), { kind: 'command', name: 'new', flags: {}, positionals: [] });
+  assert.deepEqual(route(['new', 'login', 'page']), { kind: 'start', task: 'new login page' });
+  assert.deepEqual(route(['new login page']), { kind: 'start', task: 'new login page' });
+  assert.equal(route(['new', '--fast']).kind, 'usage');
+  assert.equal(route(['launcher']).name, 'launcher');
+  assert.deepEqual(route(['launcher', '--ensure']).flags, { '--ensure': true });
+  assert.deepEqual(route(['launcher', 'is', 'slow']), { kind: 'start', task: 'launcher is slow' });
+  assert.match(usageOf('new'), /^foreman new$/);
+  assert.match(usageOf('launcher'), /--ensure/);
+});
+
+test('foreman new opens the task prompt, and a task that begins with "new" still starts', async () => {
+  const h = harness({}, { deps: { ask: async (o) => { h.calls.push(['ask', typeof o.main, o.deps === h.deps]); return 0; } } });
+  assert.equal(await main(['new'], h.deps), 0);
+  assert.equal(await main(['new', 'login', 'page'], h.deps), 0);
+  assert.deepEqual(h.calls, [['ask', 'function', true], ['start', 'new login page']]);
+});
+
+test('plain foreman on a terminal asks for the task once setup has run; before that, and in a pipe, it is setup', async () => {
+  const seen = [];
+  const go = (deps) => main([], harness({ setup: async () => { seen.push('setup'); return setupResult(); } }, {
+    deps: { readStdin: async () => null, ask: async () => { seen.push('ask'); return 0; }, ...deps },
+  }).deps);
+  const tty = { stdout: { isTTY: true, write() {} }, stdin: { isTTY: true } };
+  assert.equal(await go({ ...tty, exists: () => true }), 0);
+  assert.equal(await go({ ...tty, exists: () => false }), 0);
+  assert.equal(await go({ stdin: { isTTY: true }, exists: () => true }), 0);
+  assert.equal(await go({ stdout: { isTTY: true, write() {} }, stdin: { isTTY: false }, exists: () => true }), 0);
+  assert.deepEqual(seen, ['ask', 'setup', 'setup', 'setup']);
+});
+
+test('launcher runs the launcher; --ensure says what it did and fails only when it could not start', async () => {
+  const h = harness({ ensureLauncher: async () => ({ status: 'started', terminal: 't9' }) }, { deps: { launcher: async (o) => { h.calls.push(['launcher', typeof o.main]); return 0; } } });
+  assert.equal(await main(['launcher'], h.deps), 0);
+  assert.deepEqual(h.calls, [['launcher', 'function']]);
+  assert.equal(await main(['launcher', '--ensure'], h.deps), 0);
+  assert.match(h.out(), /foreman opened its launcher: a terminal named foreman \(t9\)/);
+  const json = harness({ ensureLauncher: async () => ({ status: 'already', terminal: 't3' }) });
+  assert.equal(await main(['launcher', '--ensure', '--json'], json.deps), 0);
+  assert.deepEqual(JSON.parse(json.out()), { status: 'already', terminal: 't3' });
+  const failed = harness({ ensureLauncher: async () => ({ status: 'failed', reason: 'boom' }) });
+  assert.equal(await main(['launcher', '--ensure'], failed.deps), 1);
+  assert.match(failed.out(), /The launcher could not start: boom/);
+});
+
+test('with "launcher" unset or false, a foreman start and launcher --ensure run nothing', async () => {
+  for (const config of [null, '{}', '{"launcher":false}', '{"launcher":"true"}']) {
+    const run = fakeRun([]);
+    const h = harness({}, { files: config === null ? {} : { '/s/config.json': config }, deps: { run, which: () => '/bin/hc' } });
+    assert.equal(await main(['fix the login'], h.deps), 0);
+    assert.equal(h.out(), '');
+    assert.equal(await main(['launcher', '--ensure'], h.deps), 0);
+    assert.match(h.out(), /The launcher is off\. .*put "launcher": true in \/s\/config\.json/);
+    assert.deepEqual(run.calls, [], `config ${config}`);
+  }
+});
+
+test('with "launcher": true a foreman start opens the launcher once, without a space', async () => {
+  let live = [];
+  const run = fakeRun([
+    [/ server status --json$/, { stdout: '{}' }],
+    [/ ls --json --label foreman\.launcher=1$/, () => ({ stdout: JSON.stringify({ terminals: live }) })],
+    [/ run --json --bg /, () => { live = [{ address: 't9' }]; return { stdout: '{"address":"t9"}' }; }],
+  ]);
+  const h = harness({}, { files: { '/s/config.json': '{"launcher":true}' }, deps: { run, which: (n) => (n === 'hc' ? '/bin/hc' : null), homedir: '/h' } });
+  assert.equal(await main(['fix the login'], h.deps), 0);
+  assert.match(h.out(), /foreman opened its launcher/);
+  assert.equal(await main(['fix the tests'], h.deps), 0);
+  const starts = run.calls.filter((c) => c.args[0] === 'run');
+  assert.equal(starts.length, 1);
+  assert.deepEqual(starts[0].args.slice(0, 11), ['run', '--json', '--bg', '--no-parent', '--no-notify', '--name', 'foreman', '--label', 'foreman.launcher=1', '--cwd', '/h']);
+  assert.equal(starts[0].args.at(-1), 'launcher');
+  assert.ok(!starts[0].line.includes('herdr.space'));
+});
+
+test('wait hands notifyCommand from config.json to the wait, so the notification goes out', async () => {
+  const runFile = path.join('/s/runs', 't.json');
+  const record = JSON.stringify({ task: 't', backend: 'herdr', workers: [{ name: 'w1', kind: 'claude', reportDir: '/wt/w1/.foreman' }] });
+  const go = async (config) => {
+    const spawned = [];
+    const h = harness({}, {
+      files: { '/s/config.json': JSON.stringify(config), [runFile]: record },
+      deps: {
+        run: fakeRun([['herdr agent list', { stdout: JSON.stringify({ result: { agents: [] } }) }]]),
+        now: () => 0, sleep: async () => {}, exists: () => false, writeFile() {}, mkdir() {},
+        spawnImpl: (cmd, args) => { spawned.push([cmd, ...args]); return { on() {}, unref() {} }; },
+      },
+    });
+    assert.equal(await main(['wait', '--task', 't'], h.deps), 0);
+    assert.equal(JSON.parse(h.out()).result, 'attention');
+    return spawned;
+  };
+  assert.deepEqual(await go({ notifyCommand: ['ntfy', 'publish', 'me', '{title}: {body}'] }), [['ntfy', 'publish', 'me', 'foreman: t: attention: w1 gone']]);
+  assert.deepEqual(await go({}), []);
+});
+
+test('a watch that fails says why in one line, like every other command', async () => {
+  const h = harness({ status: async () => { throw new Error('git rev-list failed in /wt/w1'); } }, { deps: { sleep: async () => {} } });
+  assert.equal(await main(['watch', '--task', 't'], h.deps), 1);
+  assert.equal(h.err(), 'git rev-list failed in /wt/w1\n');
 });

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { buildLeaderPrompt, shellQuote, startForeman, INSTRUCTIONS_PATH } from '../src/start.js';
+import { buildLeaderPrompt, shellQuote, startForeman, leaderName, spaceOfRepo, waitForTrust, INSTRUCTIONS_PATH } from '../src/start.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
 const repo = path.resolve('/code/shop');
@@ -221,8 +221,12 @@ test('in the Herdr app the leader goes into a new tab of the caller\'s space', a
   assert.equal(r.paneId, 't9');
   assert.deepEqual(log.find(([k]) => k === 'here')[1], 't3');
   const start = log.find(([k]) => k === 'start')[1];
-  assert.deepEqual([start.name, start.cwd, start.space, start.tab, start.label, start.focus], ['lead', repo, 'spA', 'tbNew', 'foreman', true]);
-  assert.equal(log.find(([k]) => k === 'prompt')[1].name, 'lead');
+  // The name and the tab title carry the task; labels say which run and role.
+  assert.deepEqual([start.name, start.cwd, start.space, start.tab, start.label, start.focus], ['fix-it-lead', repo, 'spA', 'tbNew', 'foreman · fix-it', true]);
+  assert.deepEqual(start.labels, { 'foreman.task': 'fix-it', 'foreman.role': 'leader' });
+  assert.equal(start.where, 'shop / fix-it');
+  assert.equal(start.parent, undefined);
+  assert.equal(log.find(([k]) => k === 'prompt')[1].name, 'fix-it-lead');
   assert.equal(log.some(([k]) => k === 'attach' || k === 'detached'), false);
 });
 
@@ -248,7 +252,7 @@ test('in the Herdr app a leader that is not ready gets a foreman prompt hint wit
   assert.equal(r.ok, true);
   assert.equal(log.some(([k]) => k === 'prompt'), false);
   assert.match(r.message, /pane t9/);
-  assert.match(r.message, /foreman prompt --task fix-it --backend app lead "/);
+  assert.match(r.message, /foreman prompt --task fix-it --backend app fix-it-lead "/);
 });
 
 test('on Windows the foreman prompt hint is quoted for PowerShell', async () => {
@@ -330,4 +334,170 @@ test('takePrefs reads --leader and --base with their values', async () => {
     { prefs: { leader: 'codex', base: 'develop', autoAnswer: true }, rest: ['--', 'x'] });
   assert.equal(takePrefs(['--leader']).error, '--leader needs a value');
   assert.equal(takePrefs(['--base', '--', 'x']).error, '--base needs a value');
+});
+
+test('leaderName carries the slug and fits hc\'s 32 characters', () => {
+  assert.equal(leaderName('fix-login'), 'fix-login-lead');
+  assert.equal(leaderName('fix-login', 2), 'fix-login-lead2');
+  const long = 'check-the-payment-module-for-security';
+  assert.equal(leaderName(long), 'check-the-payment-module-fo-lead');
+  assert.equal(leaderName(long).length, 32);
+  assert.equal(leaderName(long, 2), 'check-the-payment-module-f-lead2');
+  assert.equal(leaderName(long, 12), 'check-the-payment-module-lead12');
+  // A cut that ends on a dash does not leave two dashes.
+  assert.equal(leaderName('aaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbb'), 'aaaaaaaaaaaaaaaaaaaaaaaaaa-lead');
+  for (const name of [leaderName(long), leaderName('2fa', 3)]) assert.match(name, /^[a-z0-9_-]{1,32}$/);
+});
+
+test('in the Herdr app a second leader of the same task gets a number', async () => {
+  const { deps, log } = appFakes();
+  deps.herdr.agentList = async () => [{ name: 'fix-it-lead' }, { name: 'fix-it-lead2' }];
+  await startForeman({ ...deps, task: 'fix it' });
+  assert.equal(log.find(([k]) => k === 'start')[1].name, 'fix-it-lead3');
+});
+
+test('in herdr the leader keeps its short name and tab title', async () => {
+  const { deps, log } = fakes();
+  await startForeman({ ...deps, task: 'fix it' });
+  const start = log.find(([k]) => k === 'start')[1];
+  assert.deepEqual([start.name, start.label], ['lead', 'foreman']);
+});
+
+test('in the Herdr app a task typed in a narrow terminal leaves a layout hint on the leader', async () => {
+  const typedIn = async (cols) => {
+    const { deps, log } = appFakes();
+    deps.herdr.terminalInfo = async (t) => { log.push(['info', t]); return cols === null ? null : { cols, rows: 20, labels: {} }; };
+    await startForeman({ ...deps, task: 'fix it' });
+    return log;
+  };
+  const narrow = await typedIn(45);
+  assert.deepEqual(narrow.find(([k]) => k === 'info')[1], 't3');
+  assert.deepEqual(narrow.find(([k]) => k === 'start')[1].labels, { 'foreman.task': 'fix-it', 'foreman.role': 'leader', 'foreman.layout': 'tabs' });
+  for (const cols of [80, 200, null]) {
+    const log = await typedIn(cols);
+    assert.deepEqual(log.find(([k]) => k === 'start')[1].labels, { 'foreman.task': 'fix-it', 'foreman.role': 'leader' });
+  }
+});
+
+test('in the Herdr app outside any terminal no terminal is asked for its width', async () => {
+  const { deps, log } = appFakes({ inside: false });
+  deps.herdr.terminalInfo = async (t) => { log.push(['info', t]); return { cols: 45, rows: 20, labels: {} }; };
+  await startForeman({ ...deps, task: 'fix it' });
+  assert.equal(log.some(([k]) => k === 'info'), false);
+  assert.equal('foreman.layout' in log.find(([k]) => k === 'start')[1].labels, false);
+});
+
+// ---- the space of the repository, and waiting for a trust question ----
+
+test('in the Herdr app a caller without a space joins the space whose terminals work in the repository', async () => {
+  const panes = [{ pane_id: 't1', cwd: home }, { pane_id: 't2', cwd: path.join(repo, 'src') }, { pane_id: 't5', cwd: repo }];
+  const here = (log) => async (t) => { log.push(['here', t]); return t === 't5' ? { space: 'spShop', tab: 'tb1' } : null; };
+
+  // Outside any terminal of the app.
+  const out = appFakes({ inside: false });
+  out.deps.herdr.paneList = async () => panes;
+  out.deps.herdr.here = here(out.log);
+  assert.equal((await startForeman({ ...out.deps, task: 'fix it' })).ok, true);
+  assert.equal(out.log.find(([k]) => k === 'start')[1].space, 'spShop');
+  assert.equal(out.log.find(([k]) => k === 'tab')[1].workspaceId, 'spShop');
+  assert.equal(out.log.some(([k]) => k === 'workspace'), false);
+  // Only terminals inside the repository are asked for their space.
+  assert.deepEqual(out.log.filter(([k]) => k === 'here').map(([, t]) => t), ['t2', 't5']);
+
+  // In a terminal that has no space of its own, such as the launcher.
+  const launcher = appFakes();
+  launcher.deps.herdr.paneList = async () => panes;
+  launcher.deps.herdr.here = here(launcher.log);
+  await startForeman({ ...launcher.deps, task: 'fix it' });
+  assert.equal(launcher.log.find(([k]) => k === 'start')[1].space, 'spShop');
+  assert.deepEqual(launcher.log.filter(([k]) => k === 'here').map(([, t]) => t), ['t3', 't2', 't5']);
+});
+
+test('spaceOfRepo: no terminal in the repository, or a backend without spaces, gives none', async () => {
+  const herdr = { paneList: async () => [{ pane_id: 't1', cwd: home }], here: async () => ({ space: 'spX' }) };
+  assert.equal(await spaceOfRepo({ herdr, repo }), null);
+  assert.equal(await spaceOfRepo({ herdr: { paneList: async () => { throw new Error('no core'); }, here: async () => null }, repo }), null);
+  assert.equal(await spaceOfRepo({ herdr: {}, repo }), null);
+  assert.equal(await spaceOfRepo({ herdr: { ...herdr, paneList: async () => [{ pane_id: 't2', cwd: repo }] }, repo }), 'spX');
+});
+
+const TRUST = ['Do you trust the files in this folder?', ' > Yes, I trust this folder', '   No, exit'].join('\n');
+const notReady = { ok: false, pane: 't9', code: 'agent_not_ready', message: 'claude did not report ready within 90s' };
+
+// A leader that shows the trust question for the first `asks` looks at its screen.
+function trusting(f, { asks = 3, after = 'idle', gone = false } = {}) {
+  let reads = 0;
+  const started = () => f.log.find(([k]) => k === 'start')?.[1].name;
+  f.deps.herdr.agentRead = async () => (++reads <= asks ? TRUST : 'Welcome back!\n> ');
+  f.deps.herdr.agentList = async () => (started() && !gone ? [{ name: started(), agent_status: reads <= asks + 1 ? 'working' : after }] : []);
+  const slept = [];
+  f.deps.sleep = async (ms) => { slept.push(ms); };
+  return slept;
+}
+
+test('a leader that asks to trust the folder gets the task once the question is answered', async () => {
+  const f = appFakes({ startResult: notReady });
+  const slept = trusting(f);
+  const lines = [];
+  const r = await startForeman({ ...f.deps, task: 'fix it', progress: (m) => lines.push(m) });
+  assert.equal(r.ok, true);
+  assert.deepEqual(f.log.filter(([k]) => k === 'prompt').map(([, p]) => p.name), ['fix-it-lead']);
+  assert.match(r.message, /Leader "fix-it-lead" \(claude\) started in pane t9/);
+  assert.doesNotMatch(r.message, /foreman prompt --task/);
+  assert.match(lines.at(-1), /claude asks whether to trust this folder\. Answer it in the leader's tab; foreman waits up to 3 min/);
+  // Two looks at the question, one while the agent still loads, one when it is ready.
+  assert.deepEqual(slept, [2000, 2000, 2000, 2000]);
+});
+
+test('an agent that reports no status gets the task once its screen has been free of the question twice', async () => {
+  const f = fakes({ startResult: { ok: false, code: 'agent_not_ready', message: 'trust prompt' } });
+  const slept = trusting(f, { asks: 2, after: 'unknown' });
+  f.deps.herdr.agentList = async () => (f.log.some(([k]) => k === 'start') ? [{ name: 'lead', agent_status: 'unknown' }] : []);
+  const r = await startForeman({ ...f.deps, task: 'fix it' });
+  assert.equal(f.log.filter(([k]) => k === 'prompt').length, 1);
+  assert.match(r.message, /Leader "lead" \(claude\) started/);
+  assert.equal(slept.length, 3);
+});
+
+test('a leader closed at the trust question is reported, and nothing is sent', async () => {
+  const f = appFakes({ startResult: notReady });
+  trusting(f, { asks: 1, gone: true });
+  const r = await startForeman({ ...f.deps, task: 'fix it' });
+  assert.equal(r.ok, false);
+  assert.match(r.message, /The leader was closed before it got the task/);
+  assert.equal(f.log.some(([k]) => k === 'prompt'), false);
+});
+
+test('when the trust question outlasts the wait, the command to hand over the task by hand is shown', async () => {
+  const f = appFakes({ startResult: notReady });
+  const slept = trusting(f, { asks: Infinity });
+  const r = await startForeman({ ...f.deps, task: 'fix it', trustWaitMs: 10000 });
+  assert.equal(r.ok, true);
+  assert.equal(slept.length, 5);
+  assert.equal(f.log.some(([k]) => k === 'prompt'), false);
+  assert.match(r.message, /asks to trust this folder/);
+  assert.match(r.message, /foreman prompt --task fix-it fix-it-lead "/);
+  // trustWaitMs 0 switches the wait off; a question that is not about trust is never waited for.
+  const off = appFakes({ startResult: notReady });
+  const none = trusting(off, { asks: Infinity });
+  await startForeman({ ...off.deps, task: 'fix it', trustWaitMs: 0 });
+  assert.deepEqual(none, []);
+  const login = appFakes({ startResult: notReady });
+  const waited = trusting(login);
+  login.deps.herdr.agentRead = async () => 'Please sign in to continue';
+  const res = await startForeman({ ...login.deps, task: 'fix it' });
+  assert.deepEqual(waited, []);
+  assert.match(res.message, /foreman prompt --task fix-it/);
+});
+
+test('waitForTrust: ready, gone and timeout', async () => {
+  const sleep = async () => {};
+  const herdr = (screen, agents) => ({ agentRead: async () => screen, agentList: async () => agents });
+  assert.equal(await waitForTrust({ herdr: herdr('> ', [{ name: 'l', agent_status: 'done' }]), name: 'l', kind: 'claude', sleep, waitMs: 4000 }), 'ready');
+  assert.equal(await waitForTrust({ herdr: herdr('> ', []), name: 'l', kind: 'claude', sleep, waitMs: 4000 }), 'gone');
+  assert.equal(await waitForTrust({ herdr: herdr(TRUST, [{ name: 'l', agent_status: 'idle' }]), name: 'l', kind: 'claude', sleep, waitMs: 4000 }), 'timeout');
+  assert.equal(await waitForTrust({ herdr: herdr('> ', [{ name: 'l', agent_status: 'blocked' }]), name: 'l', kind: 'claude', sleep, waitMs: 4000 }), 'timeout');
+  // A screen or a list that cannot be read is not an answer.
+  const broken = { agentRead: async () => { throw new Error('x'); }, agentList: async () => [] };
+  assert.equal(await waitForTrust({ herdr: broken, name: 'l', kind: 'claude', sleep, waitMs: 4000 }), 'timeout');
 });

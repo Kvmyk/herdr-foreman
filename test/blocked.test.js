@@ -30,6 +30,34 @@ test('trust dialogs are safe to answer only when the screen shows the highlighte
   assert.equal(classifyScreen('claude', 'Do you trust this folder?').safeToAnswer, false);
 });
 
+// The same dialogs in a pane about 40 columns wide: sentences wrap.
+const NARROW_CLAUDE = [
+  'Quick safety check: is this a project',
+  'you created or one you trust? (Like',
+  'your own code, a well-known open',
+  'source project, or work from your team).',
+  '',
+  ' ❯ No, exit',
+  '   Yes, I trust this folder',
+].join('\n');
+const NARROW_AGY = 'Do you trust the files in\nthis folder?\n\n > Yes, I trust this folder\n   No, exit\n';
+const NARROW_CODEX = 'Do you trust the contents of\nthis directory? Working with\nuntrusted contents comes with\nhigher risk of prompt injection.\n\n › 1. Yes, continue\n   2. No, quit\n';
+
+test('trust dialogs wrapped at 40 columns are still found and answered', () => {
+  assert.equal(classifyScreen('claude', NARROW_CLAUDE).type, 'trust');
+  assert.deepEqual(classifyScreen('claude', NARROW_CLAUDE).keys, ['down', 'enter']);
+  assert.deepEqual(classifyScreen('agy', NARROW_AGY).keys, ['enter']);
+  assert.deepEqual(classifyScreen('codex', NARROW_CODEX).keys, ['1']);
+  assert.equal(classifyScreen('codex', NARROW_CODEX).safeToAnswer, true);
+});
+
+test('permission, update and login prompts wrapped at 40 columns are found', () => {
+  assert.equal(classifyScreen('pi', 'Do you want to\nrun rm -rf build?\n  1. Yes\n  2. No').type, 'permission');
+  assert.equal(classifyScreen('pi', 'Allow this tool to\n   edit   files?').type, 'permission');
+  assert.equal(classifyScreen('codex', 'Update\navailable! 0.1 -> 0.2').type, 'update');
+  assert.equal(classifyScreen('agy', 'Please sign\nin to continue').type, 'login');
+});
+
 test('describeBlocked names the exact keys command; login has none', () => {
   assert.equal(keysCommand({ task: 't', name: 'w1', keys: ['enter'] }), 'foreman keys --task t w1 enter');
   assert.match(describeBlocked({ kind: 'claude', screen: CLAUDE, task: 't', name: 'w1' }), /^claude asks to trust this folder; answer it with: foreman keys --task t w1 down enter$/);

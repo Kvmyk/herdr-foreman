@@ -1,4 +1,4 @@
-// What the task prompt window (plugin/ask.js) shows: header, key hints,
+// What the task prompt (src/ask.js) shows: header, key hints,
 // input marker, confirmation summary and progress steps. Pure text; colors
 // come from ui.js, so NO_COLOR is respected.
 import path from 'node:path';
@@ -43,14 +43,33 @@ export function settingsLine(ui, settings, { branch = null, columns = 80 } = {})
 
 const key = (ui, k, text) => `${INDENT}${ui.cyan(k.padEnd(18))}${ui.dim(text)}`;
 
-export function hints(ui, columns = 80) {
+// Below this width (a phone, a narrow pane) the hints are a few short lines.
+export const NARROW = 60;
+
+// editor: false leaves out the "e" hint, for an editor that would open a
+// window on the computer instead of in this terminal.
+export function hints(ui, columns = 80, { editor = true } = {}) {
+  if (columns < NARROW) {
+    return [
+      'Paste or type the task.',
+      'Enter on an empty line starts it;',
+      'a pasted task starts with one Enter.',
+      '@file points at a file.',
+      'First, each on its own line:',
+      '/leader <kind>  /branch <name>',
+      '/auto  /uncommitted',
+      'An empty first line cancels.',
+      '',
+    ].map((l) => (l ? `${INDENT}${ui.dim(fit(l, columns - 2))}` : l)).join('\n');
+  }
   return [
     `${INDENT}${ui.dim(fit('Describe what you want done, in your own words.', columns - 4))}`,
     `${INDENT}${ui.dim(fit(`e.g. ${EXAMPLE}`, columns - 4))}`,
     '',
     key(ui, 'Enter ×2', 'an empty line starts the task'),
+    key(ui, 'Paste, Enter', 'a pasted task starts with one Enter'),
     key(ui, 'Ctrl+D', 'start right away'),
-    key(ui, 'e + Enter', 'write it in an editor instead'),
+    ...(editor ? [key(ui, 'e + Enter', 'write it in an editor instead')] : []),
     key(ui, '@file', 'point at files; links work too'),
     key(ui, 'Empty first line', 'cancel'),
     '',

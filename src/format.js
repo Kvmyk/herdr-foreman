@@ -1,5 +1,5 @@
 // What a person reads for each command (JSON stays the machine format).
-import { table } from './ui.js';
+import { table, isNarrow, wrap, kv } from './ui.js';
 
 const dur = (s) => {
   if (s === null || s === undefined) return '-';
@@ -41,6 +41,10 @@ export function formatSpawn(v, ui) {
 }
 
 export function formatStatus(list, ui) {
+  // About 40 columns: one line per worker.
+  if (isNarrow(ui)) {
+    return list.map((s) => [s.name, s.state ?? '-', dur(s.ageS), s.missing ? ui.red('missing') : s.dirty ? 'changed' : 'clean', `+${s.added ?? 0}/-${s.removed ?? 0}`, s.report ? 'report' : s.proposals ? 'proposals' : '', s.pushGuardArmed ? '' : ui.red('NOGUARD')].filter(Boolean).join(' ')).join('\n');
+  }
   const rows = list.map((s) => [
     s.name,
     s.state ?? '-',
@@ -57,9 +61,16 @@ export function formatStatus(list, ui) {
 
 export function formatWait(res, ui) {
   const out = [`${res.result} after ${dur(res.elapsedS)}`];
+  const narrow = isNarrow(ui);
   for (const [name, w] of Object.entries(res.workers)) {
     const state = typeof w === 'string' ? w : w.state;
     const color = state === 'done' ? ui.green : ['working', 'starting'].includes(state) ? ui.cyan : ui.red;
+    if (narrow) {
+      out.push('', `${name}: ${color(state)}`);
+      out.push(...kv('note', w.note, ui, '  '), ...kv('hint', w.hint, ui, '  '));
+      if (w.screen) for (const l of String(w.screen).split(/\r?\n/).slice(-5)) out.push(...wrap(`  ${l}`, ui.columns, '  ').map(ui.dim));
+      continue;
+    }
     out.push(`  ${name.padEnd(12)}${color(state)}${w.note ? ` (${w.note})` : ''}`);
     if (w.hint) out.push(`      ${w.hint}`);
     if (w.screen) for (const l of String(w.screen).split(/\r?\n/).slice(-5)) out.push(ui.dim(`      ${l}`));

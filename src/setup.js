@@ -7,6 +7,7 @@ import { createUi } from './ui.js';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_CONFIG } from './config.js';
 import { HERDR_KINDS } from './inventory/kinds.js';
+import { findTool } from './backend.js';
 
 export const PLUGIN_ID = 'herdr-foreman';
 export const ACTION = `${PLUGIN_ID}.start`;
@@ -388,6 +389,23 @@ async function firstLine(run, cmd, args, opts) {
   }
 }
 
+// herdr-core on its own (hc): its version, and whether its server answers.
+// With neither herdr nor the desktop app this is still a place to run tasks,
+// reached from a terminal or from the Herdr phone app.
+export async function coreState(d) {
+  let hc = null;
+  try {
+    hc = findTool('hc', d);
+  } catch {
+    // no way to look for it
+  }
+  if (!hc) return { version: null, running: false };
+  const line = await firstLine(d.run, hc, ['--version'], { env: d.env });
+  if (line === null) return { version: null, running: false };
+  const status = await d.run(hc, ['server', 'status', '--json'], { env: d.env, timeoutMs: 10000 }).catch(() => null);
+  return { version: line.replace(/^hc\s+/, '') || 'unknown', running: status?.code === 0 };
+}
+
 // Inside node_modules (an npm install) or a global npm install, not a
 // developer's own clone running `npm install`.
 export function installedByNpm({ env, root = PACKAGE_ROOT }) {
@@ -448,6 +466,10 @@ export async function runSetup(d, { quiet = false, postinstall = false } = {}) {
     if (key.status === 'added') r.changes.push(`added the shortcut ${humanAppKey(key.key)} to the Herdr app`);
   }
 
+  // Quiet runs ask herdr-core only when nothing else is there to run tasks in.
+  if (!quiet || (!r.herdr.version && r.app.status === 'absent')) r.core = await coreState(d);
+  r.coreOnly = !r.herdr.version && r.app.status === 'absent' && Boolean(r.core?.running);
+
   if (!quiet) {
     const gitVersion = await firstLine(d.run, 'git', ['--version'], { env });
     const name = gitVersion ? await firstLine(d.run, 'git', ['config', 'user.name'], { env, cwd: d.cwd }) : null;
@@ -472,16 +494,24 @@ export async function runSetup(d, { quiet = false, postinstall = false } = {}) {
 
   const appOk = r.app.status === 'found' && ['added', 'updated', 'already', 'newer'].includes(r.app.mod.status) && ['added', 'already'].includes(r.app.key.status);
   const herdrOk = r.herdr.ok && r.plugin === 'enabled' && ['added', 'already'].includes(r.key.status);
-  if (['added', 'already'].includes(r.key.status) || appOk) {
+  if (['added', 'already'].includes(r.key.status) || appOk || r.coreOnly) {
     const state = { at: new Date().toISOString() };
     if (['added', 'already'].includes(r.key.status)) Object.assign(state, { key: r.key.key, file: r.key.file });
     if (appOk) state.app = { key: r.app.key.key, mod: version };
+    if (r.coreOnly) state.core = r.core.version;
     d.writeFile(d.paths.setupState, `${JSON.stringify(state)}\n`);
   }
 
+  // The launcher terminal, for someone who asked for it in config.json.
+  if (d.ensureLauncher) {
+    r.launcher = await Promise.resolve().then(() => d.ensureLauncher()).catch(() => null);
+    if (r.launcher?.status === 'started') r.changes.push('opened its launcher terminal for the Herdr phone app');
+  }
+
   const leaderReady = r.agents.some((a) => a.kind === r.leader && a.status === 'ready');
-  // herdr itself is optional for someone who only uses the Herdr app, and the app for someone who only uses herdr.
-  const where = r.herdr.version ? herdrOk && (r.app.status === 'absent' || appOk) : appOk;
+  // herdr itself is optional for someone who only uses the Herdr app, the app for someone who only
+  // uses herdr, and both for someone who has herdr-core alone (a server, the Herdr phone app).
+  const where = r.herdr.version ? herdrOk && (r.app.status === 'absent' || appOk) : appOk || r.coreOnly;
   r.ok = r.node.ok && where
     && Boolean(r.git?.version) && Boolean(r.git?.name) && r.git?.hasEmail && leaderReady;
   return r;
@@ -518,7 +548,10 @@ export function formatSetup(r, ui = createUi()) {
   else todo(`Node.js ${r.node.version} is too old. Install version ${MIN_NODE} or newer from https://nodejs.org`);
 
   const hasApp = r.app?.status === 'found';
+  const core = r.core?.version ? r.core : null;
   if (!r.herdr.version && hasApp) ok('herdr (the terminal version) is not installed, which is fine for the Herdr app');
+  else if (!r.herdr.version && core?.running) ok(`herdr-core ${core.version} is running. herdr and the Herdr desktop app are not installed, which is fine: tasks start from a terminal here or from the Herdr phone app`);
+  else if (!r.herdr.version && core) todo(`herdr-core ${core.version} is installed but does not answer. Type: hc server start, then "foreman setup" again`);
   else if (!r.herdr.version) todo('herdr is not installed. Install it from https://herdr.dev, then type "foreman setup" again');
   else if (!r.herdr.ok) todo(`herdr ${r.herdr.version} is too old. Type "herdr update" to get version ${MIN_HERDR} or newer`);
   else ok(`herdr ${r.herdr.version}`);
@@ -552,6 +585,9 @@ export function formatSetup(r, ui = createUi()) {
     else if (key.status !== 'skipped') todo(`foreman could not add its shortcut to the Herdr app: ${key.reason}`);
   }
 
+  if (['started', 'already'].includes(r.launcher?.status)) ok(`Launcher: a terminal named foreman is open${r.launcher.status === 'started' ? ' (just now)' : ''}; in the Herdr phone app it is in the Inbox`);
+  else if (r.launcher?.status === 'failed' || r.launcher?.status === 'no-core') todo(`The launcher ("launcher": true in ${r.configFile}) could not start: ${r.launcher.reason}`);
+
   if (!r.agents.length) todo('No coding agent found. Install one, for example Claude Code (https://claude.com/claude-code) or Codex (https://developers.openai.com/codex), and sign in');
   for (const a of r.agents) (a.status === 'ready' ? ok : todo)(describeAgent(a));
   const leaderReady = r.agents.some((a) => a.kind === r.leader && a.status === 'ready');
@@ -560,7 +596,14 @@ export function formatSetup(r, ui = createUi()) {
 
   out.push('', `${passed} of ${passed + failed} checks passed`, '');
   const appKey = hasApp && ['added', 'already'].includes(r.app.key.status) ? humanAppKey(r.app.key.key) : null;
-  if (r.ok && !['added', 'already'].includes(k.status)) {
+  if (r.ok && r.coreOnly) {
+    out.push(
+      'What to do next, in the Herdr phone app or in any terminal on this computer:',
+      '  1. Open a terminal in your project folder.',
+      '  2. Type: foreman new',
+      '  3. Paste or type what you want done and press Enter.',
+    );
+  } else if (r.ok && !['added', 'already'].includes(k.status)) {
     out.push(
       'What to do next:',
       '  1. In the Herdr app, open a terminal in your project folder.',
@@ -578,6 +621,12 @@ export function formatSetup(r, ui = createUi()) {
     if (appKey) out.push(`  In the Herdr app, open a terminal in your project folder and press ${appKey} instead.`);
   } else {
     out.push(`Fix the lines marked ${ui.red('[!!]')}, then type "foreman setup" again.`);
+  }
+  // The phone app reaches whatever runs in herdr-core: that, and nothing else.
+  if (r.ok && r.core?.running) {
+    if (!r.coreOnly) out.push('  From the Herdr phone app: open a terminal in your project folder and type: foreman new');
+    if (['started', 'already'].includes(r.launcher?.status)) out.push('  Or open the terminal named foreman in the phone\'s Inbox and send the task there.');
+    else out.push(`  To keep a foreman terminal in the phone's Inbox, put "launcher": true in ${r.configFile} and type: foreman launcher --ensure`);
   }
   return out.join('\n');
 }

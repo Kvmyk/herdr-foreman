@@ -12,7 +12,7 @@ const ids = () => {
 };
 const ls = (terminals) => [/^hc ls/, out({ hidden_finished: 0, terminals })];
 
-test('agentStart runs the agent with labels, no parent, and waits until it is ready', async () => {
+test('agentStart runs an agent without a parent (a leader) with labels, and waits until it is ready', async () => {
   const run = fakeRun([
     [/^hc run/, out({ address: 't7', name: 'w1', state: 'live' })],
     [/^hc wait/, out({ ended: true, reason: 'status', status: 'idle', terminal: 't7' })],
@@ -75,7 +75,7 @@ test('paneClose kills and removes the terminal; a missing one is pane_not_found'
 });
 
 test('read, prompt and keys use hc read, send and keys', async () => {
-  const run = fakeRun([[/^hc read/, { stdout: 'screen\n' }], [/^hc send/, out({ turn: 2 })], [/^hc keys/, out({ status: 'idle' })]]);
+  const run = fakeRun([[/^hc read/, { stdout: 'screen\n' }], [/^hc send/, out({ turn: 2 })], [/^hc keys/, out({ status: 'idle' })], [/^hc get/, out({ address: 't7', labels: {} })]]);
   const pauses = [];
   const herdr = createHerdrApp({ run, sleep: async (ms) => { pauses.push(ms); } });
   assert.equal(await herdr.agentRead('w1'), 'screen\n');
@@ -86,9 +86,12 @@ test('read, prompt and keys use hc read, send and keys', async () => {
     ['read', '--lines', '0', 'w1'],
     ['read', '--lines', '50', 'w1'],
     ['send', '--json', 'w1', '--', '-starts with a dash'],
+    // After a message or keys: did foreman pin this terminal? (see answered)
+    ['get', '--json', 'w1'],
     ['read', '--lines', '0', 'w1'],
     ['keys', '--json', 'w1', 'down'],
     ['keys', '--json', 'w1', 'enter'],
+    ['get', '--json', 'w1'],
   ]);
   assert.deepEqual(pauses, [500, 150]);
 });
@@ -153,7 +156,7 @@ test('agentStart keeps the warning in the tab when a later worker of that tab is
 test('agentPrompt presses enter once when the prompt is still in the input', async () => {
   const run = fakeRun([[/^hc send/, out({ turn: 1 })], [/^hc read/, { stdout: 'x\n> hello there\n' }], [/^hc keys/, out({})]]);
   await createHerdrApp({ run, sleep: async () => {} }).agentPrompt('w1', 'hello there');
-  assert.deepEqual(run.calls.map((c) => c.args[0]), ['send', 'read', 'keys']);
+  assert.deepEqual(run.calls.map((c) => c.args[0]), ['send', 'get', 'read', 'keys']);
 });
 
 // A window showing the leader t1 (pane pL) alone in tab tbA, or more terminals.
@@ -274,4 +277,155 @@ test('stackLayout gives up on an unknown terminal after about 5 s and shows it b
   await startAll(herdr, await herdr.stackLayout({ leader: 't1', space: 'spA', tab: 'tbA', count: 1 }), ['w0']);
   assert.equal(waited, 5000);
   assert.ok(run.calls.some((c) => c.line.startsWith('hc label --json tw0')));
+});
+
+// Workers: children of the leader, labelled with their run.
+const started = (extra = []) => fakeRun([
+  [/^hc run/, out({ address: 't7' })],
+  [/^hc wait/, out({ ended: true, reason: 'status', status: 'idle' })],
+  [/^herdr-app do/, { code: 0 }],
+  ...extra,
+]);
+
+test('agentStart makes a worker the leader\'s child that outlives it, with the run in its labels', async () => {
+  const run = started();
+  await createHerdrApp({ run }).agentStart({
+    name: 'w1', kind: 'claude', cwd: '/wt/w1', space: 'sp1', tab: 'tb1', parent: 't3',
+    labels: { 'foreman.task': 'fix-login', 'foreman.role': 'worker' },
+  });
+  assert.deepEqual(run.calls[0].args, [
+    'run', '--json', '--bg', '--parent', 't3', '--outlive-parent', '--no-notify', '--name', 'w1', '--cwd', '/wt/w1',
+    '--label', 'herdr.space=sp1', '--label', 'herdr.tab=tb1', '--label', 'foreman.name=w1',
+    '--label', 'foreman.task=fix-login', '--label', 'foreman.role=worker',
+    '--', 'claude',
+  ]);
+  assert.ok(!run.calls[0].args.includes('--no-parent'));
+});
+
+test('agentStart writes the where label only while the desktop window is closed', async () => {
+  const where = (run) => run.calls.find((c) => c.line.startsWith('hc run')).args.filter((a) => a.startsWith('where='));
+  const closed = started([[/^herdr-app status/, { code: 2 }]]);
+  await createHerdrApp({ run: closed }).agentStart({ name: 'w1', kind: 'claude', where: 'shop / fix-login' });
+  assert.deepEqual(where(closed), ['where=shop / fix-login']);
+  const open = started([[/^herdr-app status/, { code: 0 }]]);
+  await createHerdrApp({ run: open }).agentStart({ name: 'w1', kind: 'claude', where: 'shop / fix-login' });
+  assert.deepEqual(where(open), []);
+  // The caller already knows: the window is not asked again.
+  const known = started();
+  await createHerdrApp({ run: known }).agentStart({ name: 'w1', kind: 'claude', where: 'shop / fix-login', windowOpen: false });
+  assert.deepEqual(where(known), ['where=shop / fix-login']);
+  assert.ok(!known.calls.some((c) => c.line.startsWith('herdr-app status')));
+  // No where asked for: the window is not asked at all.
+  const none = started();
+  await createHerdrApp({ run: none }).agentStart({ name: 'w1', kind: 'claude' });
+  assert.ok(!none.calls.some((c) => c.line.startsWith('herdr-app status')));
+});
+
+const blocked = (extra = []) => fakeRun([
+  [/^hc run/, out({ address: 't3' })],
+  [/^hc wait/, out({ ended: true, reason: 'status', status: 'blocked' })],
+  [/^hc label/, out({})],
+  [/^herdr-app do/, { code: 0 }],
+  ...extra,
+]);
+const labelCalls = (run) => run.calls.filter((c) => c.line.startsWith('hc label')).map((c) => c.args.slice(2));
+const doCalls = (run) => run.calls.filter((c) => c.cmd === 'herdr-app' && c.args[0] === 'do').map((c) => [c.args[1], JSON.parse(c.args[2])]);
+
+test('a worker that needs the person is pinned for every Herdr client', async () => {
+  const run = blocked();
+  await createHerdrApp({ run }).agentStart({ name: 'w2', kind: 'agy', cwd: '/wt', tab: 'tb1', label: 'foreman:x' });
+  assert.deepEqual(labelCalls(run), [['t3', 'herdr.pinned=1', 'foreman.pinned=1']]);
+  // In a shared tab the tab is still brought forward.
+  assert.deepEqual(doCalls(run).map(([cmd]) => cmd), ['tab.rename', 'tab.select']);
+});
+
+test('a worker that stopped is named in its tab but not pinned', async () => {
+  const run = fakeRun([
+    [/^hc run/, out({ address: 't3' })],
+    [/^hc wait/, out({ ended: true, reason: 'exit', exit_code: 2 })],
+    [/^herdr-app do/, { code: 0 }],
+  ]);
+  await createHerdrApp({ run }).agentStart({ name: 'w2', kind: 'codex', tab: 'tb1', label: 'foreman:x' });
+  assert.equal(run.calls.some((c) => c.line.startsWith('hc label')), false);
+  assert.deepEqual(doCalls(run)[0], ['tab.rename', { id: 'tb1', name: '✖ w2 stopped · foreman:x' }]);
+});
+
+test('in a tab of its own a worker that needs the person renames the tab but does not bring it forward', async () => {
+  const run = blocked();
+  await createHerdrApp({ run }).agentStart({ name: 'w2', kind: 'agy', cwd: '/wt', space: 'sp1', tab: 'tb7', label: 'w2 · fix-login', ownTab: true });
+  assert.deepEqual(doCalls(run), [['tab.rename', { id: 'tb7', name: '⚠ w2 needs you · fix-login' }]]);
+  // The pin remembers the title to put back.
+  assert.deepEqual(labelCalls(run), [['t3', 'herdr.pinned=1', 'foreman.pinned=w2 · fix-login']]);
+});
+
+test('in a tab of its own a ready worker titles its tab and is not pinned', async () => {
+  const run = started();
+  await createHerdrApp({ run }).agentStart({ name: 'w2', kind: 'claude', space: 'sp1', tab: 'tb7', label: 'w2 · fix-login', ownTab: true });
+  assert.deepEqual(doCalls(run), [['tab.rename', { id: 'tb7', name: 'w2 · fix-login' }]]);
+  assert.equal(run.calls.some((c) => c.line.startsWith('hc label')), false);
+});
+
+test('answered takes foreman\'s pin off and gives a tab of its own its title back', async () => {
+  const run = fakeRun([
+    [/^hc get --json w2/, out({ address: 't3', labels: { 'herdr.tab': 'tb7', 'herdr.pinned': '1', 'foreman.pinned': 'w2 · fix-login' } })],
+    [/^hc get --json w3/, out({ address: 't4', labels: { 'herdr.tab': 'tbA', 'herdr.pinned': '1', 'foreman.pinned': '1' } })],
+    [/^hc label/, out({})],
+    [/^herdr-app do/, { code: 0 }],
+  ]);
+  const herdr = createHerdrApp({ run });
+  assert.equal(await herdr.answered('w2'), true);
+  assert.deepEqual(labelCalls(run), [['t3', 'herdr.pinned=', 'foreman.pinned=']]);
+  assert.deepEqual(doCalls(run), [['tab.rename', { id: 'tb7', name: 'w2 · fix-login' }]]);
+  // In a shared tab only the pin goes: the title may speak of another worker.
+  assert.equal(await herdr.answered('w3'), true);
+  assert.equal(doCalls(run).length, 1);
+});
+
+test('answered leaves a pin the person set, and an unknown terminal, alone', async () => {
+  const run = fakeRun([[/^hc get --json w1/, out({ address: 't5', labels: { 'herdr.pinned': '1' } })], [/^hc get/, hcError('not_found', 'no terminal')]]);
+  const herdr = createHerdrApp({ run });
+  assert.equal(await herdr.answered('w1'), false);
+  assert.equal(await herdr.answered('gone'), false);
+  assert.equal(run.calls.some((c) => c.line.startsWith('hc label')), false);
+});
+
+test('keys and a delivered message take foreman\'s pin off', async () => {
+  const run = fakeRun([
+    [/^hc keys/, out({})], [/^hc send/, out({ turn: 1 })], [/^hc read/, { stdout: 'working' }],
+    [/^hc get/, out({ address: 't3', labels: { 'herdr.pinned': '1', 'foreman.pinned': '1' } })],
+    [/^hc label/, out({})],
+  ]);
+  const herdr = createHerdrApp({ run, sleep: async () => {} });
+  await herdr.agentKeys('w2', ['1']);
+  await herdr.agentPrompt('w2', 'go on');
+  assert.deepEqual(labelCalls(run), [['t3', 'herdr.pinned=', 'foreman.pinned='], ['t3', 'herdr.pinned=', 'foreman.pinned=']]);
+});
+
+test('terminalInfo gives a terminal\'s size and labels, or null', async () => {
+  const run = fakeRun([
+    [/^hc get --json t3/, out({ address: 't3', cols: 45, rows: 20, labels: { 'foreman.layout': 'tabs' } })],
+    [/^hc get/, hcError('not_found', 'no terminal')],
+  ]);
+  const herdr = createHerdrApp({ run });
+  assert.deepEqual(await herdr.terminalInfo('t3'), { cols: 45, rows: 20, labels: { 'foreman.layout': 'tabs' } });
+  assert.equal(await herdr.terminalInfo('t9'), null);
+});
+
+test('needsPerson pins a worker foreman wait found waiting, and leaves a terminal that is pinned already alone', async () => {
+  const run = fakeRun([
+    [/^hc get --json w1/, out({ address: 't3', labels: { 'herdr.tab': 'tb7' } })],
+    [/^hc get --json w2/, out({ address: 't4', labels: { 'herdr.pinned': '1', 'foreman.pinned': 'w2 · fix-login' } })],
+    [/^hc get --json w3/, out({ address: 't5', labels: { 'herdr.pinned': '1' } })],
+    [/^hc get/, hcError('not_found', 'no terminal')],
+    [/^hc label/, out({})],
+  ]);
+  const herdr = createHerdrApp({ run });
+  assert.equal(await herdr.needsPerson('w1'), true);
+  // Pinned at spawn (the tab title to put back stays), pinned by the person, and unknown.
+  assert.equal(await herdr.needsPerson('w2'), false);
+  assert.equal(await herdr.needsPerson('w3'), false);
+  assert.equal(await herdr.needsPerson('gone'), false);
+  assert.deepEqual(labelCalls(run), [['t3', 'herdr.pinned=1', 'foreman.pinned=1']]);
+  // The pin is foreman's, so an answer takes it off again.
+  assert.equal(typeof herdr.answered, 'function');
 });

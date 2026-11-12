@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { nearSubcommand, usageOf, commandUsage } from '../src/cli-usage.js';
 import { describeConfig, formatConfig } from '../src/configcmd.js';
 import { allSettled, runWatch } from '../src/watch.js';
+import { statusSeq } from '../src/status.js';
 import { createUi } from '../src/ui.js';
 
 test('near-miss subcommands are found; real words and tasks are left alone', () => {
@@ -58,4 +59,41 @@ test('config shows the value the environment decides', () => {
   const c = describeConfig({ paths: { config: '/h/config.json' }, readFile: read, env: { FOREMAN_NO_SETUP: '1' } });
   assert.equal(c.config.autoSetup, false);
   assert.match(formatConfig(c, createUi()), /autoSetup\s+false\s+\(set by the environment: FOREMAN_NO_SETUP\)/);
+});
+
+test('watch reports its status as OSC 7501 (the launcher\'s format): working, then done, only in a Herdr app terminal', async () => {
+  const states = [[{ name: 'a', state: 'working', report: false }, { name: 'b', state: 'idle', report: true }], [{ name: 'a', state: 'idle', report: true }, { name: 'b', state: 'idle', report: true }]];
+  const go = async (tty, env, task = 'fix-login') => {
+    let n = 0; let out = '';
+    await runWatch({ status: async () => states[n++], render: () => 'x', stdout: { write: (s) => { out += s; } }, sleep: async () => {}, tty, env, task });
+    return out;
+  };
+  const on = await go(true, { HC_TERMINAL_ID: 't1' });
+  // One implementation: every report is exactly what statusSeq makes.
+  const reports = on.match(/\x1b\]7501;[^\x1b]*\x1b\\/g);
+  assert.deepEqual(reports, [
+    statusSeq({ state: 'working', msg: 'Watching fix-login' }),
+    statusSeq({ state: 'working', msg: 'Watching fix-login: 1 of 2 finished', progress: 50 }),
+    statusSeq({ state: 'done', msg: 'Every worker of fix-login has finished' }),
+  ]);
+  assert.match(reports[0], /^\x1b\]7501;state=working:app=foreman:msg=[A-Za-z0-9+/=]+\x1b\\$/);
+  assert.match(reports[2], /^\x1b\]7501;state=done:app=foreman:msg=/);
+  assert.equal(Buffer.from(/msg=([A-Za-z0-9+/=]+)/.exec(reports[1])[1], 'base64').toString(), 'Watching fix-login: 1 of 2 finished');
+  // The old made-up payload is gone, and so is BEL as the terminator.
+  assert.ok(!on.includes('\x1b]7501;working') && !/\x1b\]7501;[^\x1b]*\x07/.test(on));
+  assert.ok(!(await go(true, {})).includes('7501'));
+  assert.ok(!(await go(false, { HC_TERMINAL_ID: 't1' })).includes('7501'));
+  assert.match(await go(true, { HC_TERMINAL_ID: 't1' }, null), /7501;state=working:app=foreman:msg=/);
+});
+
+test('foreman watch passes the task and the environment on, so the report names the run', async () => {
+  const { main } = await import('../src/cli.js');
+  let out = '';
+  const code = await main(['watch', '--task', 'fix-login'], {
+    env: { HC_TERMINAL_ID: 't1' }, paths: {}, readFile: () => { throw Object.assign(new Error('x'), { code: 'ENOENT' }); },
+    stdout: { isTTY: true, write: (s) => { out += s; } }, stderr: { write() {} }, sleep: async () => {},
+    ops: { status: async () => [{ name: 'a', state: 'idle', report: true }] },
+  });
+  assert.equal(code, 0);
+  assert.ok(out.includes(statusSeq({ state: 'done', msg: 'Every worker of fix-login has finished' })));
 });
