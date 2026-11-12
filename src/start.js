@@ -9,6 +9,7 @@ import { describeBlocked } from './blocked.js';
 import { screenTail } from './wait.js';
 import { taskFile as taskPath } from './history.js';
 import { prefsText } from './start-prefs.js';
+import { layoutHint } from './layout.js';
 
 export const INSTRUCTIONS_PATH = fileURLToPath(new URL('../leader/INSTRUCTIONS.md', import.meta.url));
 
@@ -30,6 +31,13 @@ const samePath = (a, b) => {
 };
 
 const failed = (message) => ({ ok: false, message });
+
+// The leader's name in the Herdr app: "<slug>-lead", at most 32 characters
+// (hc's limit for a name); n numbers another leader of the same task.
+export function leaderName(slug, n = '') {
+  const tail = `-lead${n}`;
+  return `${slug.slice(0, 32 - tail.length).replace(/-+$/, '')}${tail}`;
+}
 
 // One argument the user can paste into their shell. On Windows that is
 // PowerShell: single quotes keep $ and backticks literal, ' is doubled.
@@ -100,8 +108,10 @@ export async function startForeman({
   }
 
   const live = new Set((await herdr.agentList()).map((a) => a.name).filter(Boolean));
-  let leader = 'lead';
-  for (let n = 2; live.has(leader); n++) leader = `lead${n}`;
+  // In the Herdr app the name carries the task, so a list of every machine's
+  // agents shows which run a leader belongs to; herdr keeps the short name.
+  let leader = app ? leaderName(slug) : 'lead';
+  for (let n = 2; live.has(leader); n++) leader = app ? leaderName(slug, n) : `lead${n}`;
 
   // Every task is kept for `foreman show` and `foreman resume`; the prompt
   // points at the file only when the task has several lines.
@@ -121,9 +131,14 @@ export async function startForeman({
   const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];
   const args = [...lean, ...(config.leaderArgs ?? [])];
   progress(`Starting ${config.leader}, the lead agent (up to ${Math.round((config.startTimeoutMs ?? 0) / 1000)}s)...`);
+  // How wide the terminal the task was typed in is: spawn reads the hint from
+  // the leader's labels and gives workers tabs of their own on a narrow screen.
+  const hint = layoutHint(app && inside ? (await herdr.terminalInfo?.(env.HC_TERMINAL_ID))?.cols : null);
   const started = await herdr.agentStart({
     name: leader, kind: config.leader, pane: place.paneId, cwd: repo, space: place.workspaceId, tab: place.tabId,
-    label: 'foreman', focus: true, timeoutMs: config.startTimeoutMs, args,
+    label: app ? `foreman · ${slug}` : 'foreman', focus: true, timeoutMs: config.startTimeoutMs, args,
+    labels: { 'foreman.task': slug, 'foreman.role': 'leader', ...(hint ? { 'foreman.layout': hint } : {}) },
+    where: `${path.basename(repo)} / ${slug}`,
   });
   const paneId = started.pane ?? place.paneId;
   if (!paneId) return failed(`The leader could not start: ${started.message}`);
