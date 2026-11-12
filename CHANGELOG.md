@@ -4,6 +4,21 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- `foreman setup` in a terminal asks once whether you want to start foreman from the Herdr phone app, saves the answer as `"launcher"` in `config.json` (the rest of the file stays as it was) and opens the launcher for a yes; the plugin's automatic setup runs never ask.
+- `foreman launcher on|off` turns the launcher on or off later; off also closes the launcher terminal foreman opened.
+- The desktop prompt has a third switch, Phone launcher, that shows and changes the same setting.
+
+### Changed
+
+- The launcher's project list includes the repositories of the Herdr app's spaces (up to 6, the space used last first), so a repository with no run yet is there.
+- The launcher terminal that `foreman launcher --ensure` opens joins the Herdr app space used last, instead of no space.
+
+### Fixed
+
+- A message sent to the launcher with `hc send` shows on its screen without the `<hc from="...">` tag around it; a message passed on through several terminals loses every tag.
+
 ## [0.11.0] - 2026-11-12
 
 ### Added
