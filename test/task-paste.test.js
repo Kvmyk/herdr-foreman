@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
-import { editorOpensWindow, readTaskLines, PASTE_ON, PASTE_OFF } from '../src/task.js';
+import { createTaskReader, editorOpensWindow, readTaskLines, PASTE_ON, PASTE_OFF } from '../src/task.js';
 
 const ESC = '\x1b';
 const paste = (text) => `${ESC}[200~${text}${ESC}[201~`;
@@ -143,4 +143,60 @@ test('editorOpensWindow: Notepad and VS Code open a window, nano and vim do not'
   assert.equal(editorOpensWindow({ EDITOR: 'code --wait' }, 'linux'), true);
   assert.equal(editorOpensWindow({ VISUAL: '"C:\\Program Files\\Notepad++\\notepad++.exe" -multiInst' }, 'win32'), true);
   assert.equal(editorOpensWindow({ EDITOR: 'vim' }, 'win32'), false);
+});
+
+// ---- one reader for task after task (the launcher) ----
+
+function reading(opts = {}) {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  stdout.columns = 40;
+  let out = '';
+  stdout.on('data', (d) => { out += d; });
+  const reader = createTaskReader(stdin, stdout, { terminal: true, prompt: '> ', single: true, burstMs: 20, ...opts });
+  return { stdin, reader, out: () => out };
+}
+
+test('createTaskReader gives task after task, and what was sent early waits for its turn', async () => {
+  const r = reading();
+  // Two sends that arrive while nobody is asking, as when the launcher is busy.
+  r.stdin.write(`${paste('first task\n\nwith a blank line')}\r${paste('2')}\r`);
+  await tick(120);
+  assert.equal(await r.reader.next(), 'first task\n\nwith a blank line');
+  assert.equal(await r.reader.next(), '2');
+  // Then one that is typed while it waits.
+  const third = r.reader.next();
+  r.stdin.write('third\r');
+  assert.equal(await third, 'third');
+  assert.equal(r.reader.ended, false);
+  // Paste mode goes on once and off once, however many tasks were read.
+  r.reader.close();
+  assert.equal(r.out().split(PASTE_ON).length - 1, 1);
+  assert.equal(r.out().split(PASTE_OFF).length - 1, 1);
+  assert.equal(await r.reader.next(), '');
+});
+
+test('createTaskReader: the end of the input ends the reading; an input that ended before is no input', async () => {
+  const r = reading();
+  const pending = r.reader.next();
+  r.stdin.end();
+  assert.equal(await pending, '');
+  assert.equal(r.reader.ended, true);
+  assert.equal(await r.reader.next(), '');
+  const dead = new PassThrough();
+  dead.destroy();
+  const none = createTaskReader(dead, null);
+  assert.equal(none.ended, true);
+  assert.equal(await none.next(), '');
+  none.close();
+  assert.equal(await readTaskLines(dead, null), '');
+});
+
+test('createTaskReader without a terminal: each line of a single-mode reader is its own task', async () => {
+  const stdin = new PassThrough();
+  const reader = createTaskReader(stdin, null, { single: true });
+  stdin.end('one\n\ntwo\n');
+  assert.equal(await reader.next(), 'one');
+  assert.equal(await reader.next(), 'two');
+  assert.equal(await reader.next(), '');
 });

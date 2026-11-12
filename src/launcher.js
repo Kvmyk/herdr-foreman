@@ -6,7 +6,7 @@
 // touch keyboard.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readTaskLines } from './task.js';
+import { createTaskReader } from './task.js';
 import { createUi } from './ui.js';
 import { loadConfig } from './config.js';
 import { listRuns } from './runs.js';
@@ -16,32 +16,19 @@ import { createBackend, detectBackend, findTool, installed } from './backend.js'
 import { applySetting, choiceLines, initialSettings, isSettingCommand, menuKey, menuLines, pickChoice, settingsArgs } from './start-settings.js';
 import { loadRemembered, saveRemembered } from './start-prefs.js';
 import { listLeaders } from './ask.js';
+import { statusSeq, titleSeq } from './status.js';
 
 export const LAUNCHER_NAME = 'foreman';
 export const LAUNCHER_LABEL = 'foreman.launcher=1';
 export const LAUNCHER_TITLE = 'foreman: new task';
 const BIN = fileURLToPath(new URL('../bin/foreman.js', import.meta.url));
 
-const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
 const firstLine = (text) => String(text ?? '').split(/\r?\n/).find((l) => l.trim())?.trim() ?? '';
 const forward = (p) => p.replace(/\\/g, '/');
 
-// One status report (OSC 7501, the Program Status Protocol herdr-core reads):
-// state is idle, working, done, blocked, error or clear; msg and title travel as base64.
-export function statusSeq({ state, msg = '', title = '', progress = null }) {
-  const fields = [
-    `state=${state}`,
-    ...(progress === null ? [] : [`progress=${Math.max(0, Math.min(100, Math.round(progress)))}`]),
-    'app=foreman',
-    ...(title ? [`title=${b64(title)}`] : []),
-    ...(msg ? [`msg=${b64(msg)}`] : []),
-  ];
-  return `\x1b]7501;${fields.join(':')}\x1b\\`;
-}
-
-// The terminal's title (OSC 2): what the phone shows next to the space name.
-export const titleSeq = (text) => `\x1b]2;${text.replace(/[\x00-\x1f\x7f]/g, ' ')}\x07`;
+// The status reports and the title are in status.js, shared with `foreman watch`.
+export { statusSeq, titleSeq };
 
 // A message sent from another hc terminal arrives as <hc from="t4 lead">text</hc>.
 export function stripHcWrapper(text) {
@@ -167,7 +154,9 @@ export async function runLauncher({ deps, main, stdin = process.stdin, stdout = 
   let lastInterrupt = -Infinity;
 
   let leaders = null;
-  const leadersLoaded = Promise.resolve().then(() => listLeaders(deps, config)).then((kinds) => { leaders = kinds; }, () => {});
+  // Asked when the leader is about to be chosen: asking every agent takes seconds.
+  let asked = null;
+  const loadLeaders = () => (asked ??= Promise.resolve().then(() => listLeaders(deps, config)).then((kinds) => { leaders = kinds; }, () => {}));
 
   async function projects() {
     let runs = [];
@@ -216,7 +205,7 @@ export async function runLauncher({ deps, main, stdin = process.stdin, stdout = 
       if (!items.length) say(ui.yellow(fit('No project found yet.')));
       say(ui.dim(fit(items.length ? 'Project: a number, or a folder path.' : 'Type the path of a project folder.')));
     } else if (key === 'leader') {
-      await leadersLoaded;
+      await loadLeaders();
       items = leaders ?? [config.leader];
       say(ui.dim(fit('Which agent leads: a number.')));
     } else {
@@ -310,7 +299,7 @@ export async function runLauncher({ deps, main, stdin = process.stdin, stdout = 
     if (key) return openMenu(key);
     if (/^\s*\d+\s*$/.test(text)) return say(ui.yellow(fit('Send 1 to 5 to change a setting.')));
     if (isSettingCommand(text)) {
-      if (/^\/leader\b/i.test(text)) await leadersLoaded;
+      if (/^\/leader\b/i.test(text)) await loadLeaders();
       const res = applySetting(text, settings, { leaders, branches: repo ? await git.localBranches(repo).catch(() => null) : null, branch });
       settings = res.settings;
       if (res.error) return say(ui.yellow(`! ${res.error}`));
@@ -332,6 +321,13 @@ export async function runLauncher({ deps, main, stdin = process.stdin, stdout = 
     return true;
   };
 
+  // One reader from the first task to the last, opened before anything slow:
+  // the terminal is in one mode all the time, and a task sent while the
+  // launcher is busy (looking for projects, starting a leader) waits its turn
+  // instead of being lost.
+  const read = () => createTaskReader(stdin, stdout, { prompt: mark, single: true, escape: true, interrupt, now });
+  let reader = read();
+
   // A launcher started by hand is found by `foreman launcher --ensure` too.
   if (env.HC_TERMINAL_ID) {
     const hc = findTool('hc', deps) ?? 'hc';
@@ -345,15 +341,19 @@ export async function runLauncher({ deps, main, stdin = process.stdin, stdout = 
   draw();
   while (!quit && startedTasks < maxTasks) {
     stdout.write(mark);
-    const text = await readTaskLines(stdin, stdout, { prompt: mark, single: true, escape: true, interrupt, now });
+    const text = await reader.next();
     if (quit) break;
     if (!text) {
+      if (!reader.ended) continue;
       // Ctrl+D or the end of the input: a terminal reads on, a closed input ends the launcher.
       if (!stdin.isTTY || stdin.readableEnded || stdin.destroyed) break;
+      reader.close();
+      reader = read();
       continue;
     }
     await handle(text);
   }
+  reader.close();
   status('clear');
   say(ui.dim('The launcher is closed.'));
   return 0;

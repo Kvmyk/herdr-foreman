@@ -440,3 +440,84 @@ test('the real app mod keeps its placeholders and the keys the prompt documents'
   assert.ok(footer.indexOf('hint(["Ctrl", "Enter"], "start")') > 0 && footer.indexOf('hint(["Ctrl", "Enter"], "start")') < footer.indexOf('}'));
   assert.ok(!main.includes('.h_full()'));
 });
+
+// ---- herdr-core alone: a server, or a computer reached from the Herdr phone app ----
+
+function withCore(w, { running = true, launcher = null } = {}) {
+  const base = w.d.run;
+  const which = w.d.which;
+  w.hc = [];
+  w.d.which = (k) => (k === 'hc' ? '/bin/hc' : which(k));
+  w.d.run = async (cmd, args, opts) => {
+    if (cmd !== '/bin/hc') return base(cmd, args, opts);
+    w.hc.push(args.join(' '));
+    if (args[0] === '--version') return { code: 0, stdout: 'hc 0.1.20\n', stderr: '' };
+    return { code: running ? 0 : 1, stdout: '{}', stderr: '' };
+  };
+  if (launcher) w.d.ensureLauncher = async () => launcher;
+  return w;
+}
+
+test('runSetup: herdr-core alone is a valid setup: its version, no mod or key errors, and the steps for a terminal or the phone', async () => {
+  const w = withCore(world({ herdr: false }));
+  const r = await runSetup(w.d);
+  assert.equal(r.ok, true);
+  assert.equal(r.coreOnly, true);
+  assert.deepEqual(r.core, { version: '0.1.20', running: true });
+  assert.deepEqual(w.hc, ['--version', 'server status --json']);
+  assert.equal(JSON.parse(w.fs[w.d.paths.setupState]).core, '0.1.20');
+  const text = formatSetup(r);
+  assert.match(text, /\[ok\] herdr-core 0\.1\.20 is running\. herdr and the Herdr desktop app are not installed, which is fine/);
+  assert.doesNotMatch(text, /\[!!\]/);
+  assert.doesNotMatch(text, /herdr is not installed|shortcut|task prompt/);
+  assert.match(text, /5 of 5 checks passed/);
+  assert.match(text, /What to do next, in the Herdr phone app or in any terminal on this computer:\n {2}1\. Open a terminal in your project folder\.\n {2}2\. Type: foreman new\n {2}3\. Paste or type what you want done and press Enter\./);
+  assert.match(text, /To keep a foreman terminal in the phone's Inbox, put "launcher": true in .*config\.json and type: foreman launcher --ensure/);
+});
+
+test('runSetup: a quiet run on herdr-core alone reports no failure and remembers that setup ran', async () => {
+  const w = withCore(world({ herdr: false }));
+  const r = await runSetup(w.d, { quiet: true });
+  assert.equal(r.coreOnly, true);
+  assert.equal(formatSetup(r), 'foreman chose codex as the lead agent.');
+  assert.ok(w.fs[w.d.paths.setupState]);
+});
+
+test('runSetup: herdr-core that does not answer is not a setup, and the fix is named', async () => {
+  const r = await runSetup(withCore(world({ herdr: false }), { running: false }).d);
+  assert.equal(r.ok, false);
+  assert.equal(r.coreOnly, false);
+  const text = formatSetup(r);
+  assert.match(text, /\[!!\] herdr-core 0\.1\.20 is installed but does not answer\. Type: hc server start/);
+  assert.match(text, /Fix the lines marked \[!!\]/);
+  assert.doesNotMatch(text, /foreman new/);
+});
+
+test('runSetup: quiet runs ask herdr-core only when neither herdr nor the app is there', async () => {
+  const w = withCore(world({ plugins: [{ id: 'herdr-foreman', enabled: true }] }));
+  const r = await runSetup(w.d, { quiet: true });
+  assert.deepEqual(w.hc, []);
+  assert.equal(r.core, undefined);
+  assert.equal(r.coreOnly, false);
+});
+
+test('runSetup: with the desktop app the phone still gets its own line, and an open launcher is a passed check', async () => {
+  const plain = withCore(appWorld());
+  const text = formatSetup(await runSetup(plain.d));
+  assert.match(text, /2\. Press Ctrl\+Shift\+Y\./);
+  assert.match(text, /From the Herdr phone app: open a terminal in your project folder and type: foreman new/);
+  assert.match(text, /To keep a foreman terminal in the phone's Inbox/);
+
+  const open = withCore(appWorld(), { launcher: { status: 'started', terminal: 't9' } });
+  const r = await runSetup(open.d);
+  assert.ok(r.changes.includes('opened its launcher terminal for the Herdr phone app'));
+  const withLauncher = formatSetup(r);
+  assert.match(withLauncher, /\[ok\] Launcher: a terminal named foreman is open \(just now\)/);
+  assert.match(withLauncher, /Or open the terminal named foreman in the phone's Inbox and send the task there\./);
+  assert.doesNotMatch(withLauncher, /To keep a foreman terminal/);
+
+  const broken = withCore(appWorld(), { launcher: { status: 'failed', reason: 'name foreman is in use' } });
+  assert.match(formatSetup(await runSetup(broken.d)), /\[!!\] The launcher \("launcher": true in .*config\.json\) could not start: name foreman is in use/);
+  const off = withCore(appWorld(), { launcher: { status: 'off' } });
+  assert.doesNotMatch(formatSetup(await runSetup(off.d)), /Launcher:|could not start/);
+});

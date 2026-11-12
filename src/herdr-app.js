@@ -186,6 +186,17 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
       return t?.address ? { cols: t.cols ?? null, rows: t.rows ?? null, labels: t.labels ?? {} } : null;
     },
 
+    // `foreman wait` found a worker that needs the person (blocked, an error,
+    // stopped without its report): pin it like a worker that was not ready at
+    // spawn. A terminal that is pinned already, by foreman or by the person,
+    // is left as it is, so the tab title to restore and the person's own pin stay.
+    async needsPerson(terminal) {
+      const t = await call('get', [terminal]).catch(() => null);
+      if (!t?.address || t.labels?.['herdr.pinned']) return false;
+      await pin(t.address, null);
+      return true;
+    },
+
     // A worker was answered: take foreman's pin off again and, when the tab
     // is the worker's own, give the tab its title back. A pin the person set
     // (no foreman.pinned beside it) stays.

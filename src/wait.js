@@ -134,6 +134,13 @@ export async function waitForWorkers({
 
     const elapsedS = Math.round((now() - start) / 1000);
     if (attention || allDone) {
+      // A worker that waits for the person is pinned, so every Herdr client
+      // (desktop, phone) lists it first. Only the Herdr app backend can; a
+      // worker whose terminal is gone has nothing to pin.
+      for (const w of workers) {
+        const state = out[w.name]?.state;
+        if (['blocked', 'error', 'idle'].includes(state)) await Promise.resolve().then(() => herdr.needsPerson?.(w.paneId ?? w.name)).catch(() => {});
+      }
       const result = { result: attention ? 'attention' : 'done', elapsedS, workers: out };
       notify(notifyCommand, run.task, result, spawnImpl);
       return result;

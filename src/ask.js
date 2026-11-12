@@ -46,9 +46,12 @@ export async function runAsk({ deps, main, cwd = deps.cwd, stdin = process.stdin
   let settings = initialSettings(config);
 
   // The agents that can lead; when they cannot be listed the value is passed
-  // on and foreman checks it when the task starts.
+  // on and foreman checks it when the task starts. Asked only when /leader is
+  // used: asking every agent takes seconds, and a prompt that is cancelled
+  // should give the terminal back at once.
   let leaders = null;
-  const leadersLoaded = listLeaders(deps, config).then((kinds) => { leaders = kinds; }, () => {});
+  let asked = null;
+  const loadLeaders = () => (asked ??= listLeaders(deps, config).then((kinds) => { leaders = kinds; }, () => {}));
 
   const settingsText = () => settingsLine(ui, settings, { branch, columns });
   const mark = marker(ui);
@@ -59,7 +62,7 @@ export async function runAsk({ deps, main, cwd = deps.cwd, stdin = process.stdin
   // A setting on a line of its own: change it, say what happened, show the settings again.
   async function command(line) {
     if (!isSettingCommand(line)) return false;
-    if (/^\/leader\b/i.test(line.trim())) await leadersLoaded;
+    if (/^\/leader\b/i.test(line.trim())) await loadLeaders();
     const res = applySetting(line, settings, { leaders, branches: localBranches(spawnSync, cwd), branch });
     settings = res.settings;
     stdout.write(res.error ? `  ${ui.yellow(`! ${res.error}`)}\n` : `${settingsText()}\n`);
