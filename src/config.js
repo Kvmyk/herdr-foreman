@@ -23,6 +23,9 @@ export const DEFAULT_CONFIG = Object.freeze({
   // "stack" (leader on the left, workers stacked on the right), "grid" (equal
   // columns of up to three) or "tabs" (every worker in a tab of its own).
   layout: 'auto',
+  // Run when foreman wait returns attention or done: an argv array, no shell,
+  // {title} and {body} filled in, e.g. ["curl", "-d", "{body}", "ntfy.sh/mytopic"]. null: off.
+  notifyCommand: null,
 });
 
 export function paths({ env = process.env, homedir = os.homedir() } = {}) {
@@ -50,5 +53,8 @@ export function loadConfig({ paths: p, readFile }) {
   } catch (err) {
     if (err.code !== 'ENOENT') throw new Error(`cannot read ${p.config}: ${err.message}`);
   }
-  return { ...DEFAULT_CONFIG, ...user };
+  const config = { ...DEFAULT_CONFIG, ...user };
+  // Anything but a non-empty list of strings turns it off.
+  if (!Array.isArray(config.notifyCommand) || !config.notifyCommand.length || !config.notifyCommand.every((a) => typeof a === 'string' && a)) config.notifyCommand = null;
+  return config;
 }

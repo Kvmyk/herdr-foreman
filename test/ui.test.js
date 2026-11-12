@@ -29,3 +29,10 @@ test('table sizes columns to their widest cell, colored or not', () => {
   const colored = table({ headers: ['NAME', 'STATE', 'NOTE'], rows, ui }).replace(/\x1b\[[0-9;]*m/g, '');
   assert.equal(colored, plain);
 });
+
+test('narrow terminals get name: value blocks, unknown width stays a table', () => {
+  const narrow = createUi({ stream: { columns: 40 } });
+  const text = table({ headers: ['NAME', 'STATE'], rows: [['w1', 'idle'], ['w2', 'done']], ui: narrow });
+  assert.equal(text, 'name: w1\nstate: idle\n\nname: w2\nstate: done');
+  assert.match(table({ headers: ['NAME', 'STATE'], rows: [['w1', 'idle']], ui: createUi({ stream: { columns: 80 } }) }), /^NAME\s+STATE/);
+});

@@ -28,7 +28,10 @@ export function trustKeys(screen) {
 
 export function classifyScreen(kind, screen) {
   const text = String(screen ?? '');
-  const hit = KINDS.find((k) => k.re.test(text));
+  // A narrow pane wraps a sentence over several lines: match on the joined
+  // text, but read the options line by line (trustKeys) from the original.
+  const flat = text.replace(/\s+/g, ' ');
+  const hit = KINDS.find((k) => k.re.test(flat));
   if (!hit) return null;
   const keys = hit.type === 'trust' ? trustKeys(text) : KEYS[hit.type] ?? null;
   return {

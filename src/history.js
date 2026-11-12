@@ -5,7 +5,7 @@
 import path from 'node:path';
 import { loadRun, saveRun } from './runs.js';
 import { formatUsage, formatTokens, costText } from './usage.js';
-import { createUi, table } from './ui.js';
+import { createUi, table, isNarrow, kv } from './ui.js';
 
 // spawned -> investigate -> implement -> merged -> landed -> cleaned
 export const PHASES = Object.freeze(['spawned', 'investigate', 'implement', 'merged', 'landed', 'cleaned']);
@@ -168,6 +168,7 @@ export function formatRuns(rows, ui = createUi()) {
 }
 
 export function formatShow(d, ui = createUi()) {
+  if (isNarrow(ui)) return formatShowNarrow(d, ui);
   const out = [
     `task     ${d.task}`,
     ...(d.text ? [`asked    ${d.text.split(/\r?\n/)[0].slice(0, 200)}`] : []),
@@ -189,6 +190,36 @@ export function formatShow(d, ui = createUi()) {
     out.push(`  ${w.name.padEnd(10)} ${agent.padEnd(24)} ${w.state.padEnd(8)} ${times}${w.respawns ? `  respawned ${w.respawns}x` : ''}`);
     if (w.usage !== undefined) out.push(`             ${formatUsage(w.usage)}`);
     for (const r of w.reports) out.push(`             ${r}`);
+  }
+  return `${out.join('\n')}\n`;
+}
+
+// The same facts as formatShow, one "name: value" line each, for about 40 columns.
+function formatShowNarrow(d, ui) {
+  const out = [
+    ...kv('task', d.task, ui),
+    ...kv('asked', d.text?.split(/\r?\n/)[0].slice(0, 200), ui),
+    ...kv('repo', d.repo, ui),
+    ...kv('branch', `${d.branch ?? '-'} (base ${String(d.base).slice(0, 10)}${d.snapshot ? ', with your uncommitted changes' : ''})`, ui),
+    ...kv('phase', ui.bold(phaseText(d.phase, d.outcome)), ui),
+    ...kv('started', when(d.createdAt), ui),
+    ...kv('last change', when(d.updatedAt), ui),
+  ];
+  if (d.merged.length) out.push(...kv('merged', `${d.merged.join(', ')} (${when(d.mergedAt)})`, ui));
+  if (d.landedAt) out.push(...kv('landed', when(d.landedAt), ui));
+  if (d.usage) {
+    const missing = d.usage.unknown?.length ? `; no log for ${d.usage.unknown.join(', ')}` : '';
+    out.push(...kv('usage', `${formatUsage(d.usage)}${missing} (workers only, API prices)`, ui));
+  }
+  for (const w of d.workers) {
+    out.push('', `worker: ${w.name}`);
+    out.push(...kv('agent', w.model ? `${w.kind}:${w.model}` : w.kind, ui, '  '));
+    out.push(...kv('state', w.state, ui, '  '));
+    out.push(...kv('started', when(w.startedAt), ui, '  '));
+    out.push(...kv('ended', w.endedAt ? when(w.endedAt) : '...', ui, '  '));
+    if (w.respawns) out.push(...kv('respawned', `${w.respawns}x`, ui, '  '));
+    if (w.usage !== undefined) out.push(...kv('usage', formatUsage(w.usage), ui, '  '));
+    for (const r of w.reports) out.push(...kv('report', r, ui, '  '));
   }
   return `${out.join('\n')}\n`;
 }
