@@ -72,6 +72,8 @@ The prompt starts foreman as `node <foreman>/bin/foreman.js --backend app -- "<t
 
 ## From your phone
 
+<p align="center"><img src="https://raw.githubusercontent.com/Kvmyk/herdr-foreman/assets/mobile-social.png" alt="Herdr is on your phone. So is foreman. The phone Inbox shows the leader of a run and the foreman launcher" width="80%"></p>
+
 The Herdr phone app (iPhone, iPad, Android, [herdr.dev/mobile](https://herdr.dev/mobile/)) is a remote client. It connects over SSH to herdr-core on your machine, lists your agents in an Inbox (needs you, done, working, idle) and gives you a terminal with a key bar and a box for composing text.
 
 **What you need**
@@ -228,6 +230,8 @@ If a worker asks for permission, the leader asks you once whether you answer suc
 | `foreman diff --task <slug> [--stat] [<worker>]` | What the run, or one worker, changed against its base; check it before `land` |
 | `foreman resume --task <slug>` | Start a new leader that continues an interrupted run from its record and reports |
 | `foreman respawn --task <slug> <name>[=<kind>[:<model>]]` | Restart a worker that stopped, in its existing worktree, optionally with another agent |
+| `foreman new` | Open the task prompt in this terminal; plain `foreman` does the same once setup has run |
+| `foreman launcher [--ensure] [--json]` | A terminal that stays open and takes one task after another, for the Herdr phone app; `--ensure` opens one when `config.json` has `"launcher": true` |
 | `foreman config [--json]` / `foreman --version` | The settings in use with their defaults and file paths; the installed version |
 
 A task that starts with a subcommand name still starts a leader (`foreman status page is broken` is a task). `foreman -- <words>` forces it.
