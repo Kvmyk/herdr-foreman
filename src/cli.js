@@ -1,6 +1,6 @@
 // Command line: `foreman "<task>"` starts a leader; subcommands are the
 // mechanics the leader calls from its pane.
-import { BACKENDS, checkBackend, detectBackend, callerPane, createBackend, installed } from './backend.js';
+import { BACKENDS, checkBackend, detectBackend, callerPane, createBackend, findTool, installed } from './backend.js';
 import { createGit } from './git.js';
 import { loadConfig } from './config.js';
 import { inventory, saveAgents } from './inventory/index.js';
@@ -26,6 +26,8 @@ import { RUN_COMMANDS, runOps, runCommand } from './run-commands.js';
 import { setupSettings, prepareWorktrees, formatSetup as formatWorktreeSetup } from './worktree-setup.js';
 import { afterWait, afterMerge, afterLand, afterCleanup } from './history.js';
 import { takePrefs } from './start-prefs.js';
+import { runAsk } from './ask.js';
+import { ensureLauncher, runLauncher, LAUNCHER_NAME } from './launcher.js';
 
 const HELP = `foreman: describe a task; a lead agent splits it across your coding agents in herdr or the Herdr app.
 
@@ -46,7 +48,8 @@ Usage:
                                        --auto, and a copy of the changes not committed yet
                                        (the Herdr app prompt has these as checkboxes)
   foreman setup                        check herdr, git and your agents, add the herdr shortcut,
-                                       and say what to do next (also: foreman doctor, or just foreman)
+                                       and say what to do next (also: foreman doctor, and plain
+                                       foreman until setup has run)
 
 Subcommands (used by the leader; add --json for machine-readable output):
   agents                               agents installed here: signed in? which models?
@@ -81,6 +84,14 @@ Subcommands (used by the leader; add --json for machine-readable output):
                                        refresh fetches it now instead of at most daily
   knowledge validate <file>            check a knowledge file (exits 1 when it is invalid)
 
+Starting without a shortcut (for you):
+  new                                  ask for the task in this terminal: paste it and press Enter, or
+                                       type it and finish with an empty line (plain foreman does the
+                                       same once setup has run)
+  launcher [--ensure]                  a terminal that stays open and takes one task after another,
+                                       with numbered settings; made for the Herdr phone app.
+                                       --ensure opens one when config.json has "launcher": true
+
 Runs (for you):
   runs                                 earlier and current runs: phase, branch, workers, cost
   show --task <slug>                   one run: the task, workers, reports, tokens and estimated cost
@@ -93,6 +104,7 @@ Runs (for you):
   --version                            the installed version
 
 Where to start: Ctrl+B then F in herdr, Ctrl+Shift+Y in the Herdr app, or foreman "<task>" in any terminal.
+From the Herdr phone app: open a terminal in your project and type foreman new.
 Examples:
   foreman "fix the login page so it shows an error for a wrong password, see @src/login.js"
   foreman -f task.md                   a longer task written in a file
@@ -126,6 +138,9 @@ const COMMANDS = {
   help: { flags: {}, positionals: (p) => p.length === 0 },
   setup: { flags: { '--json': false, '--quiet': false, '--postinstall': false }, positionals: (p) => p.length === 0 },
   doctor: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
+  // No words after them, so "new login page" and "launcher is slow" are still tasks.
+  new: { flags: {}, positionals: (p) => p.length === 0 },
+  launcher: { flags: { '--ensure': false, '--json': false }, positionals: (p) => p.length === 0 },
   ...RUN_COMMANDS,
 };
 
@@ -219,14 +234,26 @@ function defaultOps(deps) {
     home: deps.homedir, exclude: config().excludeKinds, versions,
   }));
 
+  // Only someone who put "launcher": true in config.json gets a launcher terminal.
+  const launcher = async () => {
+    try {
+      const cfg = config();
+      if (cfg.launcher !== true) return { status: 'off' };
+      return await ensureLauncher({ config: cfg, run: deps.run, hc: findTool('hc', deps), homedir: deps.homedir });
+    } catch (err) {
+      return { status: 'failed', reason: err.message };
+    }
+  };
+
   const setupDeps = () => ({
     run: deps.run, which: deps.which, env: deps.env, cwd: deps.cwd, homedir: deps.homedir, platform: deps.platform, paths: deps.paths,
     readFile: deps.readFile, writeFile: deps.writeFile, removeFile: deps.removeFile, exists: deps.exists, tmpdir: deps.tmpdir,
-    nodeVersion: deps.nodeVersion, inventory: inv,
+    nodeVersion: deps.nodeVersion, inventory: inv, ensureLauncher: launcher,
   });
 
   return {
     inventory: inv,
+    ensureLauncher: launcher,
     setup: (opts) => runSetup(setupDeps(), opts),
     autoSetupOff: () => Boolean(deps.env?.FOREMAN_NO_SETUP) || config().autoSetup === false,
     // First run of a task: set up quietly once, unless the user turned it off.
@@ -355,6 +382,16 @@ function defaultOps(deps) {
   };
 }
 
+// What `foreman launcher --ensure` did, in words.
+export function launcherText(v, deps = {}) {
+  const at = v.terminal ? ` (${v.terminal})` : '';
+  if (v.status === 'started') return `foreman opened its launcher: a terminal named ${LAUNCHER_NAME}${at}. In the Herdr phone app it is in the Inbox; open it and send a task.`;
+  if (v.status === 'already') return `The launcher is open${at}.`;
+  if (v.status === 'off') return `The launcher is off. To keep a foreman terminal open for the Herdr phone app, put "launcher": true in ${deps.paths?.config ?? 'config.json'} and run this again. For one in this terminal only, type: foreman launcher`;
+  if (v.status === 'no-core') return `The launcher needs herdr-core, which comes with the Herdr app (https://herdr.dev): ${v.reason}.`;
+  return `The launcher could not start: ${v.reason}`;
+}
+
 export async function main(argv, deps) {
   const { stdout, stderr } = deps;
   // Plain `foreman` is where a newcomer starts: show what works and what to do.
@@ -362,6 +399,10 @@ export async function main(argv, deps) {
   if (argv.length === 0 && deps.readStdin) {
     const piped = await deps.readStdin();
     if (piped?.trim()) r = { kind: 'start', task: piped.trim() };
+  }
+  // Once setup has run, plain `foreman` on a terminal asks for the task.
+  if (argv.length === 0 && r.name === 'setup' && stdout.isTTY && (deps.stdin ?? process.stdin).isTTY && deps.exists?.(deps.paths?.setupState)) {
+    r = { kind: 'command', name: 'new', flags: {}, positionals: [] };
   }
   if (r.kind === 'version') {
     stdout.write(`${VERSION}\n`);
@@ -405,6 +446,9 @@ export async function main(argv, deps) {
         stderr.write(`${res.message}\n`);
         return 1;
       }
+      // After a restart the launcher comes back with the first task started from anywhere.
+      const opened = await ops.ensureLauncher?.();
+      if (opened?.status === 'started') stdout.write(`${launcherText(opened, deps)}\n`);
       return 0;
     }
 
@@ -413,6 +457,14 @@ export async function main(argv, deps) {
       case 'help':
         stdout.write(HELP);
         return 0;
+      case 'new':
+        return await (deps.ask ?? runAsk)({ deps, main, stdin: deps.stdin ?? process.stdin });
+      case 'launcher': {
+        if (!r.flags['--ensure']) return await (deps.launcher ?? runLauncher)({ deps, main, stdin: deps.stdin ?? process.stdin });
+        const res = await ops.ensureLauncher();
+        print(res, (v) => stdout.write(`${launcherText(v, deps)}\n`));
+        return res.status === 'failed' ? 1 : 0;
+      }
       case 'setup':
       case 'doctor': {
         const quiet = Boolean(r.flags['--quiet'] || r.flags['--postinstall']);

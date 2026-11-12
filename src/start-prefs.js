@@ -44,3 +44,27 @@ export function prefsText(prefs = {}) {
   }
   return parts.length ? ` ${parts.join(' ')}` : '';
 }
+
+// ---- What the launcher was last set to, kept between tasks and restarts:
+// the project, the leader and the two switches. The base branch is not kept,
+// it belongs to one task.
+
+export function loadRemembered({ file, readFile }) {
+  let saved = {};
+  try {
+    saved = JSON.parse(readFile(file)) ?? {};
+  } catch {
+    // nothing remembered yet, or a file that cannot be read: start fresh
+  }
+  const text = (v) => (typeof v === 'string' && v ? v : null);
+  return { repo: text(saved.repo), leader: text(saved.leader), auto: saved.auto === true, uncommitted: saved.uncommitted === true };
+}
+
+export function saveRemembered({ file, writeFile }, { repo = null, leader = null, auto = false, uncommitted = false }) {
+  try {
+    writeFile(file, `${JSON.stringify({ repo, leader, auto: Boolean(auto), uncommitted: Boolean(uncommitted) })}\n`);
+    return true;
+  } catch {
+    return false;
+  }
+}

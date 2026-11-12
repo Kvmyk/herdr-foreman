@@ -20,6 +20,8 @@ const USAGE = {
   setup: 'foreman setup [--json] [--quiet]',
   doctor: 'foreman doctor [--json]',
   config: 'foreman config [--json]',
+  new: 'foreman new',
+  launcher: 'foreman launcher [--ensure] [--json]',
   runs: 'foreman runs [--json]',
   show: 'foreman show --task <slug> [--json]',
   diff: 'foreman diff --task <slug> [--stat] [--json] [<worker>]',
