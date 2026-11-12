@@ -2,7 +2,7 @@
 // mechanics the leader calls from its pane.
 import { BACKENDS, checkBackend, detectBackend, callerPane, createBackend, findTool, installed } from './backend.js';
 import { createGit } from './git.js';
-import { loadConfig } from './config.js';
+import { loadConfig, setConfigKey } from './config.js';
 import { inventory, saveAgents } from './inventory/index.js';
 import { loadKnowledge, builtinKnowledge, describeKnowledge, validateKnowledge } from './knowledge.js';
 import { buildBrief } from './brief.js';
@@ -27,7 +27,8 @@ import { setupSettings, prepareWorktrees, formatSetup as formatWorktreeSetup } f
 import { afterWait, afterMerge, afterLand, afterCleanup } from './history.js';
 import { takePrefs } from './start-prefs.js';
 import { runAsk } from './ask.js';
-import { ensureLauncher, runLauncher, LAUNCHER_NAME } from './launcher.js';
+import { ensureLauncher, runLauncher, stopLauncher, LAUNCHER_NAME } from './launcher.js';
+import { createInterface } from 'node:readline';
 
 const HELP = `foreman: describe a task; a lead agent splits it across your coding agents in herdr or the Herdr app.
 
@@ -91,6 +92,8 @@ Starting without a shortcut (for you):
   launcher [--ensure]                  a terminal that stays open and takes one task after another,
                                        with numbered settings; made for the Herdr phone app.
                                        --ensure opens one when config.json has "launcher": true
+  launcher on|off                      keep a launcher terminal named foreman open for the Herdr
+                                       phone app, or stop it (saved as "launcher" in config.json)
 
 Runs (for you):
   runs                                 earlier and current runs: phase, branch, workers, cost
@@ -140,7 +143,7 @@ const COMMANDS = {
   doctor: { flags: { '--json': false }, positionals: (p) => p.length === 0 },
   // No words after them, so "new login page" and "launcher is slow" are still tasks.
   new: { flags: {}, positionals: (p) => p.length === 0 },
-  launcher: { flags: { '--ensure': false, '--json': false }, positionals: (p) => p.length === 0 },
+  launcher: { flags: { '--ensure': false, '--json': false }, positionals: (p) => p.length === 0 || (p.length === 1 && ['on', 'off'].includes(p[0])) },
   ...RUN_COMMANDS,
 };
 
@@ -234,7 +237,7 @@ function defaultOps(deps) {
     home: deps.homedir, exclude: config().excludeKinds, versions,
   }));
 
-  // Only someone who put "launcher": true in config.json gets a launcher terminal.
+  // Only someone who chose it ("launcher": true in config.json) gets a launcher terminal.
   const launcher = async () => {
     try {
       const cfg = config();
@@ -243,6 +246,21 @@ function defaultOps(deps) {
     } catch (err) {
       return { status: 'failed', reason: err.message };
     }
+  };
+
+  // "launcher": true or false in config.json, from setup's question, `foreman
+  // launcher on|off` or the switch in the desktop prompt. Off also ends the
+  // launcher terminal --ensure started.
+  const setLauncher = async (on) => {
+    setConfigKey({ file: deps.paths.config, readFile: deps.readFile, writeFile: deps.writeFile }, 'launcher', on);
+    if (on) return { launcher: true, ...(await launcher()) };
+    let hc = null;
+    try {
+      hc = findTool('hc', deps);
+    } catch {
+      // nothing to stop without herdr-core
+    }
+    return { launcher: false, status: 'off', ...(await stopLauncher({ run: deps.run, hc })) };
   };
 
   const setupDeps = () => ({
@@ -254,6 +272,17 @@ function defaultOps(deps) {
   return {
     inventory: inv,
     ensureLauncher: launcher,
+    setLauncher,
+    // Whether config.json says anything about the launcher yet (true or false).
+    launcherChosen() {
+      try {
+        const user = JSON.parse(deps.readFile(deps.paths.config));
+        return Boolean(user && typeof user === 'object' && 'launcher' in user);
+      } catch (err) {
+        // A missing file has no answer yet; one foreman cannot read is not asked about.
+        return err.code !== 'ENOENT';
+      }
+    },
     setup: (opts) => runSetup(setupDeps(), opts),
     autoSetupOff: () => Boolean(deps.env?.FOREMAN_NO_SETUP) || config().autoSetup === false,
     // First run of a task: set up quietly once, unless the user turned it off.
@@ -388,9 +417,38 @@ export function launcherText(v, deps = {}) {
   const at = v.terminal ? ` (${v.terminal})` : '';
   if (v.status === 'started') return `foreman opened its launcher: a terminal named ${LAUNCHER_NAME}${at}. In the Herdr phone app it is in the Inbox; open it and send a task.`;
   if (v.status === 'already') return `The launcher is open${at}.`;
-  if (v.status === 'off') return `The launcher is off. To keep a foreman terminal open for the Herdr phone app, put "launcher": true in ${deps.paths?.config ?? 'config.json'} and run this again. For one in this terminal only, type: foreman launcher`;
+  if (v.status === 'off') return 'The launcher is off. To keep a foreman terminal open for the Herdr phone app, type: foreman launcher on. For one in this terminal only, type: foreman launcher';
   if (v.status === 'no-core') return `The launcher needs herdr-core, which comes with the Herdr app (https://herdr.dev): ${v.reason}.`;
   return `The launcher could not start: ${v.reason}`;
+}
+
+export const LAUNCHER_QUESTION = 'Do you want to start foreman tasks from the Herdr phone app? A terminal named foreman then stays open on this computer, and you send it tasks from the phone. (y/N) ';
+
+// What `foreman launcher on|off` (or the answer to setup's question) did, in words.
+export function launcherSetText(v, deps = {}) {
+  const file = deps.paths?.config ?? 'config.json';
+  if (v.launcher) {
+    const what = ['started', 'already'].includes(v.status) ? launcherText(v, deps) : `It did not open yet. ${launcherText(v, deps)}`;
+    return `The launcher is on (saved in ${file}). ${what}`;
+  }
+  const stopped = v.stopped?.length ? ` The launcher terminal ${v.stopped.join(', ')} is closed.` : '';
+  const failed = (v.failed ?? []).map((f) => ` The launcher terminal ${f.terminal} could not be closed: ${f.reason}.`).join('');
+  return `The launcher is off (saved in ${file}).${stopped}${failed} To turn it on later, type: foreman launcher on`;
+}
+
+// A yes/no question on the terminal; no is the default. null when the input
+// ended or Ctrl+C was pressed: nothing was answered.
+export function confirm({ stdin, stdout, question }) {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: stdin, output: stdout, terminal: Boolean(stdin.isTTY && stdout.isTTY) });
+    let answered = null;
+    rl.on('SIGINT', () => { stdout.write('\n'); rl.close(); });
+    rl.on('close', () => resolve(answered));
+    rl.question(question, (text) => {
+      answered = /^\s*y(es)?\s*$/i.test(text);
+      rl.close();
+    });
+  });
 }
 
 export async function main(argv, deps) {
@@ -461,6 +519,13 @@ export async function main(argv, deps) {
       case 'new':
         return await (deps.ask ?? runAsk)({ deps, main, stdin: deps.stdin ?? process.stdin });
       case 'launcher': {
+        const [onOff] = r.positionals;
+        if (onOff) {
+          if (r.flags['--ensure']) throw fail('USAGE', 'foreman launcher on already opens the launcher; leave out --ensure');
+          const res = await ops.setLauncher(onOff === 'on');
+          print(res, (v) => stdout.write(`${launcherSetText(v, deps)}\n`));
+          return res.status === 'failed' ? 1 : 0;
+        }
         if (!r.flags['--ensure']) return await (deps.launcher ?? runLauncher)({ deps, main, stdin: deps.stdin ?? process.stdin });
         const res = await ops.ensureLauncher();
         print(res, (v) => stdout.write(`${launcherText(v, deps)}\n`));
@@ -483,6 +548,19 @@ export async function main(argv, deps) {
           const text = formatSetup(v, ui);
           if (text) stdout.write(`${text}\n`);
         });
+        // Asked once, of a person at a terminal: never in the plugin's build
+        // and startup runs (--quiet) or for a script (--json), which must not wait.
+        const stdin = deps.stdin ?? process.stdin;
+        if (!quiet && !r.flags['--json'] && stdout.isTTY && stdin.isTTY && !ops.launcherChosen()) {
+          const answer = await (deps.confirm ?? confirm)({ stdin, stdout, question: LAUNCHER_QUESTION });
+          if (answer !== null) {
+            try {
+              stdout.write(`${launcherSetText(await ops.setLauncher(answer), deps)}\n`);
+            } catch (err) {
+              stderr.write(`foreman could not save the answer: ${err.message}\n`);
+            }
+          }
+        }
         return res.ok || quiet ? 0 : 1;
       }
       case 'agents':

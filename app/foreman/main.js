@@ -58,6 +58,10 @@ export default class Foreman extends View {
     this.where = folder();
     this.prefs = { answer: false, uncommitted: false, ...(shared("foreman.prefs") ?? {}) };
     this.dir = `${forward(home())}/.herdr-foreman`;
+    // "launcher" in foreman's config.json: a terminal named foreman kept open for
+    // the Herdr phone app. null until config.json is read.
+    this.launcher = null;
+    this.saving = Promise.resolve();
 
     this.input = TextareaState.new({ placeholder: "What should be done? Point at files with @name.", rows: 6 });
     this.input.on("change", (_e, cx) => { this.text = this.input.value(); cx.notify(); });
@@ -70,7 +74,7 @@ export default class Foreman extends View {
     cx.timer.after(600, () => this.input.focus());
     this.handle = cx.focus_handle();
     // A switch row takes the keyboard when clicked or tabbed to; Space or Enter flips it.
-    this.rowFocus = { answer: cx.focus_handle(), uncommitted: cx.focus_handle() };
+    this.rowFocus = { answer: cx.focus_handle(), uncommitted: cx.focus_handle(), launcher: cx.focus_handle() };
     this.acx = cx;
     cx.spawn(async (cx) => { await this.load(); cx.notify(); });
     cx.spawn(async (cx) => { await this.loadBranches(); cx.notify(); });
@@ -85,6 +89,7 @@ export default class Foreman extends View {
     this.recentText = recent;
     try { this.recent = JSON.parse(recent ?? "[]").filter((t) => typeof t === "string").slice(0, RECENT); } catch { /* start over */ }
     try { this.configLeader = JSON.parse(config ?? "{}").leader || "claude"; } catch { /* keep the default */ }
+    try { this.launcher = JSON.parse(config ?? "{}").launcher === true; } catch { this.launcher = false; }
     this.leader = this.configLeader;
     if (draft?.trim() && !this.text) { this.input.set_value(draft); this.text = draft; }
     this.problem = await this.check();
@@ -175,6 +180,27 @@ export default class Foreman extends View {
     try { await writeTextFile(`${this.dir}/recent.json`, JSON.stringify(list), this.recentText ?? null); } catch { /* not important */ }
   }
 
+  // The switch saves at once, through foreman itself ("foreman launcher on|off"):
+  // it writes config.json the way setup does, and opens or closes the launcher.
+  // Flips are sent one after another; one that fails is turned back.
+  setLauncher(on, hcx) {
+    if (NODE.startsWith("__") || BIN.startsWith("__")) return;
+    this.launcher = on;
+    hcx.notify();
+    this.saving = this.saving.then(async () => {
+      const r = await exec(NODE, [BIN, "launcher", on ? "on" : "off", "--json"]).catch((err) => ({ code: 1, stderr: String(err?.message ?? err) }));
+      let res = null;
+      try { res = JSON.parse(r?.stdout ?? ""); } catch { /* not saved: said below */ }
+      if (r?.code === 0 && res) return;
+      // Saved, but the launcher did not open: the switch stays, the reason is shown.
+      // Not saved at all: the switch goes back.
+      if (!res) this.launcher = !on;
+      const why = res?.reason ?? firstLine(r?.stderr ?? "") ?? "";
+      notify({ title: "foreman: phone launcher", body: why || "foreman did not answer.", level: "error", timeout: 15000 });
+      this.acx.notify();
+    });
+  }
+
   cancel() {
     this.saveDraft(this.text);
     closeOverlay(props().overlay);
@@ -245,9 +271,13 @@ export default class Foreman extends View {
     // good while rendering. Clicking anywhere on the row flips it. Space and Enter on a
     // focused row arrive as a click too (GPUI does that for a clickable element), so a
     // key handler of its own would flip the row twice and look like nothing happened.
-    const flip = (name, hcx) => { this.prefs = { ...this.prefs, [name]: !this.prefs[name] }; hcx.notify(); };
+    const flip = (name, hcx) => {
+      if (name === "launcher") return this.setLauncher(!this.launcher, hcx);
+      this.prefs = { ...this.prefs, [name]: !this.prefs[name] };
+      hcx.notify();
+    };
     const toggle = (id, title, detail, name) => {
-      const on = Boolean(this.prefs[name]);
+      const on = Boolean(name === "launcher" ? this.launcher : this.prefs[name]);
       return tall(h_flex().id(id)).track_focus(this.rowFocus[name]).items_center().gap(12).py(4).px(6).rounded(6).cursor_pointer()
         .hover((s) => s.bg(t.hover)).focus((s) => s.bg(t.hover))
         .on_click((_e, hcx) => flip(name, hcx))
@@ -335,7 +365,10 @@ export default class Foreman extends View {
 
     mid.child(v_flex().flex_shrink_0().gap(4)
       .child(toggle("fm-answer", "Workers answer permission questions automatically", "Workers run in auto-approve mode; pushes and pull requests stay refused.", "answer"))
-      .child(toggle("fm-uncommitted", "Include uncommitted changes", "Workers start from a copy that also holds what you have not committed.", "uncommitted")));
+      .child(toggle("fm-uncommitted", "Include uncommitted changes", "Workers start from a copy that also holds what you have not committed.", "uncommitted"))
+      .children(this.launcher === null || NODE.startsWith("__") ? [] : [toggle("fm-launcher", "Phone launcher", this.launcher
+        ? "On: a terminal named foreman stays open; send it tasks from the Herdr phone app. Saved for every task."
+        : "Off. Turn on to start tasks from the Herdr phone app. Saved for every task.", "launcher")]));
     body.child(mid);
 
     // Footer: key caps on the left, buttons on the right. Narrow: no key caps

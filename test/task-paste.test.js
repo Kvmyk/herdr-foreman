@@ -200,3 +200,27 @@ test('createTaskReader without a terminal: each line of a single-mode reader is 
   assert.equal(await reader.next(), 'two');
   assert.equal(await reader.next(), '');
 });
+
+test('show: an echoed line that reads differently is taken back over every row it took and written again', async () => {
+  const strip = (line) => line.replace(/^<m>/, '').replace(/<\/m>$/, '');
+  const t = terminal({ show: strip, single: true });
+  // "> " and 50 characters take two rows of 40 columns.
+  const long = `<m>${'x'.repeat(43)}</m>`;
+  await t.type(`${long}\r`);
+  assert.equal(await t.task, long);
+  assert.ok(t.out().includes(`\x1b[2A\r\x1b[J> ${'x'.repeat(43)}\r\n`));
+  const same = terminal({ show: strip, single: true });
+  await same.type('plain\r');
+  assert.equal(await same.task, 'plain');
+  assert.ok(!same.out().includes('\x1b[J'));
+});
+
+test('show: in a pasted message only the first line had the prompt in front of it', async () => {
+  const strip = (line) => line.replace(/^<m>/, '').replace(/<\/m>$/, '');
+  const t = terminal({ show: strip });
+  await t.type(paste('<m>one\ntwo</m>\n'));
+  await t.type('\r', { after: 200 });
+  assert.equal(await t.task, '<m>one\ntwo</m>');
+  assert.ok(t.out().includes('\x1b[1A\r\x1b[J> one\r\n'));
+  assert.ok(t.out().includes('\x1b[1A\r\x1b[Jtwo\r\n'));
+});

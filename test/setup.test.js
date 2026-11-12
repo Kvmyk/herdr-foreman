@@ -407,6 +407,16 @@ test('app/foreman template: placeholders for node and foreman, the backend flag,
   assert.equal(JSON.parse(readFileSync(new URL('../app/foreman/mod.json', import.meta.url), 'utf8')).place, 'none');
 });
 
+test('app/foreman template: a Phone launcher switch shows config.json\'s "launcher" and saves through foreman launcher on|off', () => {
+  const main = readFileSync(new URL('../app/foreman/main.js', import.meta.url), 'utf8');
+  assert.match(main, /toggle\("fm-launcher", "Phone launcher"/);
+  assert.match(main, /this\.launcher = JSON\.parse\(config \?\? "\{\}"\)\.launcher === true/);
+  assert.match(main, /exec\(NODE, \[BIN, "launcher", on \? "on" : "off", "--json"\]\)/);
+  // The task's own switches stay out of it: the launcher is saved at once, not with the task.
+  assert.match(main, /rowFocus = \{ answer: [^}]*, launcher: cx\.focus_handle\(\) \}/);
+  assert.doesNotMatch(main, /writeTextFile\([^)]*config\.json/);
+});
+
 test('formatSetup counts the checks that passed', () => {
   const r = {
     quiet: false, changes: [], ok: false, node: { ok: true, version: '22.1.0' }, herdr: { ok: true, version: '0.9.5' },
@@ -472,7 +482,7 @@ test('runSetup: herdr-core alone is a valid setup: its version, no mod or key er
   assert.doesNotMatch(text, /herdr is not installed|shortcut|task prompt/);
   assert.match(text, /5 of 5 checks passed/);
   assert.match(text, /What to do next, in the Herdr phone app or in any terminal on this computer:\n {2}1\. Open a terminal in your project folder\.\n {2}2\. Type: foreman new\n {2}3\. Paste or type what you want done and press Enter\./);
-  assert.match(text, /To keep a foreman terminal in the phone's Inbox, put "launcher": true in .*config\.json and type: foreman launcher --ensure/);
+  assert.match(text, /To keep a foreman terminal in the phone's Inbox, type: foreman launcher on$/);
 });
 
 test('runSetup: a quiet run on herdr-core alone reports no failure and remembers that setup ran', async () => {

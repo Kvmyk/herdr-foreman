@@ -58,3 +58,59 @@ export function loadConfig({ paths: p, readFile }) {
   if (!Array.isArray(config.notifyCommand) || !config.notifyCommand.length || !config.notifyCommand.every((a) => typeof a === 'string' && a)) config.notifyCommand = null;
   return config;
 }
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// A JSON value that is not an object or an array.
+const PRIMITIVE = /(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|"(?:[^"\\]|\\.)*")/.source;
+
+// Set one top-level key of config.json to a JSON value (a boolean, a number, a
+// string, null), keeping the other keys and the way the file is laid out:
+// a key that is there gets its value replaced in place, a new one is added
+// after the last key with the same indentation. When the text cannot be edited
+// like that, the file is written out again with the indentation it had. A
+// missing file is created. Throws when the file is not a JSON object.
+export function setConfigKey({ file, readFile, writeFile }, key, value) {
+  let text = null;
+  try {
+    text = readFile(file);
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw new Error(`cannot read ${file}: ${err.message}`);
+  }
+  const literal = JSON.stringify(value);
+  if (text === null || !text.trim()) {
+    writeFile(file, `{\n  ${JSON.stringify(key)}: ${literal}\n}\n`);
+    return;
+  }
+  let user;
+  try {
+    user = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`${file} is not valid JSON (${err.message}); fix it, then try again`);
+  }
+  if (!user || typeof user !== 'object' || Array.isArray(user)) throw new Error(`${file} does not hold a JSON object; fix it, then try again`);
+  const want = { ...user, [key]: value };
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const indent = /\n([ \t]+)"/.exec(text)?.[1] ?? '  ';
+  const same = (candidate) => {
+    try {
+      const got = JSON.parse(candidate);
+      return JSON.stringify(Object.keys(got).sort().map((k) => [k, got[k]])) === JSON.stringify(Object.keys(want).sort().map((k) => [k, want[k]]));
+    } catch {
+      return false;
+    }
+  };
+  let next = null;
+  const at = new RegExp(`(${escapeRe(JSON.stringify(key))}\\s*:\\s*)${PRIMITIVE}`);
+  if (key in user && at.test(text)) {
+    next = text.replace(at, (_m, head) => `${head}${literal}`);
+  } else if (!(key in user)) {
+    const close = text.lastIndexOf('}');
+    const before = text.slice(0, close).replace(/\s+$/, '');
+    const entry = `${JSON.stringify(key)}: ${literal}`;
+    next = before.endsWith('{')
+      ? `${before}${eol}${indent}${entry}${eol}}${text.slice(close + 1)}`
+      : `${before},${eol}${indent}${entry}${text.slice(before.length, close)}}${text.slice(close + 1)}`;
+  }
+  if (next === null || !same(next)) next = `${JSON.stringify(want, null, indent)}\n`.replace(/\n/g, eol);
+  writeFile(file, next);
+}

@@ -45,6 +45,16 @@ test('run captures stdout and exit code', async () => {
   assert.equal(res.timedOut, false);
 });
 
+test('run keeps the input open until the answers it waits for have come (a program that stops at the end of its input)', async () => {
+  // Answers each line after a while, and stops at once when its input ends.
+  const program = "process.stdin.on('data', (d) => setTimeout(() => process.stdout.write('got ' + d), 100)); process.stdin.on('end', () => process.exit(0));";
+  const early = await run(process.execPath, ['-e', program], { input: 'one\n' });
+  assert.equal(early.stdout, '');
+  const res = await run(process.execPath, ['-e', program], { input: 'one\n', inputOpenUntil: (out) => out.includes('got one') });
+  assert.equal(res.stdout, 'got one\n');
+  assert.equal(res.code, 0);
+});
+
 test('run times out', async () => {
   const res = await run(process.execPath, ['-e', 'setTimeout(() => {}, 5000)'], { timeoutMs: 200 });
   assert.equal(res.timedOut, true);

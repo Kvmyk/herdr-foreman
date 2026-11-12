@@ -626,7 +626,7 @@ export function formatSetup(r, ui = createUi()) {
   if (r.ok && r.core?.running) {
     if (!r.coreOnly) out.push('  From the Herdr phone app: open a terminal in your project folder and type: foreman new');
     if (['started', 'already'].includes(r.launcher?.status)) out.push('  Or open the terminal named foreman in the phone\'s Inbox and send the task there.');
-    else out.push(`  To keep a foreman terminal in the phone's Inbox, put "launcher": true in ${r.configFile} and type: foreman launcher --ensure`);
+    else out.push('  To keep a foreman terminal in the phone\'s Inbox, type: foreman launcher on');
   }
   return out.join('\n');
 }

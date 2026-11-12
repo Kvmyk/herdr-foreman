@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import {
-  ensureLauncher, projectChoices, projectNames, runLauncher, statusSeq, stripHcWrapper, titleSeq, LAUNCHER_LABEL,
+  ensureLauncher, projectChoices, projectNames, runLauncher, statusSeq, stopLauncher, stripHcLine, stripHcWrapper, titleSeq, LAUNCHER_LABEL,
 } from '../src/launcher.js';
 import { fakeRun } from './helpers.js';
 
@@ -226,4 +226,97 @@ test('launcher on a terminal reports its status and title: idle, working, then i
   const reports = out.split('\x1b]7501;').slice(1);
   assert.equal(decode(reports[1], 'msg'), 'Starting: fix the login');
   assert.equal(decode(reports[2], 'msg'), 'Started: fix the login');
+});
+
+test('projectChoices adds the repositories of the Herdr app spaces after the runs: at most 6, without repeats', async () => {
+  const space = (i) => path.resolve(`/code/s${i}`);
+  const roots = { [path.join(A, 'web')]: A, [path.join(C, 'src')]: C };
+  for (let i = 0; i < 8; i++) roots[space(i)] = space(i);
+  const got = await projectChoices({
+    runs: [{ repo: B, updatedAt: 1 }],
+    spaces: [path.join(C, 'src'), home, path.join(A, 'web'), path.join(C, 'src'), null, path.join(wt, 'x', 'w1'), ...Array.from({ length: 8 }, (_, i) => space(i))],
+    cwds: [path.resolve('/code/late')],
+    toplevel: async (dir) => roots[dir] ?? (dir === path.resolve('/code/late') ? dir : null),
+    exists: () => true,
+    homedir: home,
+    worktrees: wt,
+    limit: 20,
+  });
+  assert.deepEqual(got, [B, C, A, space(0), space(1), space(2), space(3), path.resolve('/code/late')]);
+});
+
+test('ensureLauncher puts the launcher in the Herdr app space used last, and in none without spaces', async () => {
+  const run = hcWorld();
+  const res = await ensureLauncher({ config: { launcher: true }, run, hc: 'hc', homedir: home, spaces: async () => [{ id: 'spNew', folder: B }, { id: 'spOld', folder: A }] });
+  assert.equal(res.status, 'started');
+  const start = run.calls.find((c) => c.args[0] === 'run');
+  assert.deepEqual(start.args.slice(5, 11), ['--name', 'foreman', '--label', LAUNCHER_LABEL, '--label', 'herdr.space=spNew']);
+  assert.ok(!start.line.includes('herdr.tab'));
+  for (const spaces of [async () => [], async () => { throw new Error('no core'); }]) {
+    const none = hcWorld();
+    await ensureLauncher({ config: { launcher: true }, run: none, hc: 'hc', homedir: home, spaces });
+    assert.ok(!none.calls.find((c) => c.args[0] === 'run').line.includes('herdr.space'));
+  }
+});
+
+test('stopLauncher ends only the launcher terminals --ensure started, never a shell someone runs it in', async () => {
+  const terminals = [
+    { address: 't9', name: 'foreman' },
+    { address: 't10', name: 'foreman-launcher' },
+    { address: 't11', name: 'my-shell' },
+    { address: 't12', name: 'foreman' },
+  ];
+  const argv = {
+    t9: ['C:/n/node.exe', 'C:/f/bin/foreman.js', 'launcher'],
+    t10: ['/usr/bin/node', '/f/bin/foreman.js', 'launcher'],
+    t11: ['/usr/bin/node', '/f/bin/foreman.js', 'launcher'],
+    t12: ['bash'],
+  };
+  const run = fakeRun([
+    [`hc ls --json --label ${LAUNCHER_LABEL}`, { stdout: JSON.stringify({ terminals }) }],
+    [/^hc get --json /, (cmd, args) => ({ stdout: JSON.stringify({ address: args[2], argv: argv[args[2]] }) })],
+    ['hc kill --json t9', { stdout: '{}' }],
+    ['hc kill --json t10', { code: 1, stderr: '{"error":{"kind":"denied","message":"not yours"}}' }],
+    [/^hc rm --json /, { stdout: '{}' }],
+  ]);
+  assert.deepEqual(await stopLauncher({ run, hc: 'hc' }), { stopped: ['t9'], failed: [{ terminal: 't10', reason: 'not yours' }] });
+  assert.ok(!run.calls.some((c) => /(kill|rm) --json t1[12]/.test(c.line)));
+  assert.deepEqual(await stopLauncher({ run: fakeRun([]), hc: null }), { stopped: [], failed: [] });
+});
+
+test('stripHcLine takes the tag off the lines of a message as the screen shows them', () => {
+  assert.equal(stripHcLine('<hc from="t4b lead">1</hc>'), '1');
+  assert.equal(stripHcLine('<hc from="t4b lead">fix the login'), 'fix the login');
+  assert.equal(stripHcLine('and the tests</hc>'), 'and the tests');
+  assert.equal(stripHcLine('a <b>tag</b> stays'), 'a <b>tag</b> stays');
+  // Passed on by another terminal: a tag for each.
+  assert.equal(stripHcLine('<hc from="t5f ph1"><hc from="t4b lead">4</hc></hc>'), '4');
+  assert.equal(stripHcWrapper('<hc from="t5f ph1"><hc from="t4b lead">4</hc></hc>'), '4');
+});
+
+test('launcher on a terminal shows a message sent with hc send without its tag', async () => {
+  const stdin = new PassThrough();
+  stdin.isTTY = true;
+  stdin.setRawMode = () => stdin;
+  let out = '';
+  const stdout = { isTTY: true, columns: 40, write: (s) => { out += s; return true; }, on() {}, off() {}, removeListener() {} };
+  const started = [];
+  const deps = {
+    run: fakeRun([[/^git -C .* rev-parse --show-toplevel$/, { stdout: `${A}\n` }], [/^git -C .* rev-parse --abbrev-ref HEAD$/, { stdout: 'main\n' }]]),
+    env: { NO_COLOR: '1' }, cwd: A, homedir: home, platform: process.platform, stdout,
+    paths: { home: path.resolve('/s'), runs: path.resolve('/s/runs'), worktrees: wt, config: path.resolve('/s/config.json'), agentsCache: path.resolve('/s/agents.json') },
+    readFile: () => { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+    writeFile: () => {},
+    readdir: () => [],
+    exists: () => true,
+    which: () => null,
+    readJson: () => null,
+  };
+  const done = runLauncher({ deps, main: async (argv) => { started.push(argv); return 0; }, stdin, maxTasks: 1 });
+  await tick();
+  stdin.write('<hc from="t4b lead">fix the login</hc>\r');
+  assert.equal(await done, 0);
+  assert.deepEqual(started, [['--', 'fix the login']]);
+  // The echo is taken back (one row: prompt and line fit 40 columns) and written again without the tag.
+  assert.ok(out.includes('\x1b[1A\r\x1b[J❯ fix the login\r\n'), JSON.stringify(out.slice(-300)));
 });
