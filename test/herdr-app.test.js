@@ -410,3 +410,22 @@ test('terminalInfo gives a terminal\'s size and labels, or null', async () => {
   assert.deepEqual(await herdr.terminalInfo('t3'), { cols: 45, rows: 20, labels: { 'foreman.layout': 'tabs' } });
   assert.equal(await herdr.terminalInfo('t9'), null);
 });
+
+test('needsPerson pins a worker foreman wait found waiting, and leaves a terminal that is pinned already alone', async () => {
+  const run = fakeRun([
+    [/^hc get --json w1/, out({ address: 't3', labels: { 'herdr.tab': 'tb7' } })],
+    [/^hc get --json w2/, out({ address: 't4', labels: { 'herdr.pinned': '1', 'foreman.pinned': 'w2 · fix-login' } })],
+    [/^hc get --json w3/, out({ address: 't5', labels: { 'herdr.pinned': '1' } })],
+    [/^hc get/, hcError('not_found', 'no terminal')],
+    [/^hc label/, out({})],
+  ]);
+  const herdr = createHerdrApp({ run });
+  assert.equal(await herdr.needsPerson('w1'), true);
+  // Pinned at spawn (the tab title to put back stays), pinned by the person, and unknown.
+  assert.equal(await herdr.needsPerson('w2'), false);
+  assert.equal(await herdr.needsPerson('w3'), false);
+  assert.equal(await herdr.needsPerson('gone'), false);
+  assert.deepEqual(labelCalls(run), [['t3', 'herdr.pinned=1', 'foreman.pinned=1']]);
+  // The pin is foreman's, so an answer takes it off again.
+  assert.equal(typeof herdr.answered, 'function');
+});

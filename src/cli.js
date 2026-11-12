@@ -295,9 +295,10 @@ function defaultOps(deps) {
     },
     async wait({ task, phase, only, timeoutMs }) {
       const run = needRun(task);
+      const cfg = config();
       const result = await waitForWorkers({
         run, herdr: backendOf(run), foremanCmd: deps.foremanCmd, exists: deps.exists, mtimeMs: deps.mtimeMs, sleep: deps.sleep, now: deps.now,
-        phase, only, timeoutMs: timeoutMs ?? config().waitTimeoutMs,
+        phase, only, timeoutMs: timeoutMs ?? cfg.waitTimeoutMs, notifyCommand: cfg.notifyCommand, spawnImpl: deps.spawnImpl,
       });
       note(task, (r) => afterWait(r, { phase, result, now: deps.now }));
       return result;
@@ -552,8 +553,9 @@ export async function main(argv, deps) {
       case 'watch': {
         const interval = r.flags['--interval'] === undefined ? 5 : Number(r.flags['--interval']);
         if (!(interval > 0)) throw fail('USAGE', '--interval is a number of seconds');
-        return runWatch({
-          status: () => ops.status({ task }), render: (v) => fmt.formatStatus(v, ui), stdout, sleep: deps.sleep, intervalS: interval, tty: Boolean(stdout.isTTY),
+        // Awaited here, so a failure is one plain line like every other command's.
+        return await runWatch({
+          status: () => ops.status({ task }), render: (v) => fmt.formatStatus(v, ui), stdout, sleep: deps.sleep, intervalS: interval, tty: Boolean(stdout.isTTY), env: deps.env, task,
         });
       }
       case 'close-leader':

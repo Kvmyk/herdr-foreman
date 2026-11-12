@@ -184,3 +184,47 @@ test('wrapped dialogs keep their question and are classified at 24, 44 and 200 c
     assert.match(res.workers.w1.screen, /Quick/);
   }
 });
+
+// ---- a worker that needs the person is pinned for every Herdr client ----
+
+const pinRun = {
+  task: 't',
+  workers: [
+    { name: 'w1', kind: 'claude', paneId: 't7', reportDir: path.resolve('/wt/w1/.foreman') },
+    { name: 'w2', kind: 'agy', reportDir: path.resolve('/wt/w2/.foreman') },
+  ],
+};
+
+test('wait pins a worker that is blocked, hit an error or stopped without its report; not one that works or is gone', async () => {
+  const go = async (script, extra = {}) => {
+    const w = world({ script, ...extra });
+    const pinned = [];
+    w.herdr.needsPerson = async (terminal) => { pinned.push(terminal); return true; };
+    const res = await waitForWorkers({ run: pinRun, ...w, phase: 'investigate', pollMs: 3000, stableMs: 6000 });
+    return { res, pinned };
+  };
+  // Blocked on the same screen for stableMs: pinned by its terminal, once.
+  const blocked = await go([{ w1: 'blocked', w2: 'working' }], { screens: { w1: () => 'Allow this command? (y/n)' } });
+  assert.equal(blocked.res.workers.w1.state, 'blocked');
+  assert.deepEqual(blocked.pinned, ['t7']);
+  // An error and "finished without its report" need the person too; a worker without a terminal id goes by name.
+  const stopped = await go([{ w1: 'error', w2: 'working' }, { w1: 'error', w2: 'idle' }]);
+  assert.equal(stopped.res.result, 'attention');
+  assert.deepEqual(stopped.pinned, ['t7']);
+  const idle = await go([{ w1: 'working', w2: 'working' }, { w1: 'working', w2: 'idle' }]);
+  assert.equal(idle.res.workers.w2.state, 'idle');
+  assert.deepEqual(idle.pinned, ['w2']);
+  // Gone: nothing left to pin. Done: nobody is needed.
+  assert.deepEqual((await go([{ w2: 'working' }])).pinned, []);
+  assert.deepEqual((await go([{ w1: 'idle', w2: 'idle' }], { reports: { w1: 0, w2: 0 } })).pinned, []);
+});
+
+test('wait in herdr (no pins there) and a pin that fails change nothing about the result', async () => {
+  const script = [{ w1: 'error', w2: 'working' }];
+  const plain = await waitForWorkers({ run: pinRun, ...world({ script }), phase: 'investigate', pollMs: 3000 });
+  const w = world({ script });
+  w.herdr.needsPerson = async () => { throw new Error('hc is gone'); };
+  const failing = await waitForWorkers({ run: pinRun, ...w, phase: 'investigate', pollMs: 3000 });
+  assert.equal(plain.result, 'attention');
+  assert.deepEqual(failing, plain);
+});
