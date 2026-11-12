@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
 import { HERDR_KINDS, PROBES } from './inventory/kinds.js';
 import { EXAMPLE, resolveMentions } from './task.js';
-import { describeBlocked } from './blocked.js';
+import { classifyScreen, describeBlocked } from './blocked.js';
 import { screenTail } from './wait.js';
-import { taskFile as taskPath } from './history.js';
+import { isInside, taskFile as taskPath } from './history.js';
 import { prefsText } from './start-prefs.js';
 
 export const INSTRUCTIONS_PATH = fileURLToPath(new URL('../leader/INSTRUCTIONS.md', import.meta.url));
@@ -50,10 +50,46 @@ async function waitForServer({ herdr, spawnDetached, sleep }) {
   return false;
 }
 
+// The Herdr app space whose terminals already work in this repository, so a
+// leader started from somewhere without a space (the launcher, a plain
+// terminal) joins the project instead of opening a new space each time.
+export async function spaceOfRepo({ herdr, repo }) {
+  if (!herdr.paneList || !herdr.here) return null;
+  const panes = await Promise.resolve().then(() => herdr.paneList()).catch(() => []);
+  for (const pane of panes.filter((p) => p.cwd && isInside(p.cwd, repo)).slice(0, 12)) {
+    const at = await Promise.resolve().then(() => herdr.here(pane.pane_id)).catch(() => null);
+    if (at?.space) return at.space;
+  }
+  return null;
+}
+
+// A leader that stopped on "trust this folder?" is the user's to answer.
+// Waits for the answer and for the agent to be ready after it.
+// ready: hand it the task; gone: it was closed; timeout: still asking.
+export async function waitForTrust({ herdr, name, kind, sleep, waitMs, stepMs = 2000 }) {
+  let quiet = 0;
+  for (let waited = 0; waited < waitMs; waited += stepMs) {
+    await sleep(stepMs);
+    const screen = await Promise.resolve().then(() => herdr.agentRead(name)).catch(() => null);
+    if (screen === null || classifyScreen(kind, screenTail(screen))) {
+      quiet = 0;
+      continue;
+    }
+    const agents = await Promise.resolve().then(() => herdr.agentList()).catch(() => null);
+    const agent = agents?.find((a) => a.name === name);
+    if (agents && !agent) return 'gone';
+    const state = agent?.agent_status;
+    if (state === 'idle' || state === 'done') return 'ready';
+    // An agent that reports no status is ready once its screen has been free of the question for a while.
+    if (state !== 'working' && state !== 'blocked' && ++quiet >= 2) return 'ready';
+  }
+  return 'timeout';
+}
+
 export async function startForeman({
   task, cwd, env, herdr, git, which, config, paths, homedir, exists, spawnDetached, attach, sleep, writeFile, mkdir,
   foremanCmd = 'foreman', instructionsPath = INSTRUCTIONS_PATH, report = () => {}, progress = () => {}, platform = process.platform, prefs = {},
-  slug: fixedSlug = null, prompt: fixedPrompt = null,
+  slug: fixedSlug = null, prompt: fixedPrompt = null, trustWaitMs = 180000,
 }) {
   if (!task?.trim()) return failed(`Tell me what you want done, for example:
   foreman "${EXAMPLE}"`);
@@ -91,8 +127,10 @@ export async function startForeman({
 
   progress('Opening a tab for the leader...');
   let place;
-  if (inside) {
-    const workspaceId = app ? (await herdr.here(env.HC_TERMINAL_ID))?.space : env.HERDR_WORKSPACE_ID;
+  // In the app, a caller without a space of its own joins the space of the repository.
+  const appSpace = app ? (inside ? (await herdr.here(env.HC_TERMINAL_ID))?.space : null) ?? await spaceOfRepo({ herdr, repo }) : null;
+  if (inside || appSpace) {
+    const workspaceId = app ? appSpace : env.HERDR_WORKSPACE_ID;
     place = { workspaceId, ...(await herdr.tabCreate({ workspaceId, cwd: repo, label: 'foreman', focus: true })) };
   } else {
     if (!app && !(await waitForServer({ herdr, spawnDetached, sleep }))) return failed('herdr did not start in time. Open herdr once, then try again.');
@@ -128,13 +166,23 @@ export async function startForeman({
   const paneId = started.pane ?? place.paneId;
   if (!paneId) return failed(`The leader could not start: ${started.message}`);
   let message;
-  if (started.ok) {
+  let ready = started.ok;
+  const readScreen = async () => screenTail(await Promise.resolve().then(() => herdr.agentRead(leader)).catch(() => ''));
+  // The leader runs in the user's own project, so a trust question is theirs
+  // to answer. foreman waits for that answer and then hands over the task; the
+  // command to do it by hand is shown only when the wait runs out.
+  if (!ready && started.code !== 'agent_exited' && trustWaitMs > 0 && classifyScreen(config.leader, await readScreen())?.type === 'trust') {
+    progress(`${config.leader} asks whether to trust this folder. Answer it in the leader's tab; foreman waits up to ${Math.round(trustWaitMs / 60000) || 1} min and then gives it the task...`);
+    const answer = await waitForTrust({ herdr, name: leader, kind: config.leader, sleep, waitMs: trustWaitMs });
+    if (answer === 'gone') return failed(`The leader was closed before it got the task (was the answer to "trust this folder?" no?). Run foreman again when you want to start it.`);
+    ready = answer === 'ready';
+  }
+  if (ready) {
     await herdr.agentPrompt(leader, prompt);
     message = `Leader "${leader}" (${config.leader}) started in pane ${paneId} for task "${slug}".`;
   } else {
     const backendFlag = app && !inside ? ' --backend app' : '';
-    // The leader runs in the user's own project, so a trust question is theirs to answer.
-    const screen = screenTail(await Promise.resolve().then(() => herdr.agentRead(leader)).catch(() => ''));
+    const screen = await readScreen();
     const asks = describeBlocked({ kind: config.leader, screen, task: slug, name: leader, foremanCmd });
     const answer = asks ? ` The leader ${asks}. Then run:` : ' Answer it there, then run:';
     message = `The leader is waiting for an answer in pane ${paneId} (${started.message}).${answer} ${foremanCmd} prompt --task ${slug}${backendFlag} ${leader} ${shellQuote(prompt, platform)}`;

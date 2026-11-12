@@ -1,6 +1,6 @@
 // The settings of one task that the prompts let the user change before it
 // starts: the leader's agent, the base branch, and the two usual answers.
-// Used by the terminal prompt (plugin/ask.js); the Herdr app prompt has the
+// Used by the terminal prompt (src/ask.js); the Herdr app prompt has the
 // same four as pills and switches and passes them as the same start flags.
 
 // A command line of its own, before the task text. Anything else that starts
@@ -57,4 +57,56 @@ export function applySetting(line, settings, { leaders = null, branches = null, 
 export function leaderKinds(agents, configured) {
   const ready = agents.filter((a) => a.status === 'ready').map((a) => a.kind);
   return ready.includes(configured) ? ready : [configured, ...ready];
+}
+
+// ---- The same settings as a numbered menu, for a narrow screen and a touch
+// keyboard (the launcher): a line that is only a number changes a setting.
+
+export const MENU = Object.freeze(['project', 'leader', 'auto', 'uncommitted', 'branch']);
+const MENU_LABELS = Object.freeze({ project: 'project', leader: 'leader', auto: 'auto-answer', uncommitted: 'uncommitted', branch: 'branch' });
+
+const cut = (text, width) => (text.length <= width ? text : `${text.slice(0, Math.max(0, width - 1))}…`);
+
+// Which setting a line names ("3" -> "auto"), or null when it is not just a menu number.
+export function menuKey(line) {
+  const m = /^\s*([1-9])\s*$/.exec(line);
+  return m ? MENU[Number(m[1]) - 1] ?? null : null;
+}
+
+// One line per setting: "1 project      shop". project and branch are names, or null.
+export function menuLines(settings, { project = null, branch = null, columns = 40, ui = null } = {}) {
+  const base = settings.base ?? branch;
+  const values = {
+    project: project ?? 'not chosen yet',
+    leader: settings.leader,
+    auto: settings.auto ? 'on' : 'off',
+    uncommitted: settings.uncommitted ? 'on' : 'off',
+    branch: base ?? 'current',
+  };
+  const pad = Math.max(...Object.values(MENU_LABELS).map((l) => l.length)) + 2;
+  return MENU.map((key, i) => {
+    const value = cut(String(values[key]), Math.max(4, columns - 4 - pad));
+    const on = (key === 'auto' || key === 'uncommitted') && values[key] === 'on';
+    return `${i + 1} ${ui ? ui.dim(MENU_LABELS[key].padEnd(pad)) : MENU_LABELS[key].padEnd(pad)}${ui ? (on ? ui.green(value) : ui.bold(value)) : value}`;
+  });
+}
+
+// The choices of one setting, numbered from 1; the current one is marked.
+// More than `max` choices would not fit a phone screen: the rest is counted.
+export function choiceLines(items, { current = null, columns = 40, max = 9, describe = null } = {}) {
+  const shown = items.slice(0, max);
+  const out = shown.map((item, i) => {
+    const extra = describe?.(item);
+    return cut(`${i + 1} ${item}${item === current ? ' (now)' : ''}${extra ? `  ${extra}` : ''}`, Math.max(8, columns - 2));
+  });
+  if (items.length > shown.length) out.push(cut(`${items.length - shown.length} more not shown`, Math.max(8, columns - 2)));
+  return out;
+}
+
+// The item a line picks by its number, or null.
+export function pickChoice(line, items, max = 9) {
+  const m = /^\s*(\d{1,2})\s*$/.exec(line);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 1 && n <= Math.min(items.length, max) ? items[n - 1] : null;
 }
