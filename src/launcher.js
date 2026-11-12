@@ -17,6 +17,7 @@ import { applySetting, choiceLines, initialSettings, isSettingCommand, menuKey, 
 import { loadRemembered, saveRemembered } from './start-prefs.js';
 import { listLeaders } from './ask.js';
 import { statusSeq, titleSeq } from './status.js';
+import { appSpaces } from './app-spaces.js';
 
 export const LAUNCHER_NAME = 'foreman';
 export const LAUNCHER_LABEL = 'foreman.launcher=1';
@@ -30,10 +31,19 @@ const forward = (p) => p.replace(/\\/g, '/');
 // The status reports and the title are in status.js, shared with `foreman watch`.
 export { statusSeq, titleSeq };
 
-// A message sent from another hc terminal arrives as <hc from="t4 lead">text</hc>.
+// A message sent from another hc terminal arrives as <hc from="t4 lead">text</hc>;
+// one passed on by another terminal has a tag for each, so every one comes off.
 export function stripHcWrapper(text) {
-  const m = /^\s*<hc\b[^>]*>([\s\S]*)<\/hc>\s*$/.exec(text);
-  return (m ? m[1] : text).trim();
+  let out = text;
+  for (let m; (m = /^\s*<hc\b[^>]*>([\s\S]*)<\/hc>\s*$/.exec(out));) out = m[1];
+  return out.trim();
+}
+
+// The same for one line on the screen: the terminal echoes what hc typed, tags
+// and all, so the opening tags come off the first line of a message and the
+// closing ones off its last.
+export function stripHcLine(line) {
+  return line.replace(/^(\s*)(?:<hc\b[^>]*>)+/, '$1').replace(/(?:<\/hc>)+(\s*)$/, '$1');
 }
 
 const stamp = (run) => {
@@ -43,9 +53,10 @@ const stamp = (run) => {
 
 // The projects a task can start in, most likely first: the folder the
 // launcher runs in, the repositories of the latest runs (up to 6 that still
-// exist), then those the live terminals work in. Never the home folder or a
-// worker's worktree.
-export async function projectChoices({ cwd = null, runs = [], cwds = [], toplevel, exists, homedir = null, worktrees = null, limit = 9, platform = process.platform }) {
+// exist), the repositories of the Herdr app's spaces (up to 6, the space used
+// last first: a repository with no run yet is found there), then those the
+// live terminals work in. Never the home folder or a worker's worktree.
+export async function projectChoices({ cwd = null, runs = [], spaces = [], cwds = [], toplevel, exists, homedir = null, worktrees = null, limit = 9, platform = process.platform }) {
   const out = [];
   const seen = new Set();
   const key = (p) => {
@@ -73,6 +84,12 @@ export async function projectChoices({ cwd = null, runs = [], cwds = [], topleve
     if (fromRuns >= 6) break;
     if (add(run.repo)) fromRuns++;
   }
+  let fromSpaces = 0;
+  for (const dir of [...new Set(spaces.filter(Boolean))]) {
+    if (fromSpaces >= 6) break;
+    if (worktrees && isInside(dir, worktrees)) continue;
+    if (add(await root(dir))) fromSpaces++;
+  }
   for (const dir of [...new Set(cwds.filter(Boolean))].slice(0, 12)) {
     if (worktrees && isInside(dir, worktrees)) continue;
     add(await root(dir));
@@ -95,10 +112,10 @@ function parseJson(text) {
 }
 
 // Keep one launcher open on this machine, when the user asked for it with
-// "launcher": true in config.json. It gets no herdr.space / herdr.tab labels,
-// so the desktop window stays as it is. Never throws.
+// "launcher": true in config.json. Never throws.
+// spaces: the Herdr app's spaces, the most recently used first (app-spaces.js).
 // status: off | no-core | already | started | failed
-export async function ensureLauncher({ config, run, hc, homedir, node = process.execPath, bin = BIN, name = LAUNCHER_NAME, label = LAUNCHER_LABEL }) {
+export async function ensureLauncher({ config, run, hc, homedir, node = process.execPath, bin = BIN, name = LAUNCHER_NAME, label = LAUNCHER_LABEL, spaces = () => appSpaces({ run, hc }) }) {
   if (config?.launcher !== true) return { status: 'off' };
   if (!hc) return { status: 'no-core', reason: 'herdr-core (hc) is not installed' };
   const call = async (args, timeoutMs = 15000) => {
@@ -114,11 +131,56 @@ export async function ensureLauncher({ config, run, hc, homedir, node = process.
   const live = await call(['ls', '--json', '--label', label]);
   if (!live.ok) return { status: 'failed', reason: live.reason };
   if (live.body.terminals?.length) return { status: 'already', terminal: live.body.terminals[0].address ?? null };
-  const start = (as) => call(['run', '--json', '--bg', '--no-parent', '--no-notify', '--name', as, '--label', label, '--cwd', homedir, '--', forward(node), forward(bin), 'launcher']);
+  // The Herdr apps show a terminal in the space its herdr.space label names.
+  // The launcher starts in the home folder, which is no project's, so without
+  // the label it would belong to no space: on the phone it would sit outside
+  // every space, and the desktop window would not show it. It joins the space
+  // used last, where the person is most likely to look. No herdr.tab: the app
+  // then gives it a tab of its own instead of a place in one of the person's.
+  // With no spaces it stays without one, because an id the app does not know
+  // would make a new, empty space.
+  const space = (await Promise.resolve().then(spaces).catch(() => []))?.[0]?.id ?? null;
+  const labels = ['--label', label, ...(space ? ['--label', `herdr.space=${space}`] : [])];
+  const start = (as) => call(['run', '--json', '--bg', '--no-parent', '--no-notify', '--name', as, ...labels, '--cwd', homedir, '--', forward(node), forward(bin), 'launcher']);
   let res = await start(name);
   // The name is taken by a terminal that is not a launcher.
   if (!res.ok) res = await start(`${name}-launcher`);
   return res.ok ? { status: 'started', terminal: res.body.address ?? null } : { status: 'failed', reason: res.reason };
+}
+
+// `foreman launcher off`: end the launcher terminals foreman started with
+// --ensure: labelled as a launcher, named foreman (or foreman-launcher), and
+// running the launcher itself. A launcher someone started by hand runs in
+// their own shell, so that terminal is never ended. Never throws.
+// Returns { stopped: [addresses], failed: [{ terminal, reason }] }.
+export async function stopLauncher({ run, hc, name = LAUNCHER_NAME, label = LAUNCHER_LABEL }) {
+  const out = { stopped: [], failed: [] };
+  if (!hc) return out;
+  const call = async (args) => {
+    try {
+      const res = await run(hc, args, { timeoutMs: 15000 });
+      const body = parseJson(res.stdout) ?? parseJson(res.stderr) ?? {};
+      return { ok: res.code === 0, body, reason: body.error?.message ?? firstLine(res.stderr || res.stdout) };
+    } catch (err) {
+      return { ok: false, body: {}, reason: err.message };
+    }
+  };
+  const live = await call(['ls', '--json', '--label', label]);
+  if (!live.ok) return out;
+  for (const t of live.body.terminals ?? []) {
+    if (![name, `${name}-launcher`].includes(t.name) || !t.address) continue;
+    const info = await call(['get', '--json', t.address]);
+    const argv = info.ok && Array.isArray(info.body.argv) ? info.body.argv.map(String) : [];
+    if (argv.at(-1) !== 'launcher' || !argv.some((a) => /foreman\.js$/.test(a))) continue;
+    const killed = await call(['kill', '--json', t.address]);
+    if (!killed.ok && killed.body.error?.kind !== 'finished') {
+      out.failed.push({ terminal: t.address, reason: killed.reason });
+      continue;
+    }
+    await call(['rm', '--json', t.address]);
+    out.stopped.push(t.address);
+  }
+  return out;
 }
 
 // deps: what main() takes. main: the command line itself, which starts each task.
@@ -165,6 +227,13 @@ export async function runLauncher({ deps, main, stdin = process.stdin, stdout = 
     } catch {
       // no run records: the folders of the terminals may still do
     }
+    let spaces = [];
+    try {
+      const hc = findTool('hc', deps);
+      if (hc) spaces = (await appSpaces({ run: deps.run, hc })).map((s) => s.folder);
+    } catch {
+      // no Herdr app spaces to look at
+    }
     let cwds = [];
     try {
       const backend = createBackend(detectBackend({ env, installed: (name) => installed(name, deps) }), deps);
@@ -172,7 +241,7 @@ export async function runLauncher({ deps, main, stdin = process.stdin, stdout = 
     } catch {
       // nothing to ask for terminals
     }
-    return projectChoices({ cwd: deps.cwd, runs, cwds, toplevel: (dir) => git.toplevel(dir), exists: deps.exists, homedir: deps.homedir, worktrees: paths.worktrees, platform: deps.platform });
+    return projectChoices({ cwd: deps.cwd, runs, spaces, cwds, toplevel: (dir) => git.toplevel(dir), exists: deps.exists, homedir: deps.homedir, worktrees: paths.worktrees, platform: deps.platform });
   }
 
   async function setRepo(next) {
@@ -325,7 +394,7 @@ export async function runLauncher({ deps, main, stdin = process.stdin, stdout = 
   // the terminal is in one mode all the time, and a task sent while the
   // launcher is busy (looking for projects, starting a leader) waits its turn
   // instead of being lost.
-  const read = () => createTaskReader(stdin, stdout, { prompt: mark, single: true, escape: true, interrupt, now });
+  const read = () => createTaskReader(stdin, stdout, { prompt: mark, single: true, escape: true, interrupt, now, show: stripHcLine });
   let reader = read();
 
   // A launcher started by hand is found by `foreman launcher --ensure` too.

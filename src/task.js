@@ -29,6 +29,8 @@ export const PASTE_OFF = '\x1b[?2004l';
 //   single: Enter starts a typed line at once; an empty line is ignored
 //   escape: Esc clears what was typed or pasted so far
 //   interrupt: called on Ctrl+C; true keeps reading, anything else cancels
+//   show: how an entered line is shown; when it gives other text, the
+//     terminal's echo of the line is replaced with that (the text read stays as it was)
 export function readTaskLines(input, output = null, options = {}) {
   const reader = createTaskReader(input, output, options);
   return reader.next().then((text) => {
@@ -43,7 +45,7 @@ export function readTaskLines(input, output = null, options = {}) {
 // or pasted between two tasks is lost or seen half; what arrives early waits
 // for the next next(). After the input has ended, next() gives '' and `ended` is true.
 export function createTaskReader(input, output = null, {
-  editKey = null, afterLine = null, command = null, prompt = null, single = false, escape = false, interrupt = null,
+  editKey = null, afterLine = null, command = null, prompt = null, single = false, escape = false, interrupt = null, show = null,
   terminal = Boolean(input.isTTY && output?.isTTY), burstMs = 50, now = Date.now,
 } = {}) {
   // An input that has ended already (a pipe read to its end) never says so again.
@@ -148,6 +150,24 @@ export function createTaskReader(input, output = null, {
     return again();
   };
 
+  // Readline has just echoed the line and moved below it: go back up over the
+  // rows it took, clear them, and write the line as `show` has it. Called as
+  // the line arrives, before anything else is written.
+  const visible = (text) => [...String(text ?? '').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')].length;
+  const reshow = (line, afterPrompt) => {
+    let shown;
+    try {
+      shown = show(line);
+    } catch {
+      return;
+    }
+    if (typeof shown !== 'string' || shown === line) return;
+    const head = afterPrompt && prompt ? prompt : '';
+    const columns = Math.max(1, output.columns || 80);
+    const rows = Math.max(1, Math.ceil((visible(head) + visible(line)) / columns));
+    output.write(`\x1b[${rows}A\r\x1b[J${head}${shown}\r\n`);
+  };
+
   if (rl) {
     if (terminal) {
       input.on('keypress', onKey);
@@ -164,8 +184,11 @@ export function createTaskReader(input, output = null, {
     rl.on('line', (line) => {
       const at = now();
       const pasted = terminal && (pasting || at - lastAt <= burstMs);
+      // The first line of a paste, or one typed, follows the prompt; the later lines of a paste do not.
+      const afterPrompt = !(pasting ? pasteLines > 0 : pasted);
       lastAt = at;
       if (pasting) pasteLines++;
+      if (terminal && show) reshow(line, afterPrompt);
       const index = ++received;
       later(() => onLine(line, { pasted, quiet: pasting, index }));
     });
