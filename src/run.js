@@ -47,7 +47,10 @@ export function which(name, { env = process.env, platform = process.platform, ex
   return null;
 }
 
-export function run(cmd, args = [], { cwd, env, timeoutMs = 30000, input } = {}) {
+// input: written to the program's standard input, which is then closed; with
+// inputOpenUntil(stdoutSoFar), closed only once that says true (a program
+// such as `hc connect` stops at the end of its input, answered or not).
+export function run(cmd, args = [], { cwd, env, timeoutMs = 30000, input, inputOpenUntil = null } = {}) {
   return new Promise((resolve, reject) => {
     const resolved = which(cmd, { env: env ?? process.env });
     if (!resolved) {
@@ -78,7 +81,14 @@ export function run(cmd, args = [], { cwd, env, timeoutMs = 30000, input } = {})
     let stdout = '';
     let stderr = '';
     let timedOut = false;
-    child.stdout.setEncoding('utf8').on('data', (d) => { stdout += d; });
+    let inputOpen = input !== undefined && Boolean(inputOpenUntil);
+    child.stdout.setEncoding('utf8').on('data', (d) => {
+      stdout += d;
+      if (inputOpen && inputOpenUntil(stdout)) {
+        inputOpen = false;
+        child.stdin.end();
+      }
+    });
     child.stderr.setEncoding('utf8').on('data', (d) => { stderr += d; });
 
     const timer = setTimeout(() => {
@@ -101,7 +111,10 @@ export function run(cmd, args = [], { cwd, env, timeoutMs = 30000, input } = {})
     });
 
     if (input !== undefined) {
-      child.stdin.end(input);
+      // A program that ends before reading all of it is no error here.
+      child.stdin.on('error', () => {});
+      if (inputOpen) child.stdin.write(input);
+      else child.stdin.end(input);
     }
   });
 }
