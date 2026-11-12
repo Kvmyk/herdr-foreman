@@ -4,6 +4,30 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-12
+
+### Added
+
+- foreman works with the Herdr phone app: runs of the Herdr app backend show in its Inbox and are answered in the leader's terminal; see "From your phone" in the README.
+- `foreman new`, and plain `foreman` once setup has run, open the task prompt in any terminal; a pasted task, blank lines included, is one task.
+- `foreman launcher` is a terminal that stays open and takes one task after another, with settings picked by number; `"launcher": true` in `config.json` keeps one open (`foreman launcher --ensure`).
+- `"layout": "tabs"` gives every worker a tab of its own.
+- `notifyCommand` in `config.json` runs a command of yours, for example a message through ntfy.sh, when `foreman wait` needs you or is done.
+- `foreman setup` accepts a machine that has only herdr-core and says how to start a task there.
+
+### Changed
+
+- `layout` now defaults to `"auto"`: a tab per worker on a narrow terminal or without a desktop window, the stack otherwise; a value in `config.json` still wins.
+- In the Herdr app, workers start as helpers of their leader, the leader is named `<task>-lead`, and a worker that needs you is pinned.
+- Under 60 columns, `status`, `watch`, `runs`, `show`, `spawn`, `wait` and the prompt's hints print short lines instead of wide tables.
+- The desktop prompt fits its content, scrolls in a low window and goes to one column under 520 px.
+- When the leader stops on a folder-trust question, foreman waits and hands over the task itself instead of printing a command to copy.
+- The leader answers workers' questions for you from its own terminal, one numbered question at a time, and offers to take the next task when a run ends.
+
+### Fixed
+
+- Trust and permission questions are still recognised when a pane is narrowed to phone width and the dialog wraps.
+
 ## [0.10.0] - 2026-11-11
 
 ### Changed
@@ -172,7 +196,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.8.1...v0.9.0
