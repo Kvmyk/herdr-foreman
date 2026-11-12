@@ -4,6 +4,8 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-12
+
 ### Added
 
 - `foreman setup` in a terminal asks once whether you want to start foreman from the Herdr phone app, saves the answer as `"launcher"` in `config.json` (the rest of the file stays as it was) and opens the launcher for a yes; the plugin's automatic setup runs never ask.
@@ -211,7 +213,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.9.0...v0.9.1
