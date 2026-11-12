@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planLayout, columnRatios, rowRatios, planPanes, layoutOf, MAX_BESIDE_LEADER, appStackSteps } from '../src/layout.js';
+import { planLayout, columnRatios, rowRatios, planPanes, layoutOf, chooseLayout, layoutHint, LAYOUTS, NARROW_TYPED_COLS, NARROW_LEADER_COLS, MAX_BESIDE_LEADER, appStackSteps } from '../src/layout.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
 test('planLayout spreads workers over columns of at most three', () => {
@@ -36,11 +36,46 @@ test('grid keeps the old columns of three', () => {
   assert.equal(MAX_BESIDE_LEADER.grid, 3);
 });
 
-test('layoutOf defaults to stack', () => {
-  assert.equal(layoutOf({}), 'stack');
-  assert.equal(layoutOf({ layout: 'nonsense' }), 'stack');
+test('layoutOf defaults to auto and knows stack, grid and tabs', () => {
+  assert.equal(layoutOf({}), 'auto');
+  assert.equal(layoutOf({ layout: 'nonsense' }), 'auto');
   assert.equal(layoutOf({ layout: 'grid' }), 'grid');
-  assert.equal(layoutOf(DEFAULT_CONFIG), 'stack');
+  assert.equal(layoutOf({ layout: 'tabs' }), 'tabs');
+  assert.equal(layoutOf(DEFAULT_CONFIG), 'auto');
+  assert.deepEqual([...LAYOUTS], ['auto', 'stack', 'grid', 'tabs']);
+});
+
+test('chooseLayout: a named layout always wins', () => {
+  const narrow = { hint: 'tabs', leaderCols: 45, windowOpen: false };
+  assert.equal(chooseLayout({ config: { layout: 'stack' }, ...narrow }), 'stack');
+  assert.equal(chooseLayout({ config: { layout: 'grid' }, ...narrow }), 'grid');
+  assert.equal(chooseLayout({ config: { layout: 'tabs' }, leaderCols: 200, windowOpen: true }), 'tabs');
+});
+
+test('chooseLayout: auto gives tabs on a narrow screen or without a window, else a stack', () => {
+  const auto = (facts) => chooseLayout({ config: DEFAULT_CONFIG, ...facts });
+  const table = [
+    [{}, 'stack'],
+    [{ hint: null, leaderCols: null, windowOpen: null }, 'stack'],
+    [{ leaderCols: 200, windowOpen: true }, 'stack'],
+    [{ leaderCols: NARROW_LEADER_COLS, windowOpen: true }, 'stack'],
+    [{ hint: 'tabs', leaderCols: 200, windowOpen: true }, 'tabs'],
+    [{ leaderCols: NARROW_LEADER_COLS - 1, windowOpen: true }, 'tabs'],
+    [{ leaderCols: 45, windowOpen: true }, 'tabs'],
+    [{ leaderCols: 200, windowOpen: false }, 'tabs'],
+    [{ leaderCols: 0, windowOpen: true }, 'stack'],
+    [{ hint: 'stack', leaderCols: 200, windowOpen: true }, 'stack'],
+  ];
+  for (const [facts, want] of table) assert.equal(auto(facts), want, JSON.stringify(facts));
+  assert.equal(chooseLayout(), 'stack');
+});
+
+test('layoutHint: only a terminal narrower than 80 columns asks for tabs', () => {
+  assert.equal(layoutHint(45), 'tabs');
+  assert.equal(layoutHint(NARROW_TYPED_COLS - 1), 'tabs');
+  assert.equal(layoutHint(NARROW_TYPED_COLS), null);
+  assert.equal(layoutHint(200), null);
+  for (const unknown of [null, undefined, 0, NaN, '45']) assert.equal(layoutHint(unknown), null);
 });
 
 test('appStackSteps: beside the leader, workers kept one under another, then sized', () => {

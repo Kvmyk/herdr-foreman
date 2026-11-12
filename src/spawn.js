@@ -1,12 +1,15 @@
 // Opens workers: one git worktree and one herdr pane per worker, agents
 // started in parallel. Panes are stacked to the right of the leader (or, with
-// layout "grid" in config.json, sit in columns of up to three).
+// layout "grid" in config.json, sit in columns of up to three); with layout
+// "tabs" every worker gets a tab of its own. The run keeps the layout of its
+// first spawn (layout.js, chooseLayout).
 // In the Herdr app each worker is a terminal in the leader's tab (or a new
 // one), stacked the same way while the window is open; otherwise (and with
-// layout "grid") the app lays them out.
+// layout "grid") the app lays them out. Workers are started as the leader's
+// children, so every Herdr client lists them under it.
 import path from 'node:path';
 import { HERDR_KINDS, PROBES, EFFORT_LEVELS } from './inventory/kinds.js';
-import { planPanes, layoutOf, MAX_BESIDE_LEADER } from './layout.js';
+import { planPanes, chooseLayout, MAX_BESIDE_LEADER } from './layout.js';
 import { checkStartFlags, flagsOf } from './startflags.js';
 import { classifyScreen, describeBlocked } from './blocked.js';
 import { recordStartResults } from './startfail.js';
@@ -82,9 +85,23 @@ async function validate({ herdr, git, repo, config, task, specs, existing, pane,
   return { parsed, branch };
 }
 
-// The Herdr app: the space and tab the workers' terminals will show up in.
+// The title of a worker's own tab (layout tabs).
+export const tabTitle = (name, task) => `${name} · ${task}`;
+
+// The Herdr app: the space and tab each worker's terminal will show up in.
 async function appPlace({ herdr, pane, newTab, task, workers, layout }) {
   const here = pane ? await herdr.here(pane) : null;
+  if (layout === 'tabs') {
+    // A tab per worker, all in the leader's space (a new one outside the app).
+    let space = here?.space;
+    const places = [];
+    for (const w of workers) {
+      const t = await herdr.tabCreate({ workspaceId: space, cwd: w.worktree, label: tabTitle(w.name, task), focus: false });
+      space ??= t.workspaceId;
+      places.push({ space, tab: t.tabId, label: tabTitle(w.name, task), ownTab: true });
+    }
+    return places;
+  }
   let place;
   if (!newTab && here?.tab) {
     place = { space: here.space, tab: here.tab, label: null };
@@ -95,10 +112,20 @@ async function appPlace({ herdr, pane, newTab, task, workers, layout }) {
   if (layout === 'stack' && herdr.stackLayout) {
     place.stack = await herdr.stackLayout({ leader: pane, space: place.space, tab: place.tab, newTab: place.label !== null, count: workers.length });
   }
-  return place;
+  return workers.map(() => place);
 }
 
 async function openPanes({ herdr, pane, newTab, task, workers, layout }) {
+  if (layout === 'tabs') {
+    const made = [];
+    try {
+      for (const w of workers) made.push((await herdr.tabCreate({ cwd: w.worktree, label: tabTitle(w.name, task), focus: false })).paneId);
+      return made;
+    } catch (err) {
+      await Promise.allSettled(made.map((id) => herdr.paneClose(id)));
+      throw err;
+    }
+  }
   const { leaderRatio, cols, rows, colRatios, rowRatios } = planPanes(workers.length, { layout, newTab });
   const cwdAt = (c, j) => workers[rows.slice(0, c).reduce((s, n) => s + n, 0) + j].worktree;
   const created = [];
@@ -200,12 +227,21 @@ export async function spawnWorkers({
     throw fail('USAGE', `task "${task}" runs its workers in ${where}; run foreman spawn from there`);
   }
   const warnings = [];
-  const layout = layoutOf(config);
-  if (!newTab && specs.length > MAX_BESIDE_LEADER[layout] && specs.length <= config.maxWorkers) {
+  // A run keeps the layout of its first spawn. That spawn looks at the
+  // leader's terminal (the hint start left in its labels, its width now) and
+  // at whether the desktop window is open; see chooseLayout.
+  const windowOpen = backend === 'app' && herdr.appRunning ? await herdr.appRunning() : null;
+  const leaderInfo = !existing && backend === 'app' && pane && herdr.terminalInfo ? await herdr.terminalInfo(pane) : null;
+  const layout = ['stack', 'grid', 'tabs'].includes(existing?.layout) ? existing.layout : chooseLayout({
+    config, ...(existing ? {} : { hint: leaderInfo?.labels?.['foreman.layout'] ?? null, leaderCols: leaderInfo?.cols ?? null, windowOpen }),
+  });
+  const tabs = layout === 'tabs';
+  if (!tabs && !newTab && specs.length > MAX_BESIDE_LEADER[layout] && specs.length <= config.maxWorkers) {
     newTab = true;
     warnings.push(`${specs.length} workers would be too narrow next to the leader; opened them in a new tab`);
   }
-  const checked = await validate({ herdr, git, repo, config, task, specs, existing, pane, newTab, effort, branch });
+  // Tabs of their own need no pane to open next to.
+  const checked = await validate({ herdr, git, repo, config, task, specs, existing, pane, newTab: newTab || tabs, effort, branch });
   const parsed = checked.parsed;
   const runBranch = existing ? existing.branch : checked.branch;
 
@@ -261,8 +297,8 @@ export async function spawnWorkers({
       mkdir(w.reportDir, { recursive: true });
     }
     if (backend === 'app') {
-      const place = await appPlace({ herdr, pane, newTab, task, workers, layout });
-      workers.forEach((w) => { w.place = place; w.paneId = null; });
+      const places = await appPlace({ herdr, pane, newTab, task, workers, layout });
+      workers.forEach((w, i) => { w.place = places[i]; w.paneId = null; });
     } else {
       const panes = await openPanes({ herdr, pane, newTab, task, workers, layout });
       workers.forEach((w, i) => { w.paneId = panes[i]; });
@@ -299,6 +335,9 @@ export async function spawnWorkers({
       return await herdr.agentStart({
         name: w.name, kind: w.kind, pane: w.paneId, cwd: w.worktree, space: w.place?.space, tab: w.place?.tab, label: w.place?.label,
         timeoutMs: config.startTimeoutMs, args: startArgs[i], stack: w.place?.stack ?? null, index: i,
+        // Herdr app only: the leader is the worker's parent, and labels say which run it belongs to.
+        parent: pane ?? null, labels: { 'foreman.task': task, 'foreman.role': 'worker' },
+        where: `${path.basename(repo)} / ${task}`, windowOpen, ownTab: Boolean(w.place?.ownTab),
       });
     } finally {
       done = true;
@@ -320,6 +359,8 @@ export async function spawnWorkers({
     if (c?.safeToAnswer && sleep && await answerTrust({ herdr, w, keys: c.keys, sleep, pressed: answeredEarly.has(w.name) })) {
       w.status = 'ready';
       w.error = null;
+      // Nobody is waited for any more: the Herdr app takes its pin off the worker.
+      await Promise.resolve().then(() => herdr.answered?.(w.paneId ?? w.name)).catch(() => {});
       warnings.push(`${w.name}: answered the folder-trust dialog of ${w.kind} for its worktree`);
       continue;
     }
@@ -347,6 +388,7 @@ ${screen}`;
     ...(runBranch ? { branch: runBranch } : {}),
     ...(usedBase ? { baseBranch: usedBase } : {}),
     ...(backend === 'app' ? { backend } : {}),
+    layout,
     createdAt: existing?.createdAt ?? startedAt,
     updatedAt: startedAt,
     phase: existing?.phase ?? 'spawned',

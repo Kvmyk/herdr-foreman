@@ -542,3 +542,143 @@ test('--base on the checked-out branch still takes the snapshot', async () => {
   await call(f, { specs: ['w1=claude'], baseBranch: 'main', includeUncommitted: true });
   assert.ok(f.log.some((l) => l[0] === 'snapshot'));
 });
+
+// Layout tabs and auto: every worker in a tab of its own.
+const savedRun = (f) => JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]);
+const starts = (f) => f.log.filter(([k]) => k === 'start').map(([, o]) => o);
+
+// An app backend whose new tabs get ids of their own, with a leader terminal
+// of the given width and labels, and a window that is open or closed.
+function appTabs(f, { cols = 200, labels = {}, windowOpen = true } = {}) {
+  appHerdr(f);
+  let n = 0;
+  f.herdr.tabCreate = async (o) => { f.log.push(['tab', o]); return { workspaceId: o.workspaceId ?? 'spNew', tabId: `tb${++n}`, paneId: null }; };
+  f.herdr.terminalInfo = async (t) => { f.log.push(['info', t]); return { cols, rows: 50, labels }; };
+  f.herdr.appRunning = async () => windowOpen;
+  f.herdr.stackLayout = async (o) => { f.log.push(['stack', o]); return null; };
+  return f;
+}
+
+test('layout tabs in the Herdr app: a tab per worker in the leader\'s space, titled with worker and task', async () => {
+  const f = appTabs(fakes());
+  const { workers, warnings } = await call(f, { specs: ['w1=claude', 'w2=agy', 'w3=codex'], pane: 't3', config: { ...DEFAULT_CONFIG, layout: 'tabs' } });
+  assert.deepEqual(starts(f).map((o) => [o.space, o.tab, o.label, o.ownTab, o.cwd]), workers.map((w, i) => ['spA', `tb${i + 1}`, `${w.name} · fix-login`, true, w.worktree]));
+  assert.deepEqual(f.log.filter(([k]) => k === 'tab').map(([, o]) => o.workspaceId), ['spA', 'spA', 'spA']);
+  assert.equal(f.log.some(([k]) => k === 'stack'), false);
+  assert.deepEqual(warnings, []);
+  assert.equal(savedRun(f).layout, 'tabs');
+});
+
+test('layout tabs takes more workers than fit beside a leader without moving them', async () => {
+  const f = appTabs(fakes());
+  const specs = ['a=claude', 'b=claude', 'c=claude', 'd=claude', 'e=claude', 'f=claude'];
+  const { warnings } = await call(f, { specs, pane: 't3', config: { ...DEFAULT_CONFIG, layout: 'tabs' } });
+  assert.equal(new Set(starts(f).map((o) => o.tab)).size, 6);
+  assert.ok(!warnings.some((w) => /too narrow/.test(w)));
+});
+
+test('layout tabs outside any terminal puts every tab in one new space and needs no pane', async () => {
+  const f = appTabs(fakes());
+  f.herdr.here = async () => null;
+  await call(f, { specs: ['w1=claude', 'w2=agy'], pane: null, config: { ...DEFAULT_CONFIG, layout: 'tabs' } });
+  assert.deepEqual(starts(f).map((o) => [o.space, o.tab, o.parent]), [['spNew', 'tb1', null], ['spNew', 'tb2', null]]);
+  assert.deepEqual(f.log.filter(([k]) => k === 'tab').map(([, o]) => o.workspaceId), [undefined, 'spNew']);
+});
+
+test('workers start as children of the leader, labelled with task and role', async () => {
+  const f = appTabs(fakes());
+  await call(f, { specs: ['w1=claude', 'w2=agy'], pane: 't3' });
+  for (const o of starts(f)) {
+    assert.equal(o.parent, 't3');
+    assert.deepEqual(o.labels, { 'foreman.task': 'fix-login', 'foreman.role': 'worker' });
+    assert.equal(o.where, 'shop / fix-login');
+    assert.equal(o.windowOpen, true);
+    assert.equal(o.ownTab, false);
+  }
+});
+
+test('layout auto: stacked beside a wide leader in an open window', async () => {
+  const f = appTabs(fakes());
+  await call(f, { specs: ['w1=claude', 'w2=agy'], pane: 't3' });
+  assert.deepEqual(f.log.find(([k]) => k === 'info')[1], 't3');
+  assert.equal(f.log.filter(([k]) => k === 'stack').length, 1);
+  assert.deepEqual(starts(f).map((o) => o.tab), ['tbA', 'tbA']);
+  assert.equal(savedRun(f).layout, 'stack');
+});
+
+test('layout auto: tabs when the task was typed on a narrow screen, the leader is narrow, or the window is closed', async () => {
+  for (const facts of [{ labels: { 'foreman.layout': 'tabs' } }, { cols: 45 }, { windowOpen: false }]) {
+    const f = appTabs(fakes(), facts);
+    await call(f, { specs: ['w1=claude', 'w2=agy'], pane: 't3' });
+    assert.deepEqual(starts(f).map((o) => [o.tab, o.ownTab]), [['tb1', true], ['tb2', true]], JSON.stringify(facts));
+    assert.equal(f.log.some(([k]) => k === 'stack'), false);
+    assert.equal(savedRun(f).layout, 'tabs');
+  }
+});
+
+test('a layout named in config.json wins over a narrow screen', async () => {
+  const f = appTabs(fakes(), { cols: 45, labels: { 'foreman.layout': 'tabs' } });
+  await call(f, { specs: ['w1=claude'], pane: 't3', config: { ...DEFAULT_CONFIG, layout: 'stack' } });
+  assert.equal(starts(f)[0].tab, 'tbA');
+  assert.equal(savedRun(f).layout, 'stack');
+});
+
+test('a run keeps the layout of its first spawn', async () => {
+  const f = appTabs(fakes(), { cols: 45 });
+  await call(f, { specs: ['w1=claude'], pane: 't3' });
+  assert.equal(savedRun(f).layout, 'tabs');
+  // Later the leader is wide and config.json says stack: the run still uses tabs.
+  f.herdr.terminalInfo = async () => ({ cols: 200, rows: 50, labels: {} });
+  f.log.length = 0;
+  await call(f, { specs: ['w2=agy'], pane: 't3', branch: null, config: { ...DEFAULT_CONFIG, layout: 'stack' } });
+  assert.deepEqual(starts(f).map((o) => [o.label, o.ownTab]), [['w2 · fix-login', true]]);
+  assert.equal(f.log.some(([k]) => k === 'info'), false);
+  assert.equal(savedRun(f).layout, 'tabs');
+});
+
+test('a run recorded before layouts were stored is not moved to tabs by a narrow leader', async () => {
+  const existingRun = { task: 'fix-login', repo, base: 'abc123', branch: 'feat/fix-login', backend: 'app', workers: [] };
+  const f = appTabs(fakes({ existingRun }), { cols: 45, windowOpen: false });
+  await call(f, { specs: ['w1=claude'], pane: 't3', branch: null });
+  assert.equal(starts(f)[0].tab, 'tbA');
+  assert.equal(savedRun(f).layout, 'stack');
+});
+
+test('layout tabs in herdr: a tab per worker and no splits', async () => {
+  const f = fakes();
+  const { workers } = await call(f, { specs: ['w1=claude', 'w2=agy'], config: { ...DEFAULT_CONFIG, layout: 'tabs' } });
+  assert.equal(f.log.some(([k]) => k === 'split'), false);
+  assert.deepEqual(f.log.filter(([k]) => k === 'tab').map(([, o]) => [o.cwd, o.label, o.focus]), workers.map((w) => [w.worktree, `${w.name} · fix-login`, false]));
+  assert.deepEqual(workers.map((w) => w.paneId), ['w1:p2', 'w1:p3']);
+  assert.equal(savedRun(f).layout, 'tabs');
+});
+
+test('layout tabs in herdr closes the tabs it made when one cannot be opened', async () => {
+  const f = fakes();
+  let n = 0;
+  f.herdr.tabCreate = async () => { if (++n === 2) throw new Error('no room'); return { tabId: 't', paneId: 'w1:p7' }; };
+  await assert.rejects(call(f, { specs: ['w1=claude', 'w2=agy'], config: { ...DEFAULT_CONFIG, layout: 'tabs' } }), /no room/);
+  assert.deepEqual(f.log.filter(([k]) => k === 'close').map(([, id]) => id), ['w1:p7']);
+  assert.equal(f.log.filter(([k]) => k === 'rmworktree').length, 2);
+});
+
+test('in herdr the default layout still stacks workers beside the leader', async () => {
+  const f = fakes();
+  await call(f, { specs: ['w1=claude', 'w2=agy'] });
+  assert.equal(f.log.filter(([k]) => k === 'split').length, 2);
+  assert.equal(savedRun(f).layout, 'stack');
+});
+
+test('a worker whose trust dialog foreman answered is reported as answered to the backend', async () => {
+  const f = fakes();
+  const told = [];
+  f.herdr.agentStart = async () => ({ ok: false, pane: 't9', code: 'agent_not_ready', message: 'claude is waiting for an answer' });
+  f.herdr.agentRead = async () => 'Do you trust the files in this folder?\n ❯ No, exit\n   Yes, I trust this folder';
+  f.herdr.agentKeys = async () => {};
+  f.herdr.answered = async (t) => { told.push(t); };
+  let listed = 0;
+  f.herdr.agentList = async () => (listed++ ? [{ name: 'w1', agent_status: 'idle' }] : []);
+  const { workers } = await call(f, { specs: ['w1=claude'], sleep: async () => {} });
+  assert.equal(workers[0].status, 'ready');
+  assert.deepEqual(told, ['t9']);
+});

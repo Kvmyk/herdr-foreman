@@ -316,7 +316,8 @@ test('prompt goes through the backend of the run; read and keys follow the termi
   assert.equal(await main(['prompt', '--task', 'fix-login', 'w1', 'go'], h.deps), 0);
   assert.equal(await main(['read', '--task', 'other', 'w1'], h.deps), 0);
   assert.equal(await main(['keys', '--task', 'other', '--backend', 'app', 'w1', 'esc'], h.deps), 0);
-  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'send'], ['hc', 'read'], ['herdr', 'agent'], ['hc', 'keys']]);
+  // After a message or keys the app backend looks once whether foreman pinned the terminal (hc get).
+  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'send'], ['hc', 'get'], ['hc', 'read'], ['herdr', 'agent'], ['hc', 'keys'], ['hc', 'get']]);
 });
 
 test('close-leader in the Herdr app ends the calling hc terminal', async () => {

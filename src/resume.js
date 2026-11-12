@@ -4,7 +4,7 @@
 // worktree it already has.
 import path from 'node:path';
 import { HERDR_KINDS } from './inventory/kinds.js';
-import { agentArgs } from './spawn.js';
+import { agentArgs, tabTitle } from './spawn.js';
 import { describeRun, isInside, phaseText } from './history.js';
 import { fail } from './errors.js';
 
@@ -103,22 +103,25 @@ export async function respawnWorker({ run, herdr, spec, pane = null, newTab = fa
     throw fail('NAME_TAKEN', `an agent named "${name}" is still running; talk to it with foreman prompt, or close it first`);
   }
 
+  // A run with layout tabs keeps every worker in a tab of its own.
+  const tabs = run.layout === 'tabs';
+  const tabLabel = tabs ? tabTitle(name, run.task) : `foreman:${run.task}`;
   let paneId = null;
   let place = {};
   if (backend === 'app') {
     const here = pane ? await herdr.here(pane) : null;
-    if (!newTab && here?.tab) {
+    if (!tabs && !newTab && here?.tab) {
       place = { space: here.space, tab: here.tab };
     } else {
-      const t = await herdr.tabCreate({ workspaceId: here?.space, cwd: w.worktree, label: `foreman:${run.task}`, focus: false });
-      place = { space: t.workspaceId, tab: t.tabId, label: `foreman:${run.task}` };
+      const t = await herdr.tabCreate({ workspaceId: here?.space, cwd: w.worktree, label: tabLabel, focus: false });
+      place = { space: t.workspaceId, tab: t.tabId, label: tabLabel };
     }
   } else {
     const panes = herdr.paneList ? await herdr.paneList().catch(() => []) : [];
     const old = panes.find((p) => p.pane_id === w.paneId);
     const cwd = old?.foreground_cwd || old?.cwd;
     if (!newTab && cwd && isInside(cwd, w.worktree)) paneId = w.paneId;
-    else if (newTab || !pane) paneId = (await herdr.tabCreate({ cwd: w.worktree, label: `foreman:${run.task}`, focus: false })).paneId;
+    else if (tabs || newTab || !pane) paneId = (await herdr.tabCreate({ cwd: w.worktree, label: tabLabel, focus: false })).paneId;
     else paneId = await herdr.paneSplit({ pane, direction: 'right', ratio: 0.5, cwd: w.worktree });
   }
 
@@ -126,6 +129,9 @@ export async function respawnWorker({ run, herdr, spec, pane = null, newTab = fa
   const res = await herdr.agentStart({
     name, kind, pane: paneId, cwd: w.worktree, space: place.space, tab: place.tab, label: place.label,
     timeoutMs: config.startTimeoutMs, args: start.args,
+    // Herdr app only: the calling leader becomes the worker's parent, as at spawn.
+    parent: pane ?? null, labels: { 'foreman.task': run.task, 'foreman.role': 'worker' },
+    where: `${path.basename(run.repo ?? w.worktree)} / ${run.task}`, ownTab: tabs,
   });
   const { endedAt, endedPhase, ...rest } = w;
   const worker = {

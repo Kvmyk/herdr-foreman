@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { buildLeaderPrompt, shellQuote, startForeman, INSTRUCTIONS_PATH } from '../src/start.js';
+import { buildLeaderPrompt, shellQuote, startForeman, leaderName, INSTRUCTIONS_PATH } from '../src/start.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
 const repo = path.resolve('/code/shop');
@@ -221,8 +221,12 @@ test('in the Herdr app the leader goes into a new tab of the caller\'s space', a
   assert.equal(r.paneId, 't9');
   assert.deepEqual(log.find(([k]) => k === 'here')[1], 't3');
   const start = log.find(([k]) => k === 'start')[1];
-  assert.deepEqual([start.name, start.cwd, start.space, start.tab, start.label, start.focus], ['lead', repo, 'spA', 'tbNew', 'foreman', true]);
-  assert.equal(log.find(([k]) => k === 'prompt')[1].name, 'lead');
+  // The name and the tab title carry the task; labels say which run and role.
+  assert.deepEqual([start.name, start.cwd, start.space, start.tab, start.label, start.focus], ['fix-it-lead', repo, 'spA', 'tbNew', 'foreman · fix-it', true]);
+  assert.deepEqual(start.labels, { 'foreman.task': 'fix-it', 'foreman.role': 'leader' });
+  assert.equal(start.where, 'shop / fix-it');
+  assert.equal(start.parent, undefined);
+  assert.equal(log.find(([k]) => k === 'prompt')[1].name, 'fix-it-lead');
   assert.equal(log.some(([k]) => k === 'attach' || k === 'detached'), false);
 });
 
@@ -248,7 +252,7 @@ test('in the Herdr app a leader that is not ready gets a foreman prompt hint wit
   assert.equal(r.ok, true);
   assert.equal(log.some(([k]) => k === 'prompt'), false);
   assert.match(r.message, /pane t9/);
-  assert.match(r.message, /foreman prompt --task fix-it --backend app lead "/);
+  assert.match(r.message, /foreman prompt --task fix-it --backend app fix-it-lead "/);
 });
 
 test('on Windows the foreman prompt hint is quoted for PowerShell', async () => {
@@ -330,4 +334,55 @@ test('takePrefs reads --leader and --base with their values', async () => {
     { prefs: { leader: 'codex', base: 'develop', autoAnswer: true }, rest: ['--', 'x'] });
   assert.equal(takePrefs(['--leader']).error, '--leader needs a value');
   assert.equal(takePrefs(['--base', '--', 'x']).error, '--base needs a value');
+});
+
+test('leaderName carries the slug and fits hc\'s 32 characters', () => {
+  assert.equal(leaderName('fix-login'), 'fix-login-lead');
+  assert.equal(leaderName('fix-login', 2), 'fix-login-lead2');
+  const long = 'check-the-payment-module-for-security';
+  assert.equal(leaderName(long), 'check-the-payment-module-fo-lead');
+  assert.equal(leaderName(long).length, 32);
+  assert.equal(leaderName(long, 2), 'check-the-payment-module-f-lead2');
+  assert.equal(leaderName(long, 12), 'check-the-payment-module-lead12');
+  // A cut that ends on a dash does not leave two dashes.
+  assert.equal(leaderName('aaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbb'), 'aaaaaaaaaaaaaaaaaaaaaaaaaa-lead');
+  for (const name of [leaderName(long), leaderName('2fa', 3)]) assert.match(name, /^[a-z0-9_-]{1,32}$/);
+});
+
+test('in the Herdr app a second leader of the same task gets a number', async () => {
+  const { deps, log } = appFakes();
+  deps.herdr.agentList = async () => [{ name: 'fix-it-lead' }, { name: 'fix-it-lead2' }];
+  await startForeman({ ...deps, task: 'fix it' });
+  assert.equal(log.find(([k]) => k === 'start')[1].name, 'fix-it-lead3');
+});
+
+test('in herdr the leader keeps its short name and tab title', async () => {
+  const { deps, log } = fakes();
+  await startForeman({ ...deps, task: 'fix it' });
+  const start = log.find(([k]) => k === 'start')[1];
+  assert.deepEqual([start.name, start.label], ['lead', 'foreman']);
+});
+
+test('in the Herdr app a task typed in a narrow terminal leaves a layout hint on the leader', async () => {
+  const typedIn = async (cols) => {
+    const { deps, log } = appFakes();
+    deps.herdr.terminalInfo = async (t) => { log.push(['info', t]); return cols === null ? null : { cols, rows: 20, labels: {} }; };
+    await startForeman({ ...deps, task: 'fix it' });
+    return log;
+  };
+  const narrow = await typedIn(45);
+  assert.deepEqual(narrow.find(([k]) => k === 'info')[1], 't3');
+  assert.deepEqual(narrow.find(([k]) => k === 'start')[1].labels, { 'foreman.task': 'fix-it', 'foreman.role': 'leader', 'foreman.layout': 'tabs' });
+  for (const cols of [80, 200, null]) {
+    const log = await typedIn(cols);
+    assert.deepEqual(log.find(([k]) => k === 'start')[1].labels, { 'foreman.task': 'fix-it', 'foreman.role': 'leader' });
+  }
+});
+
+test('in the Herdr app outside any terminal no terminal is asked for its width', async () => {
+  const { deps, log } = appFakes({ inside: false });
+  deps.herdr.terminalInfo = async (t) => { log.push(['info', t]); return { cols: 45, rows: 20, labels: {} }; };
+  await startForeman({ ...deps, task: 'fix it' });
+  assert.equal(log.some(([k]) => k === 'info'), false);
+  assert.equal('foreman.layout' in log.find(([k]) => k === 'start')[1].labels, false);
 });

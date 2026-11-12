@@ -425,5 +425,18 @@ test('the real app mod keeps its placeholders and the keys the prompt documents'
   assert.match(main, /hint\(\["Esc"\], "cancel"\)/);
   for (const flag of ['--auto-answer', '--include-uncommitted']) assert.ok(main.includes(`"${flag}"`), flag);
   const mod = JSON.parse(readFileSync(path.join(PACKAGE_ROOT, 'app', 'foreman', 'mod.json'), 'utf8'));
-  assert.ok(mod.overlay.height >= 420);
+  // No fixed height: the dialog is as tall as its content and the app caps it at
+  // most of the window; the width is in pixels (a value up to 1 would be a share).
+  assert.equal(mod.overlay.height, undefined);
+  assert.ok(mod.overlay.width >= 420);
+  // What is between the header and the buttons scrolls, and under 520 px the prompt
+  // is one column of 44 px targets without key caps.
+  assert.match(main, /const COMPACT_WIDTH = 520;/);
+  assert.match(main, /const TAP = 44;/);
+  assert.ok(main.includes('.on_size_change((size, cx) => this.resized(size, cx))'));
+  assert.ok(main.split('\n').some((l) => l.includes('id("fm-scroll")') && l.includes('.overflow_y_scrollbar()')));
+  // The key caps are only drawn when the prompt is not narrow.
+  const footer = main.slice(main.indexOf('if (!compact) {'));
+  assert.ok(footer.indexOf('hint(["Ctrl", "Enter"], "start")') > 0 && footer.indexOf('hint(["Ctrl", "Enter"], "start")') < footer.indexOf('}'));
+  assert.ok(!main.includes('.h_full()'));
 });

@@ -146,6 +146,14 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
   // Tabs whose title already says a worker needs the person.
   const needsYou = new Set();
 
+  // Pins a worker that needs the person to the top of every Herdr client's
+  // agent list (herdr.pinned is shared by the desktop and the phone app).
+  // foreman.pinned marks the pin as foreman's, so a pin the person set is
+  // never taken away; its value is the tab title to put back, or 1.
+  async function pin(terminal, restore) {
+    await call('label', [terminal, 'herdr.pinned=1', `foreman.pinned=${restore || '1'}`]).catch(() => {});
+  }
+
   async function terminals() {
     return (await call('ls', [])).terminals ?? [];
   }
@@ -169,6 +177,29 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
       const t = await call('get', [terminal]).catch(() => null);
       const space = t?.labels?.['herdr.space'];
       return space ? { space, tab: t.labels['herdr.tab'] ?? null } : null;
+    },
+
+    // A terminal's size now (that of its last active viewer) and its labels;
+    // null when hc does not know it.
+    async terminalInfo(terminal) {
+      const t = await call('get', [terminal]).catch(() => null);
+      return t?.address ? { cols: t.cols ?? null, rows: t.rows ?? null, labels: t.labels ?? {} } : null;
+    },
+
+    // A worker was answered: take foreman's pin off again and, when the tab
+    // is the worker's own, give the tab its title back. A pin the person set
+    // (no foreman.pinned beside it) stays.
+    async answered(terminal) {
+      const t = await call('get', [terminal]).catch(() => null);
+      const restore = t?.labels?.['foreman.pinned'];
+      if (!restore) return false;
+      await call('label', [t.address ?? terminal, 'herdr.pinned=', 'foreman.pinned=']).catch(() => {});
+      const tab = t.labels['herdr.tab'];
+      if (restore !== '1' && tab) {
+        needsYou.delete(tab);
+        await appDo('tab.rename', { id: tab, name: restore });
+      }
+      return true;
     },
 
     // Stacks a spawn's workers in the open window: in the leader's tab right
@@ -223,17 +254,28 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     // Starts the agent in a new terminal in that space and tab, then waits
     // until it is ready. Never throws: a worker that is not ready (for example
     // stuck on a folder-trust dialog) must not stop the others.
-    // --no-parent: workers must not end with the leader, nor hc type notes into it.
+    // parent (a worker's leader): every Herdr client then lists the worker
+    // under its leader. --outlive-parent keeps it running when the leader
+    // ends, and --no-notify keeps hc from typing notes into the leader. A
+    // leader gets no parent: the terminal that started it ends.
+    // labels: more labels, such as foreman.task and foreman.role. where: the
+    // words hc lists the terminal with ("<repo> / <task>"); the open desktop
+    // window writes its own, so it is set only while the window is closed
+    // (windowOpen false; when unknown it is asked here).
     // With stack (from stackLayout) and its index, the terminal is placed in
     // the stack instead of being shown by its labels.
-    async agentStart({ name, kind, cwd, space, tab, label, focus = false, timeoutMs, args = [], stack = null, index = 0 }) {
+    // ownTab: the tab holds this agent only (layout tabs). A worker that
+    // needs the person then says so in the tab's title, but the tab is not
+    // brought forward: the leader's terminal is where the person answers.
+    async agentStart({ name, kind, cwd, space, tab, label, focus = false, timeoutMs, args = [], stack = null, index = 0, parent = null, labels: more = {}, where = null, windowOpen = null, ownTab = false }) {
       const shown = !stack || stack.labelled(index);
-      const labels = { 'herdr.space': shown ? space : null, 'herdr.tab': shown ? tab : null, 'foreman.name': name };
+      if (where && windowOpen === null) windowOpen = await this.appRunning();
+      const labels = { 'herdr.space': shown ? space : null, 'herdr.tab': shown ? tab : null, 'foreman.name': name, ...more, where: where && windowOpen === false ? where : null };
       const labelArgs = Object.entries(labels).filter(([, v]) => v).flatMap(([k, v]) => ['--label', `${k}=${v}`]);
       let pane;
       try {
         const r = await call('run', [
-          '--bg', '--no-parent', '--no-notify', '--name', name, ...(cwd ? ['--cwd', cwd] : []), ...labelArgs,
+          '--bg', ...(parent ? ['--parent', parent, '--outlive-parent'] : ['--no-parent']), '--no-notify', '--name', name, ...(cwd ? ['--cwd', cwd] : []), ...labelArgs,
           '--', ...appArgv(kind, args),
         ]);
         pane = r.address;
@@ -257,13 +299,17 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
       }
       // By now the window has picked the terminal up, if it is open. A worker
       // that needs the person puts its name in the tab's title and brings the tab
-      // forward; a later worker in the same tab does not hide that.
+      // forward (a tab of its own stays where it is, see ownTab); a later worker
+      // in the same tab does not hide that. One waiting for an answer is pinned too.
+      const mark = res.ok ? null : res.code === 'agent_exited' ? '✖' : res.code === 'agent_not_ready' ? '⚠' : null;
+      if (mark === '⚠') await pin(pane, ownTab && tab ? label : null);
       if (tab) {
-        const mark = res.ok ? null : res.code === 'agent_exited' ? '✖' : res.code === 'agent_not_ready' ? '⚠' : null;
         if (mark) {
           needsYou.add(tab);
-          await appDo('tab.rename', { id: tab, name: `${mark} ${name} ${res.code === 'agent_exited' ? 'stopped' : 'needs you'}${label ? ` · ${label}` : ''}` });
-          await appDo('tab.select', { id: tab });
+          // A tab of its own is already titled "<name> · <task>": the name is not said twice.
+          const rest = ownTab && label?.startsWith(`${name} · `) ? label.slice(name.length + 3) : label;
+          await appDo('tab.rename', { id: tab, name: `${mark} ${name} ${res.code === 'agent_exited' ? 'stopped' : 'needs you'}${rest ? ` · ${rest}` : ''}` });
+          if (!ownTab) await appDo('tab.select', { id: tab });
         } else {
           if (label && !needsYou.has(tab)) await appDo('tab.rename', { id: tab, name: label });
           if (focus && !needsYou.has(tab)) await appDo('tab.select', { id: tab });
@@ -280,15 +326,20 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     },
 
     // hc refuses to type into a blocked agent: answer its question with keys first.
+    // A message that went in means nobody is waited for there any more (the
+    // person may have answered in the terminal itself), so foreman's pin comes off.
     async agentPrompt(target, text) {
       await call('send', [target, '--', text]);
+      await this.answered(target);
       await submitIfStuck({
         read: () => this.agentRead(target), press: () => call('keys', [target, 'enter']), sleep, text,
       });
     },
 
+    // Keys answer a question, so a pin foreman set on the terminal comes off.
     async agentKeys(target, keys) {
       await sendKeys((key) => call('keys', [target, key]), keys, sleep);
+      await this.answered(target);
     },
   };
 }
