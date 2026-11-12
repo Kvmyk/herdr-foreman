@@ -1,9 +1,11 @@
 // foreman: describe a task, a lead agent splits it across your coding agents.
 // Installed and updated by "foreman setup"; edit a copy under another name,
 // a changed file is left alone. Ctrl+Enter starts, Enter adds a line, Esc cancels.
+// The dialog is as tall as its content (mod.json names no height) and its middle
+// scrolls in a low window; under COMPACT_WIDTH it becomes one column of large targets.
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
-import { run, props, closeOverlay, theme, spaces, focused, panes, notify, exec, readTextFile, writeTextFile, home, shared, setShared } from "herdr";
+import { run, props, closeOverlay, theme, spaces, focused, panes, notify, exec, readTextFile, writeTextFile, home, shared, setShared, settings } from "herdr";
 
 // Filled in by "foreman setup" with this machine's node and foreman paths.
 const NODE = "__NODE__";
@@ -11,6 +13,10 @@ const BIN = "__BIN__";
 
 const RECENT = 4;
 const HINTS = 5;
+// Narrower than this (a small window; a tablet or a phone, should mods run
+// there) the prompt is one column and every target is at least TAP high.
+const COMPACT_WIDTH = 520;
+const TAP = 44;
 
 // Where the focused terminal is now, else where its space was made.
 function folder() {
@@ -46,6 +52,7 @@ export default class Foreman extends View {
     this.recent = [];
     this.files = null;        // tracked files of the folder, for @ hints
     this.drafted = null;      // what the draft file holds now (null: no file)
+    this.compact = false;     // the dialog is narrower than COMPACT_WIDTH
     // Where the prompt was opened from, kept even if focus moves while typing.
     this.origin = focused();
     this.where = folder();
@@ -201,6 +208,13 @@ export default class Foreman extends View {
     if (e.key === "escape") { this.cancel(); cx.stop_propagation(); }
   }
 
+  // The width the dialog really got, with the app zoom taken out. Redraws only
+  // when it crosses COMPACT_WIDTH.
+  resized(size, cx) {
+    const compact = size.width / (Number(settings()?.zoom) || 1) < COMPACT_WIDTH;
+    if (compact !== this.compact) { this.compact = compact; cx.notify(); }
+  }
+
   // The git branch of the terminal the prompt was opened from, if the app knows it.
   branch() {
     const f = this.origin;
@@ -214,11 +228,14 @@ export default class Foreman extends View {
     const lines = this.text.trim() ? this.text.split(/\r?\n/).length : 0;
     const chars = this.text.trim().length;
 
-    const pill = (...children) => h_flex().items_center().gap(6).px(8).py(4).rounded(6).bg(t.raised).border_1().border_color(t.border)
-      .text_size(11.5).text_color(t.muted).min_w(0).children(children);
+    // Narrow: one column, and pills, chips, switch rows and buttons at least TAP high.
+    const compact = this.compact;
+    const tall = (el) => el.when(compact, (e) => e.min_h(TAP));
+    const pill = (...children) => tall(h_flex().items_center().gap(6).px(compact ? 12 : 8).py(4).rounded(6).bg(t.raised).border_1().border_color(t.border)
+      .text_size(11.5).text_color(t.muted).min_w(0)).children(children);
     const cap = (text) => div().px(6).py(2).rounded(4).bg(t.raised).border_1().border_color(t.border).text_size(10.5).text_color(t.muted).child(text);
     const hint = (caps, text) => h_flex().items_center().gap(4).children(caps.map(cap)).child(div().pl(2).text_size(11).text_color(t.dim).child(text));
-    const button = (id, text, primary, enabled, action) => h_flex().id(id).h(32).px(16).items_center().justify_center().rounded(8)
+    const button = (id, text, primary, enabled, action) => h_flex().id(id).h(compact ? TAP : 32).px(16).when(compact, (e) => e.flex_1()).items_center().justify_center().rounded(8)
       .border_1().border_color(primary ? t.solid : t.border).bg(primary ? t.solid : t.raised)
       .text_color(primary ? t.solid_foreground : t.foreground).text_size(12.5).font_medium()
       .opacity(enabled ? 1 : 0.4).cursor_pointer().hover((s) => (enabled ? s.opacity(0.88) : s))
@@ -231,7 +248,7 @@ export default class Foreman extends View {
     const flip = (name, hcx) => { this.prefs = { ...this.prefs, [name]: !this.prefs[name] }; hcx.notify(); };
     const toggle = (id, title, detail, name) => {
       const on = Boolean(this.prefs[name]);
-      return h_flex().id(id).track_focus(this.rowFocus[name]).items_center().gap(12).py(4).px(6).rounded(6).cursor_pointer()
+      return tall(h_flex().id(id)).track_focus(this.rowFocus[name]).items_center().gap(12).py(4).px(6).rounded(6).cursor_pointer()
         .hover((s) => s.bg(t.hover)).focus((s) => s.bg(t.hover))
         .on_click((_e, hcx) => flip(name, hcx))
         .child((on ? h_flex().justify_end() : h_flex().justify_start()).w(32).h(18).p(2).flex_shrink_0().rounded_full().items_center().bg(on ? t.solid : t.input).border_1().border_color(on ? t.solid : t.border)
@@ -240,80 +257,95 @@ export default class Foreman extends View {
           .child(div().text_size(12.5).text_color(t.foreground).child(title))
           .child(div().text_size(11).text_color(t.dim).child(detail)));
     };
-    const chip = (id, text, color, action, chosen = false) => div().id(id).px(10).py(4).rounded_full().bg(t.raised).border_1().border_color(chosen ? t.accent : t.border)
+    const chip = (id, text, color, action, chosen = false) => tall(div().id(id)).px(compact ? 14 : 10).py(compact ? 13 : 4).rounded_full().bg(t.raised).border_1().border_color(chosen ? t.accent : t.border)
       .text_size(11.5).text_color(color).truncate().cursor_pointer().hover((s) => s.bg(t.hover)).on_click(action).child(text);
     // A pill that opens its choices below: a label, the value, a caret.
     const open = (name) => (_e, hcx) => { this.menu = this.menu === name ? null : name; hcx.notify(); };
     const pick = (apply) => (_e, hcx) => { apply(); this.menu = null; hcx.notify(); this.input.focus(); };
-    const choice = (id, label, value, name) => pill(div().text_color(t.dim).child(label), div().text_color(t.foreground).child(value), div().text_size(9).text_color(t.dim).child(this.menu === name ? "\u25b4" : "\u25be"))
+    const choice = (id, label, value, name) => pill(div().text_color(t.dim).child(label), div().text_color(t.foreground).child(value), div().text_size(9).text_color(t.dim).child(this.menu === name ? "▴" : "▾"))
       .id(id).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(open(name));
 
     const branch = this.branch();
     const hints = this.hints();
+    // No height of its own: the dialog is as tall as what it holds, and the app
+    // caps it at most of the window. The header and the buttons keep their place;
+    // what is between them (mid) scrolls when the window is too low for it.
     const body = v_flex().id("foreman").track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
-      .w_full().h_full().min_h(0).p(24).gap(16).bg(t.popover).text_color(t.foreground);
+      .on_size_change((size, cx) => this.resized(size, cx))
+      .w_full().min_h(0).p(compact ? 16 : 24).gap(16).bg(t.popover).text_color(t.foreground);
+    const mid = v_flex().id("fm-scroll").min_h(0).flex_shrink(1).overflow_y_scrollbar().gap(16);
 
-    // Header: mark, title with subtitle, and the leader that will run the task.
-    body.child(h_flex().items_center().gap(12)
+    // Header: mark, title with subtitle, and the leader that will run the task
+    // (narrow: the leader pill goes on a line of its own below).
+    const leaderPill = choice("fm-leader", "leader", this.leader, "leader");
+    body.child(h_flex().flex_shrink_0().items_center().gap(12)
       .child(image("mods/foreman/logo.svg").w(32).h(32).flex_none())
       .child(v_flex().flex_1().min_w(0)
         .child(div().text_size(15).font_semibold().child("New task"))
         .child(div().text_size(11.5).text_color(t.dim).child("A lead agent splits it across your coding agents.")))
-      .child(choice("fm-leader", "leader", this.leader, "leader")));
+      .children(compact ? [] : [leaderPill]));
 
     // Where it will run: the folder is cut from the left, its end says which project it is.
-    body.child(h_flex().items_center().gap(8)
-      .child(h_flex().flex_1().min_w(0).items_center().gap(6).px(8).py(4).rounded(6).bg(t.raised).border_1().border_color(this.where ? t.border : t.blocked)
-        .child(div().flex_shrink_0().text_size(11.5).text_color(t.dim).child("in"))
-        .child(div().flex_1().min_w(0).overflow_hidden().whitespace_nowrap().text_ellipsis_start().text_size(11.5).text_color(this.where ? t.muted : t.blocked).child(this.where ?? "no folder")))
-      .child(choice("fm-branch", "branch", clip(this.base ?? branch ?? "current", 28), "branch")));
+    const folderPill = tall(h_flex().min_w(0).items_center().gap(6).px(compact ? 12 : 8).py(4).rounded(6).bg(t.raised).border_1().border_color(this.where ? t.border : t.blocked))
+      .when(!compact, (e) => e.flex_1())
+      .child(div().flex_shrink_0().text_size(11.5).text_color(t.dim).child("in"))
+      .child(div().flex_1().min_w(0).overflow_hidden().whitespace_nowrap().text_ellipsis_start().text_size(11.5).text_color(this.where ? t.muted : t.blocked).child(this.where ?? "no folder"));
+    const branchPill = choice("fm-branch", "branch", clip(this.base ?? branch ?? "current", 28), "branch");
+    if (compact) mid.child(v_flex().flex_shrink_0().gap(8).child(leaderPill).child(folderPill).child(branchPill));
+    else mid.child(h_flex().flex_shrink_0().items_center().gap(8).child(folderPill).child(branchPill));
 
     // The open pill's choices, as chips: the leader's agent, or the branch the run starts from and lands on.
     if (this.menu === "leader") {
       const choices = this.leaderChoices();
       const kinds = choices ?? [this.leader];
-      body.child(v_flex().gap(6)
+      mid.child(v_flex().flex_shrink_0().gap(6)
         .child(div().text_size(11).text_color(t.dim).child(choices ? "Which agent leads this task" : "Which agent leads this task (looking for ready agents...)"))
         .child(h_flex().flex_wrap().gap(6).children(kinds.map((k, i) => chip(`fm-kind-${i}`, k, k === this.leader ? t.foreground : t.muted, pick(() => { this.leader = k; }), k === this.leader)))));
     } else if (this.menu === "branch") {
       const current = this.base ?? branch;
       const names = [...new Set([...(current ? [current] : []), ...(this.branches ?? [])])];
-      body.child(v_flex().gap(6)
+      mid.child(v_flex().flex_shrink_0().gap(6)
         .child(div().text_size(11).text_color(t.dim).child(names.length ? "Workers start from this branch, and the result is merged back into it" : "No local branches found"))
         .child(h_flex().flex_wrap().gap(6).children(names.slice(0, 24).map((b, i) => chip(`fm-base-${i}`, clip(b, 32), b === current ? t.foreground : t.muted, pick(() => { this.base = b === branch ? null : b; }), b === current))))
         .children(names.length > 24 ? [div().text_size(11).text_color(t.dim).child(`${names.length - 24} more branches not shown`)] : []));
     }
 
     if (this.problem) {
-      body.child(h_flex().items_start().gap(10).px(12).py(10).rounded(8).bg(t.raised).border_1().border_color(t.blocked)
+      mid.child(h_flex().flex_shrink_0().items_start().gap(10).px(12).py(10).rounded(8).bg(t.raised).border_1().border_color(t.blocked)
         .child(div().w(18).h(18).flex_shrink_0().rounded_full().bg(t.blocked).flex().items_center().justify_center().text_size(11).font_semibold().text_color(t.background).child("!"))
         .child(div().flex_1().min_w(0).text_size(12).text_color(t.foreground).child(this.problem)));
     }
 
     // The task box, with a quiet border that turns accent on focus, and a count.
-    body.child(v_flex().flex_1().min_h(0).gap(6)
-      .child(Textarea.new(this.input).w_full().flex_1().min_h(120).p(12).rounded(10).border_1().border_color(t.border)
+    // Its height is fixed: nothing above it says how tall the dialog is.
+    mid.child(v_flex().flex_shrink_0().gap(6)
+      .child(Textarea.new(this.input).w_full().h(compact ? 150 : 200).p(12).rounded(10).border_1().border_color(t.border)
         .focus((s) => s.border_color(t.accent)).bg(t.background).text_size(12.8).text_color(t.foreground))
       .child(h_flex().items_center().px(2)
         .child(div().flex_1().text_size(11).text_color(t.dim).child(mention(this.text) !== null ? "Pick a file below, or keep typing." : "Type @ to point at a file."))
         .child(div().text_size(11).text_color(t.dim).child(`${chars} chars · ${lines} ${lines === 1 ? "line" : "lines"}`))));
 
     if (hints.length) {
-      body.child(h_flex().flex_wrap().gap(6).children(hints.map((f, i) => chip(`fm-hint-${i}`, `@${f}`, t.accent, () => this.pick(f)))));
+      mid.child(h_flex().flex_shrink_0().flex_wrap().gap(6).children(hints.map((f, i) => chip(`fm-hint-${i}`, `@${f}`, t.accent, () => this.pick(f)))));
     } else if (!this.text && this.recent.length) {
-      body.child(v_flex().gap(6)
+      mid.child(v_flex().flex_shrink_0().gap(6)
         .child(div().text_size(11).text_color(t.dim).child("Recent"))
         .child(h_flex().flex_wrap().gap(6).children(this.recent.map((r, i) => chip(`fm-recent-${i}`, clip(firstLine(r), 44), t.muted, () => { this.input.set_value(r); this.text = r; this.input.focus(); })))));
     }
 
-    body.child(v_flex().gap(4)
+    mid.child(v_flex().flex_shrink_0().gap(4)
       .child(toggle("fm-answer", "Workers answer permission questions automatically", "Workers run in auto-approve mode; pushes and pull requests stay refused.", "answer"))
       .child(toggle("fm-uncommitted", "Include uncommitted changes", "Workers start from a copy that also holds what you have not committed.", "uncommitted")));
+    body.child(mid);
 
-    // Footer: key caps on the left, buttons on the right.
-    body.child(h_flex().items_center().gap(8).pt(8).border_t_1().border_color(t.border)
-      .child(h_flex().flex_1().min_w(0).items_center().gap(12)
-        .child(hint(["Ctrl", "Enter"], "start")).child(hint(["Esc"], "cancel")))
+    // Footer: key caps on the left, buttons on the right. Narrow: no key caps
+    // (there may be no keyboard), and the two buttons share the row.
+    const footer = h_flex().flex_shrink_0().items_center().gap(8).pt(8).border_t_1().border_color(t.border);
+    if (!compact) {
+      footer.child(h_flex().flex_1().min_w(0).items_center().gap(12)
+        .child(hint(["Ctrl", "Enter"], "start")).child(hint(["Esc"], "cancel")));
+    }
+    body.child(footer
       .child(button("fm-cancel", "Cancel", false, true, () => this.cancel()))
       .child(button("fm-start", "Start", true, ready, () => this.submit())));
     return body;
