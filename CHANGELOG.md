@@ -4,6 +4,10 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- CI workflow running the tests on Linux, Windows and macOS with Node 20 and 22, and a release workflow that publishes a GitHub Release from the matching CHANGELOG section when a `v*` tag is pushed (`scripts/changelog-section.js`).
+
 ## [0.12.0] - 2026-11-12
 
 ### Added
