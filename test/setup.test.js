@@ -4,9 +4,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   parseKeys, addBinding, humanKey, versionAtLeast, compareVersions, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey, PACKAGE_ROOT, insideWorktrees,
+  addPsHook, removePsHook, hasPsHook, psHookBlock, setShellHook, shellHookState, formatShellHook, PS_HOOK_BEGIN,
 } from '../src/setup.js';
 import { fakeRun } from './helpers.js';
 import { paths } from '../src/config.js';
+import { PROMPT_HOOK } from '../app/foreman/folder.js';
 
 const CFG = path.resolve('/h/herdr/config.toml');
 
@@ -201,6 +203,7 @@ const APP = path.join(path.resolve('/h'), '.config', 'herdr-app');
 const MOD_MAIN = path.join(APP, 'mods', 'foreman', 'main.js');
 const KEYS = path.join(APP, 'keys.json');
 const TEMPLATE = 'const NODE = "__NODE__";\nconst BIN = "__BIN__";\n';
+const FOLDER_JS = 'export const x = 1;\n';
 const DEFAULT_KEYS = JSON.stringify({ global: { 'ctrl-shift-t': 'tab.new' }, terminal: { 'ctrl-shift-f': 'terminal.search' } });
 
 function appWorld({ keys = DEFAULT_KEYS, check = { code: 0 }, files = {}, keyError = false, herdr = false } = {}) {
@@ -209,6 +212,7 @@ function appWorld({ keys = DEFAULT_KEYS, check = { code: 0 }, files = {}, keyErr
   w.fs[path.join(root, 'app', 'foreman', 'main.js')] = TEMPLATE;
   w.fs[path.join(root, 'app', 'foreman', 'mod.json')] = '{"place":"none"}\n';
   w.fs[path.join(root, 'app', 'foreman', 'logo.svg')] = '<svg/>\n';
+  w.fs[path.join(root, 'app', 'foreman', 'folder.js')] = FOLDER_JS;
   w.fs[path.join(root, 'package.json')] = '{"version":"1.2.3"}';
   w.d.env = {};
   w.d.nodePath = 'C:\\n\\node.exe';
@@ -217,7 +221,7 @@ function appWorld({ keys = DEFAULT_KEYS, check = { code: 0 }, files = {}, keyErr
   w.checks = [];
   w.d.run = async (cmd, args, opts) => {
     if (cmd !== 'herdr-app') return base(cmd, args, opts);
-    w.checks.push({ args, main: w.fs[path.join(args[1], 'main.js')] });
+    w.checks.push({ args, main: w.fs[path.join(args[1], 'main.js')], folder: w.fs[path.join(args[1], 'folder.js')] });
     if (check instanceof Error) throw check;
     return { code: 0, stdout: '', stderr: '', ...check };
   };
@@ -244,6 +248,9 @@ test('setupApp: first install checks the mod, writes it with a marker and binds 
   assert.match(main, /const BIN = ".*\/bin\/foreman\.js";/);
   assert.equal(w.fs[path.join(APP, 'mods', 'foreman', 'mod.json')], '{"place":"none"}\n');
   assert.equal(w.fs[path.join(APP, 'mods', 'foreman', 'logo.svg')], '<svg/>\n');
+  // main.js imports folder.js: it is checked with the mod and written beside it.
+  assert.equal(w.fs[path.join(APP, 'mods', 'foreman', 'folder.js')], FOLDER_JS);
+  assert.equal(w.checks[0].folder, FOLDER_JS);
   assert.equal(w.fs[`${KEYS}.foreman-backup`], DEFAULT_KEYS);
   assert.deepEqual(JSON.parse(w.fs[KEYS]), { global: { 'ctrl-shift-t': 'tab.new', 'ctrl-shift-y': 'mod.open:foreman' }, terminal: { 'ctrl-shift-f': 'terminal.search' } });
 });
@@ -270,6 +277,19 @@ test('setupApp: a missing logo is written when main.js is current; an edited mai
   w.fs[MOD_MAIN] += '// mine\n';
   assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'skipped');
   assert.equal(logo in w.fs, false);
+});
+
+test('setupApp: a missing or older folder.js is written when main.js is current', async () => {
+  const w = appWorld();
+  await setupApp(w.d, '1.2.3');
+  const helper = path.join(APP, 'mods', 'foreman', 'folder.js');
+  delete w.fs[helper];
+  assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'updated');
+  assert.equal(w.fs[helper], FOLDER_JS);
+  w.fs[path.join(w.d.root, 'app', 'foreman', 'folder.js')] = 'export const x = 2;\n';
+  assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'updated');
+  assert.equal(w.fs[helper], 'export const x = 2;\n');
+  assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'already');
 });
 
 test('setupApp: an unedited mod of an older version is updated, an edited one is left alone', async () => {
@@ -323,7 +343,7 @@ test('setupApp: a foreman inside one of its task worktrees never writes its path
   const installed = w.fs[MOD_MAIN];
   w.checks.length = 0;
   const tree = path.resolve('/h/.herdr-foreman/worktrees/repo-1/task/w1');
-  for (const f of ['main.js', 'mod.json', 'logo.svg']) w.fs[path.join(tree, 'app', 'foreman', f)] = w.fs[path.join(w.d.root, 'app', 'foreman', f)];
+  for (const f of ['main.js', 'mod.json', 'logo.svg', 'folder.js']) w.fs[path.join(tree, 'app', 'foreman', f)] = w.fs[path.join(w.d.root, 'app', 'foreman', f)];
   w.d.root = tree;
   const r = await setupApp(w.d, '9.9.9');
   assert.equal(r.mod.status, 'skipped');
@@ -413,7 +433,9 @@ test('app/foreman template: placeholders for node and foreman, the backend flag,
   const main = readFileSync(new URL('../app/foreman/main.js', import.meta.url), 'utf8');
   assert.match(main, /const NODE = "__NODE__";/);
   assert.match(main, /const BIN = "__BIN__";/);
-  assert.match(main, /\[NODE, BIN, "--backend", "app", [^\n]*"--", task\]/);
+  assert.match(main, /const flags = \["--backend", "app", /);
+  assert.match(main, /startArgv\(\{ windows, shell, nodePath: NODE, binPath: BIN, flags, task, taskFile \}\)/);
+  assert.match(main, /import \{[^}]*\} from "\.\/folder\.js";/);
   assert.match(main, /"--leader", this\.leader/);
   assert.match(main, /"--base", this\.base/);
   // The prompt shows the agents foreman kept last time, then asks quickly.
@@ -559,4 +581,91 @@ test('runSetup: with the desktop app the phone still gets its own line, and an o
   assert.match(formatSetup(await runSetup(broken.d)), /\[!!\] The launcher \("launcher": true in .*config\.json\) could not start: name foreman is in use/);
   const off = withCore(appWorld(), { launcher: { status: 'off' } });
   assert.doesNotMatch(formatSetup(await runSetup(off.d)), /Launcher:|could not start/);
+});
+
+// ---- Windows: foreman shell-hook (the PowerShell profile block) ----
+
+test('addPsHook / removePsHook: one marked block with the cwd hook; the rest of the profile stays', () => {
+  const mine = 'function pipe { python cli.py $args }\r\n';
+  const added = addPsHook(mine);
+  assert.ok(added.startsWith('function pipe { python cli.py $args }\r\n\r\n# >>> foreman shell-hook >>>\r\n'));
+  assert.ok(added.includes(`\r\n${PROMPT_HOOK}\r\n`));
+  assert.ok(added.endsWith('# <<< foreman shell-hook <<<\r\n'));
+  assert.ok(hasPsHook(added));
+  assert.equal(addPsHook(added), added);
+  assert.equal(removePsHook(added), mine);
+  assert.equal(removePsHook(mine), mine);
+  // An empty profile gets the block alone, and loses it again.
+  assert.equal(addPsHook(''), psHookBlock());
+  assert.equal(removePsHook(psHookBlock()), '');
+  // A block in the middle (moved there by the person) is updated in place, and removed from there.
+  const old = `a\n${PS_HOOK_BEGIN}\nold hook\n# <<< foreman shell-hook <<<\nb\n`;
+  assert.equal(addPsHook(old), `a\n${psHookBlock()}b\n`);
+  assert.equal(removePsHook(old), 'a\nb\n');
+});
+
+function psWorld({ platform = 'win32', profiles = {}, policy = 'RemoteSigned', shells = ['powershell.exe'] } = {}) {
+  const fs = { ...profiles };
+  const where = { 'powershell.exe': 'C:\\Users\\k\\OneDrive\\Docs\\WindowsPowerShell\\profile.ps1', 'pwsh.exe': 'C:\\Users\\k\\OneDrive\\Docs\\PowerShell\\profile.ps1' };
+  const run = fakeRun(shells.map((s) => [new RegExp(`^${s.replace('.', '\\.')} -NoProfile`), { stdout: `${where[s]}\r\n${policy}\r\n` }]));
+  const d = {
+    platform, env: {}, run,
+    readFile: (f) => { if (f in fs) return fs[f]; throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+    writeFile: (f, data) => { fs[f] = data; },
+    removeFile: (f) => { delete fs[f]; },
+  };
+  return { d, fs, where };
+}
+
+test('setShellHook: added to each PowerShell profile with a backup, only once; off removes it again', async () => {
+  const w = psWorld({ shells: ['powershell.exe', 'pwsh.exe'], profiles: { 'C:\\Users\\k\\OneDrive\\Docs\\WindowsPowerShell\\profile.ps1': 'Set-Alias g git\n' } });
+  const ps5 = w.where['powershell.exe'];
+  const ps7 = w.where['pwsh.exe'];
+  assert.equal((await shellHookState(w.d)).status, 'off');
+  const on = await setShellHook(w.d, true);
+  assert.equal(on.status, 'on');
+  assert.deepEqual(on.profiles.map((p) => [p.shell, p.status, p.backup ?? null]), [['powershell.exe', 'added', `${ps5}.foreman-backup`], ['pwsh.exe', 'added', null]]);
+  assert.equal(w.fs[`${ps5}.foreman-backup`], 'Set-Alias g git\n');
+  assert.ok(w.fs[ps5].startsWith('Set-Alias g git\n\n# >>> foreman shell-hook >>>'));
+  assert.equal(w.fs[ps7], psHookBlock());
+  assert.match(formatShellHook(on), /powershell\.exe: .*profile\.ps1: added: new PowerShell windows and tabs tell Herdr their folder after cd \(the old profile is saved as .*foreman-backup\)/);
+  assert.equal((await shellHookState(w.d)).status, 'on');
+  const again = await setShellHook(w.d, true);
+  assert.deepEqual(again.profiles.map((p) => p.status), ['already', 'already']);
+  const off = await setShellHook(w.d, false);
+  assert.deepEqual(off.profiles.map((p) => p.status), ['removed', 'removed']);
+  assert.equal(w.fs[ps5], 'Set-Alias g git\n');
+  // A profile that held only the block goes away with it.
+  assert.equal(ps7 in w.fs, false);
+  assert.equal((await shellHookState(w.d)).status, 'off');
+});
+
+test('setShellHook: never writes where PowerShell would not run it, nor a profile it cannot read as UTF-8', async () => {
+  const blocked = psWorld({ policy: 'Restricted' });
+  const r = await setShellHook(blocked.d, true);
+  assert.equal(r.status, 'failed');
+  assert.match(formatShellHook(r), /does not run profile scripts \(execution policy Restricted\); type Set-ExecutionPolicy -Scope CurrentUser RemoteSigned/);
+  assert.deepEqual(blocked.fs, {});
+  const wide = psWorld({ profiles: { 'C:\\Users\\k\\OneDrive\\Docs\\WindowsPowerShell\\profile.ps1': '\uFEFFa\u0000b\u0000' } });
+  assert.equal((await setShellHook(wide.d, true)).profiles[0].status, 'failed');
+  assert.equal(wide.fs[wide.where['powershell.exe']], '\uFEFFa\u0000b\u0000');
+  // Elsewhere, and without PowerShell, there is nothing to do.
+  assert.equal((await setShellHook(psWorld({ platform: 'linux' }).d, true)).status, 'not-windows');
+  assert.equal((await setShellHook(psWorld({ shells: [] }).d, true)).status, 'no-powershell');
+  assert.match(formatShellHook({ status: 'not-windows', profiles: [] }), /for PowerShell on Windows/);
+});
+
+test('runSetup on Windows mentions foreman shell-hook on when the profile has no hook, and changes nothing', async () => {
+  const w = appWorld();
+  w.d.platform = 'win32';
+  const base = w.d.run;
+  w.d.run = async (cmd, args, opts) => (cmd === 'powershell.exe' ? { code: 0, stdout: 'C:\\p\\profile.ps1\r\nRemoteSigned\r\n', stderr: '' } : base(cmd, args, opts));
+  const r = await runSetup(w.d);
+  assert.equal(r.shellHook.status, 'off');
+  assert.match(formatSetup(r), /PowerShell, type: foreman shell-hook on/);
+  assert.equal('C:\\p\\profile.ps1' in w.fs, false);
+  w.fs['C:\\p\\profile.ps1'] = psHookBlock();
+  assert.doesNotMatch(formatSetup(await runSetup(w.d)), /shell-hook/);
+  // Quiet runs (install, plugin start) do not even look.
+  assert.equal((await runSetup(w.d, { quiet: true })).shellHook, undefined);
 });

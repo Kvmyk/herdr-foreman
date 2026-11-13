@@ -677,3 +677,19 @@ test('launcher on saves true and opens it; launcher off saves false and closes t
   assert.ok(run.calls.some((c) => c.line === '/bin/hc kill --json t9'));
   assert.equal(await main(['launcher', 'on', '--ensure'], off.deps), 2);
 });
+
+test('foreman shell-hook [on|off]: a command on its own; the answer is printed, a failure exits 1', async () => {
+  assert.deepEqual(route(['shell-hook']), { kind: 'command', name: 'shell-hook', flags: {}, positionals: [] });
+  assert.deepEqual(route(['shell-hook', 'off', '--json']).positionals, ['off']);
+  assert.deepEqual(route(['shell-hook', 'is', 'broken']), { kind: 'start', task: 'shell-hook is broken' });
+  assert.match(usageOf('shell-hook'), /foreman shell-hook \[on\|off\]/);
+  const asked = [];
+  const result = { status: 'on', profiles: [{ shell: 'powershell.exe', file: 'C:\\p.ps1', status: 'added' }] };
+  const failed = { status: 'failed', profiles: [{ shell: 'powershell.exe', status: 'failed', reason: 'nope' }] };
+  const h = harness({ shellHook: async (on) => { asked.push(on); return on === false ? failed : result; } });
+  assert.equal(await main(['shell-hook', 'on'], h.deps), 0);
+  assert.match(h.out(), /powershell\.exe: C:\\p\.ps1: added/);
+  assert.equal(await main(['shell-hook', 'off'], h.deps), 1);
+  assert.equal(await main(['shell-hook'], h.deps), 0);
+  assert.deepEqual(asked, [true, false, undefined]);
+});
