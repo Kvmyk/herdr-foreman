@@ -4,6 +4,16 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- CI workflow running the tests on Linux, Windows and macOS with Node 20 and 22, and a release workflow that publishes a GitHub Release from the matching CHANGELOG section when a `v*` tag is pushed (`scripts/changelog-section.js`).
+
+### Changed
+
+- The README is shorter and starts with what herdr is, the problem foreman solves and the approval step, with release, license and CI badges and one install command (`herdr plugin install Kvmyk/herdr-foreman`). The desktop install scripts are under "Other ways to install".
+- Troubleshooting, the FAQ, the Windows and PowerShell notes and the reference (subcommands, files and `config.json`, setting up by hand, token use, keeping the knowledge up to date) moved to `docs/troubleshooting.md`, `docs/faq.md`, `docs/windows.md` and `docs/reference.md`. `foreman --help` points there.
+- The Media note says the demo GIF uses made-up findings and that a recording of a real run is planned.
+
 ## [0.12.0] - 2026-11-12
 
 ### Added
