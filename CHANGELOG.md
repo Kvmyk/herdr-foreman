@@ -4,6 +4,8 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-13
+
 ### Added
 
 - CI workflow running the tests on Linux, Windows and macOS with Node 20 and 22, and a release workflow that publishes a GitHub Release from the matching CHANGELOG section when a `v*` tag is pushed (`scripts/changelog-section.js`).
@@ -19,6 +21,9 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 ### Fixed
 
 - Desktop prompt on Windows: after `cd` in the terminal it was opened from, it still showed and used the old folder. Herdr learns a PowerShell's folder only through a prompt hook it adds to plain terminals, and the tab foreman opened (and any tab started with a command) had none. The foreman tab now starts as a PowerShell with that hook and gets the task in a file, not on the command line. The prompt takes the folder of the terminal's own pane first, then what focus reported, then the space's folder, never another pane's. On Windows it also reads the terminal's last `PS C:\...>` line and uses that folder when it differs. When the terminal moves while the task is typed, Start shows the new folder first. `foreman setup` installs the prompt's new `folder.js` beside `main.js`.
+- Foreman's own path comparisons on Windows treat a short 8.3 path (`RUNNER~1`) and its long form as the same folder, and the tests pass on Windows CI.
+- The desktop prompt shows its middle (pills, task box, switches) again; it had collapsed to nothing.
+- `foreman setup` run from a task's worktree no longer points the Herdr app prompt at that worktree, which broke the prompt once the worktree was removed.
 
 ## [0.12.0] - 2026-11-12
 
@@ -229,7 +234,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.9.1...v0.10.0
