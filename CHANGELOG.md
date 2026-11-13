@@ -7,12 +7,18 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 ### Added
 
 - CI workflow running the tests on Linux, Windows and macOS with Node 20 and 22, and a release workflow that publishes a GitHub Release from the matching CHANGELOG section when a `v*` tag is pushed (`scripts/changelog-section.js`).
+- The desktop prompt's folder (`in ...`) is a button: pick a folder one of the space's terminals is in, or any folder. The choice stays for that task.
+- `foreman shell-hook [on|off]` (Windows): adds a marked block to your PowerShell profile so every PowerShell tells the Herdr app about `cd`, with a backup of the profile, or removes it. Only on request; `foreman setup` mentions it when the block is missing.
 
 ### Changed
 
 - The README is shorter and starts with what herdr is, the problem foreman solves and the approval step, with release, license and CI badges and one install command (`herdr plugin install Kvmyk/herdr-foreman`). The desktop install scripts are under "Other ways to install".
 - Troubleshooting, the FAQ, the Windows and PowerShell notes and the reference (subcommands, files and `config.json`, setting up by hand, token use, keeping the knowledge up to date) moved to `docs/troubleshooting.md`, `docs/faq.md`, `docs/windows.md` and `docs/reference.md`. `foreman --help` points there.
 - The Media note says the demo GIF uses made-up findings and that a recording of a real run is planned.
+
+### Fixed
+
+- Desktop prompt on Windows: after `cd` in the terminal it was opened from, it still showed and used the old folder. Herdr learns a PowerShell's folder only through a prompt hook it adds to plain terminals, and the tab foreman opened (and any tab started with a command) had none. The foreman tab now starts as a PowerShell with that hook and gets the task in a file, not on the command line. The prompt takes the folder of the terminal's own pane first, then what focus reported, then the space's folder, never another pane's. On Windows it also reads the terminal's last `PS C:\...>` line and uses that folder when it differs. When the terminal moves while the task is typed, Start shows the new folder first. `foreman setup` installs the prompt's new `folder.js` beside `main.js`.
 
 ## [0.12.0] - 2026-11-12
 
