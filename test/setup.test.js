@@ -4,9 +4,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   parseKeys, addBinding, humanKey, versionAtLeast, compareVersions, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey, PACKAGE_ROOT, insideWorktrees,
+  addPsHook, removePsHook, hasPsHook, psHookBlock, setShellHook, shellHookState, formatShellHook, PS_HOOK_BEGIN,
 } from '../src/setup.js';
 import { fakeRun } from './helpers.js';
 import { paths } from '../src/config.js';
+import { PROMPT_HOOK } from '../app/foreman/folder.js';
 
 const CFG = path.resolve('/h/herdr/config.toml');
 
@@ -579,4 +581,91 @@ test('runSetup: with the desktop app the phone still gets its own line, and an o
   assert.match(formatSetup(await runSetup(broken.d)), /\[!!\] The launcher \("launcher": true in .*config\.json\) could not start: name foreman is in use/);
   const off = withCore(appWorld(), { launcher: { status: 'off' } });
   assert.doesNotMatch(formatSetup(await runSetup(off.d)), /Launcher:|could not start/);
+});
+
+// ---- Windows: foreman shell-hook (the PowerShell profile block) ----
+
+test('addPsHook / removePsHook: one marked block with the cwd hook; the rest of the profile stays', () => {
+  const mine = 'function pipe { python cli.py $args }\r\n';
+  const added = addPsHook(mine);
+  assert.ok(added.startsWith('function pipe { python cli.py $args }\r\n\r\n# >>> foreman shell-hook >>>\r\n'));
+  assert.ok(added.includes(`\r\n${PROMPT_HOOK}\r\n`));
+  assert.ok(added.endsWith('# <<< foreman shell-hook <<<\r\n'));
+  assert.ok(hasPsHook(added));
+  assert.equal(addPsHook(added), added);
+  assert.equal(removePsHook(added), mine);
+  assert.equal(removePsHook(mine), mine);
+  // An empty profile gets the block alone, and loses it again.
+  assert.equal(addPsHook(''), psHookBlock());
+  assert.equal(removePsHook(psHookBlock()), '');
+  // A block in the middle (moved there by the person) is updated in place, and removed from there.
+  const old = `a\n${PS_HOOK_BEGIN}\nold hook\n# <<< foreman shell-hook <<<\nb\n`;
+  assert.equal(addPsHook(old), `a\n${psHookBlock()}b\n`);
+  assert.equal(removePsHook(old), 'a\nb\n');
+});
+
+function psWorld({ platform = 'win32', profiles = {}, policy = 'RemoteSigned', shells = ['powershell.exe'] } = {}) {
+  const fs = { ...profiles };
+  const where = { 'powershell.exe': 'C:\\Users\\k\\OneDrive\\Docs\\WindowsPowerShell\\profile.ps1', 'pwsh.exe': 'C:\\Users\\k\\OneDrive\\Docs\\PowerShell\\profile.ps1' };
+  const run = fakeRun(shells.map((s) => [new RegExp(`^${s.replace('.', '\\.')} -NoProfile`), { stdout: `${where[s]}\r\n${policy}\r\n` }]));
+  const d = {
+    platform, env: {}, run,
+    readFile: (f) => { if (f in fs) return fs[f]; throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
+    writeFile: (f, data) => { fs[f] = data; },
+    removeFile: (f) => { delete fs[f]; },
+  };
+  return { d, fs, where };
+}
+
+test('setShellHook: added to each PowerShell profile with a backup, only once; off removes it again', async () => {
+  const w = psWorld({ shells: ['powershell.exe', 'pwsh.exe'], profiles: { 'C:\\Users\\k\\OneDrive\\Docs\\WindowsPowerShell\\profile.ps1': 'Set-Alias g git\n' } });
+  const ps5 = w.where['powershell.exe'];
+  const ps7 = w.where['pwsh.exe'];
+  assert.equal((await shellHookState(w.d)).status, 'off');
+  const on = await setShellHook(w.d, true);
+  assert.equal(on.status, 'on');
+  assert.deepEqual(on.profiles.map((p) => [p.shell, p.status, p.backup ?? null]), [['powershell.exe', 'added', `${ps5}.foreman-backup`], ['pwsh.exe', 'added', null]]);
+  assert.equal(w.fs[`${ps5}.foreman-backup`], 'Set-Alias g git\n');
+  assert.ok(w.fs[ps5].startsWith('Set-Alias g git\n\n# >>> foreman shell-hook >>>'));
+  assert.equal(w.fs[ps7], psHookBlock());
+  assert.match(formatShellHook(on), /powershell\.exe: .*profile\.ps1: added: new PowerShell windows and tabs tell Herdr their folder after cd \(the old profile is saved as .*foreman-backup\)/);
+  assert.equal((await shellHookState(w.d)).status, 'on');
+  const again = await setShellHook(w.d, true);
+  assert.deepEqual(again.profiles.map((p) => p.status), ['already', 'already']);
+  const off = await setShellHook(w.d, false);
+  assert.deepEqual(off.profiles.map((p) => p.status), ['removed', 'removed']);
+  assert.equal(w.fs[ps5], 'Set-Alias g git\n');
+  // A profile that held only the block goes away with it.
+  assert.equal(ps7 in w.fs, false);
+  assert.equal((await shellHookState(w.d)).status, 'off');
+});
+
+test('setShellHook: never writes where PowerShell would not run it, nor a profile it cannot read as UTF-8', async () => {
+  const blocked = psWorld({ policy: 'Restricted' });
+  const r = await setShellHook(blocked.d, true);
+  assert.equal(r.status, 'failed');
+  assert.match(formatShellHook(r), /does not run profile scripts \(execution policy Restricted\); type Set-ExecutionPolicy -Scope CurrentUser RemoteSigned/);
+  assert.deepEqual(blocked.fs, {});
+  const wide = psWorld({ profiles: { 'C:\\Users\\k\\OneDrive\\Docs\\WindowsPowerShell\\profile.ps1': '\uFEFFa\u0000b\u0000' } });
+  assert.equal((await setShellHook(wide.d, true)).profiles[0].status, 'failed');
+  assert.equal(wide.fs[wide.where['powershell.exe']], '\uFEFFa\u0000b\u0000');
+  // Elsewhere, and without PowerShell, there is nothing to do.
+  assert.equal((await setShellHook(psWorld({ platform: 'linux' }).d, true)).status, 'not-windows');
+  assert.equal((await setShellHook(psWorld({ shells: [] }).d, true)).status, 'no-powershell');
+  assert.match(formatShellHook({ status: 'not-windows', profiles: [] }), /for PowerShell on Windows/);
+});
+
+test('runSetup on Windows mentions foreman shell-hook on when the profile has no hook, and changes nothing', async () => {
+  const w = appWorld();
+  w.d.platform = 'win32';
+  const base = w.d.run;
+  w.d.run = async (cmd, args, opts) => (cmd === 'powershell.exe' ? { code: 0, stdout: 'C:\\p\\profile.ps1\r\nRemoteSigned\r\n', stderr: '' } : base(cmd, args, opts));
+  const r = await runSetup(w.d);
+  assert.equal(r.shellHook.status, 'off');
+  assert.match(formatSetup(r), /PowerShell, type: foreman shell-hook on/);
+  assert.equal('C:\\p\\profile.ps1' in w.fs, false);
+  w.fs['C:\\p\\profile.ps1'] = psHookBlock();
+  assert.doesNotMatch(formatSetup(await runSetup(w.d)), /shell-hook/);
+  // Quiet runs (install, plugin start) do not even look.
+  assert.equal((await runSetup(w.d, { quiet: true })).shellHook, undefined);
 });

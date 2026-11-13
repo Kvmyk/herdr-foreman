@@ -22,6 +22,7 @@ const USAGE = {
   config: 'foreman config [--json]',
   new: 'foreman new',
   launcher: 'foreman launcher [--ensure] [--json], or foreman launcher on|off [--json]',
+  'shell-hook': 'foreman shell-hook [on|off] [--json]',
   runs: 'foreman runs [--json]',
   show: 'foreman show --task <slug> [--json]',
   diff: 'foreman diff --task <slug> [--stat] [--json] [<worker>]',
