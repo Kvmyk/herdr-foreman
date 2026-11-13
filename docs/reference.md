@@ -31,6 +31,7 @@ The details behind the [README](../README.md): every subcommand, the settings fi
 | `foreman new` | Open the task prompt in this terminal; plain `foreman` does the same once setup has run |
 | `foreman launcher [--ensure] [--json]` | A terminal that stays open and takes one task after another, for the Herdr phone app; `--ensure` opens one when `config.json` has `"launcher": true`, in the Herdr app space used last |
 | `foreman launcher on\|off [--json]` | Turn the launcher on (saved as `"launcher": true` in `config.json`, and opened now) or off (saved as `false`; the launcher terminal foreman opened is closed) |
+| `foreman shell-hook [on\|off] [--json]` | Windows: whether your PowerShell profile tells the Herdr app about `cd`; `on` adds a marked block (the old profile is saved as `profile.ps1.foreman-backup`), `off` removes it. Never added by setup on its own. See [Windows and PowerShell](windows.md#the-desktop-prompt-shows-an-old-folder-after-cd) |
 | `foreman config [--json]` / `foreman --version` | The settings in use with their defaults and file paths; the installed version |
 
 A task that starts with a subcommand name still starts a leader (`foreman status page is broken` is a task). `foreman -- <words>` forces it.

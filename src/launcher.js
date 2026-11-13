@@ -12,6 +12,7 @@ import { loadConfig } from './config.js';
 import { listRuns } from './runs.js';
 import { createGit } from './git.js';
 import { isInside } from './history.js';
+import { pathKey } from './pathkey.js';
 import { createBackend, detectBackend, findTool, installed } from './backend.js';
 import { applySetting, choiceLines, initialSettings, isSettingCommand, menuKey, menuLines, pickChoice, settingsArgs } from './start-settings.js';
 import { loadRemembered, saveRemembered } from './start-prefs.js';
@@ -59,10 +60,7 @@ const stamp = (run) => {
 export async function projectChoices({ cwd = null, runs = [], spaces = [], cwds = [], toplevel, exists, homedir = null, worktrees = null, limit = 9, platform = process.platform }) {
   const out = [];
   const seen = new Set();
-  const key = (p) => {
-    const n = path.resolve(p).replace(/[\\/]+$/, '');
-    return platform === 'win32' ? n.toLowerCase() : n;
-  };
+  const key = (p) => pathKey(p, { platform });
   const add = (repo) => {
     if (!repo || out.length >= limit) return false;
     const k = key(repo);

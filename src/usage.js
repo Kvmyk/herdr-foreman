@@ -5,6 +5,7 @@
 // subscription the cost is what the same tokens would cost through the API.
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathKey } from './pathkey.js';
 import { lookupModel } from './knowledge.js';
 
 const FIELDS = ['input', 'output', 'cacheRead', 'cacheWrite'];
@@ -12,10 +13,7 @@ const empty = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
 const addTo = (sum, t) => { for (const k of FIELDS) sum[k] += t[k] ?? 0; return sum; };
 const total = (t) => FIELDS.reduce((s, k) => s + (t[k] ?? 0), 0);
 
-const norm = (p) => {
-  const r = path.resolve(p).replace(/[\\/]+$/, '');
-  return process.platform === 'win32' ? r.toLowerCase() : r;
-};
+const norm = (p) => pathKey(p);
 
 function lines(file, fsx) {
   try {

@@ -5,7 +5,8 @@
 // than that. Under COMPACT_WIDTH it becomes one column of large targets.
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
-import { run, props, closeOverlay, theme, spaces, focused, panes, notify, exec, readTextFile, writeTextFile, home, shared, setShared, settings, window } from "herdr";
+import { run, props, closeOverlay, theme, spaces, focused, panes, terminals, notify, exec, hc, pickFolder, readTextFile, writeTextFile, home, shared, setShared, settings, window } from "herdr";
+import { chooseFolder, folderChoices, promptFolder, sameFolder, startArgv, windowsShell } from "./folder.js";
 
 // Filled in by "foreman setup" with this machine's node and foreman paths.
 const NODE = "__NODE__";
@@ -21,14 +22,11 @@ const TAP = 44;
 const ROWS = 8;
 const COMPACT_ROWS = 6;
 
-// Where the focused terminal is now, else where its space was made.
-function folder() {
-  const f = focused();
-  if (f?.cwd) return f.cwd;
-  const space = spaces().find((s) => s.id === f?.space) ?? spaces().find((s) => s.active);
-  const tabs = new Set((space?.tabs ?? []).map((t) => t.id));
-  return panes().find((p) => tabs.has(p.tab) && p.cwd)?.cwd || space?.folder || null;
-}
+// Where the terminal the prompt was opened from is now (see folder.js).
+const folder = (origin) => chooseFolder({ origin, panes: panes(), spaces: spaces() }).folder;
+// The space the prompt was opened from, and whether it is on this computer.
+const spaceOf = (origin) => spaces().find((s) => s.id === origin?.space) ?? spaces().find((s) => s.active) ?? null;
+const local = (origin) => !spaceOf(origin)?.machine;
 
 const forward = (p) => p.replace(/\\/g, "/");
 const firstLine = (text) => text.split(/\r?\n/).find((l) => l.trim())?.trim() ?? "";
@@ -58,7 +56,10 @@ export default class Foreman extends View {
     this.compact = false;     // the dialog is narrower than COMPACT_WIDTH
     // Where the prompt was opened from, kept even if focus moves while typing.
     this.origin = focused();
-    this.where = folder();
+    this.where = folder(this.origin);
+    // What the app said then: a change later means the terminal moved (see submit).
+    this.seen = this.where;
+    this.picked = false;      // chosen with the folder pill: kept
     this.prefs = { answer: false, uncommitted: false, ...(shared("foreman.prefs") ?? {}) };
     this.dir = `${forward(home())}/.herdr-foreman`;
     // "launcher" in foreman's config.json: a terminal named foreman kept open for
@@ -86,6 +87,34 @@ export default class Foreman extends View {
     cx.spawn(async (cx) => { await this.load(); cx.notify(); });
     cx.spawn(async (cx) => { await this.loadBranches(); cx.notify(); });
     cx.spawn(async (cx) => { await this.loadAgents(cx); });
+    cx.spawn(async (cx) => { await this.readPromptFolder(); cx.notify(); });
+  }
+
+  // A PowerShell started without Herdr's prompt hook (a tab opened with a
+  // command, or one from before this foreman) never tells Herdr about a cd, so
+  // the app keeps reporting where it started. Its last "PS C:\...>" line says
+  // where it is, and that wins when it differs.
+  async readPromptFolder() {
+    const t = this.origin?.terminal;
+    if (window()?.platform !== "windows" || !t || !local(this.origin)) return;
+    const r = await hc(["read", t, "--lines", "20"]).catch(() => null);
+    const there = r?.code === 0 ? promptFolder(r.stdout) : null;
+    if (there && !this.picked && !sameFolder(there, this.where)) await this.useFolder(there);
+  }
+
+  // Work in another folder: its branches, files and checks start over.
+  async useFolder(where) {
+    this.where = where;
+    this.base = null;
+    this.branches = null;
+    this.files = null;
+    if (this.menu === "branch" || this.menu === "folder") this.menu = null;
+    this.acx.notify();
+    const problem = await this.check();
+    if (this.where !== where) return;
+    this.problem = problem;
+    await this.loadBranches();
+    this.acx.notify();
   }
 
   // Draft, recent tasks, the leader, and whether a task can start at all.
@@ -99,15 +128,20 @@ export default class Foreman extends View {
     try { this.launcher = JSON.parse(config ?? "{}").launcher === true; } catch { this.launcher = false; }
     this.leader = this.configLeader;
     if (draft?.trim() && !this.text) { this.input.set_value(draft); this.text = draft; }
-    this.problem = await this.check();
+    // The folder may change meanwhile (useFolder checks the new one itself).
+    const where = this.where;
+    const problem = await this.check();
+    if (this.where === where) this.problem = problem;
   }
 
   // What the pills can offer: the local branches, and the agents that are ready to
   // lead. Each comes on its own, so the branches never wait for the agents. Either
   // may stay empty (an old foreman, no git); the pills then just show the current value.
   async loadBranches() {
-    if (!this.where) return;
-    const r = await exec("git", ["branch", "--format=%(refname:short)"], { cwd: this.where }).catch(() => null);
+    const where = this.where;
+    if (!where) return;
+    const r = await exec("git", ["branch", "--format=%(refname:short)"], { cwd: where }).catch(() => null);
+    if (this.where !== where) return;
     this.branches = r?.code === 0 ? r.stdout.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("(")) : [];
   }
 
@@ -150,11 +184,12 @@ export default class Foreman extends View {
 
   // Tracked files of the folder, listed once, for @ hints.
   async loadFiles() {
-    if (this.files || this.loadingFiles || !this.where) return;
+    const where = this.where;
+    if (this.files || this.loadingFiles || !where) return;
     this.loadingFiles = true;
-    const r = await exec("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: this.where }).catch(() => null);
-    this.files = r?.code === 0 ? r.stdout.split(/\r?\n/).filter(Boolean) : [];
+    const r = await exec("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: where }).catch(() => null);
     this.loadingFiles = false;
+    if (this.where === where) this.files = r?.code === 0 ? r.stdout.split(/\r?\n/).filter(Boolean) : [];
   }
 
   hints() {
@@ -217,17 +252,43 @@ export default class Foreman extends View {
     if (!this.started) return this.saveDraft(this.text);
   }
 
-  submit() {
+  async submit() {
     const task = this.text.trim();
     if (!task || this.problem || this.started) return;
     this.started = true;
     const f = this.origin;
+    // The terminal moved while the task was typed (Herdr learned of a cd): the
+    // prompt shows the new folder with its checks and starts on the next press.
+    const now = folder(f);
+    if (!this.picked && now && !sameFolder(now, this.seen) && !sameFolder(now, this.where)) {
+      this.seen = now;
+      this.started = false;
+      notify({ title: "foreman", body: `The terminal is now in ${now}. Check the folder and press Start again.`, level: "info" });
+      await this.useFolder(now);
+      return;
+    }
     const where = this.where;
+    const flags = ["--backend", "app", ...(this.leader !== this.configLeader ? ["--leader", this.leader] : []), ...(this.base ? ["--base", this.base] : []), ...(this.prefs.answer ? ["--auto-answer"] : []), ...(this.prefs.uncommitted ? ["--include-uncommitted"] : [])];
+    // On Windows the tab is a PowerShell that keeps telling Herdr its folder,
+    // and the task reaches foreman in a file (see startArgv in folder.js).
+    const windows = window()?.platform === "windows" && local(f);
+    let taskFile = null;
+    if (windows) {
+      taskFile = `${this.dir}/prompt-task-${Date.now()}.md`;
+      try {
+        await writeTextFile(taskFile, task, null);
+      } catch (err) {
+        this.started = false;
+        notify({ title: "foreman could not start", body: `Cannot write the task to ${taskFile}: ${String(err?.message ?? err)}`, level: "error", timeout: 15000 });
+        return;
+      }
+    }
+    const shell = windowsShell(terminals().find((t) => t.address === f?.terminal)?.argv?.[0]);
+    const argv = startArgv({ windows, shell, nodePath: NODE, binPath: BIN, flags, task, taskFile });
     setShared("foreman.prefs", this.prefs);
     this.remember(task);
     this.saveDraft("");
     closeOverlay(props().overlay);
-    const argv = [NODE, BIN, "--backend", "app", ...(this.leader !== this.configLeader ? ["--leader", this.leader] : []), ...(this.base ? ["--base", this.base] : []), ...(this.prefs.answer ? ["--auto-answer"] : []), ...(this.prefs.uncommitted ? ["--include-uncommitted"] : []), "--", task];
     try {
       // A terminal of its own: no time limit, and foreman opens the leader tab, then ends.
       run("tab.new", { name: "foreman", space: f?.space, folder: where, argv });
@@ -252,10 +313,13 @@ export default class Foreman extends View {
     }
   }
 
-  // The git branch of the terminal the prompt was opened from, if the app knows it.
+  // The git branch of the terminal the prompt was opened from, if the app knows
+  // it; none when the task runs in another folder than the one the app reports.
   branch() {
     const f = this.origin;
     const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
+    const reported = pane?.cwd ?? f?.cwd;
+    if (reported && !sameFolder(reported, this.where)) return null;
     return pane?.branch ?? spaces().find((s) => s.id === f?.space)?.branch ?? null;
   }
 
@@ -326,11 +390,14 @@ export default class Foreman extends View {
         .child(div().text_size(11.5).text_color(t.dim).child("A lead agent splits it across your coding agents.")))
       .children(compact ? [] : [leaderPill]));
 
-    // Where it will run: the folder is cut from the left, its end says which project it is.
-    const folderPill = tall(h_flex().min_w(0).items_center().gap(6).px(compact ? 12 : 8).py(4).rounded(6).bg(t.raised).border_1().border_color(this.where ? t.border : t.blocked))
+    // Where it will run: the folder is cut from the left, its end says which project
+    // it is. A click offers the folders of the space's terminals, or any other.
+    const folderPill = tall(h_flex().id("fm-folder").min_w(0).items_center().gap(6).px(compact ? 12 : 8).py(4).rounded(6).bg(t.raised).border_1().border_color(this.where ? t.border : t.blocked))
       .when(!compact, (e) => e.flex_1())
+      .cursor_pointer().hover((s) => s.bg(t.hover)).on_click(open("folder"))
       .child(div().flex_shrink_0().text_size(11.5).text_color(t.dim).child("in"))
-      .child(div().flex_1().min_w(0).overflow_hidden().whitespace_nowrap().text_ellipsis_start().text_size(11.5).text_color(this.where ? t.muted : t.blocked).child(this.where ?? "no folder"));
+      .child(div().flex_1().min_w(0).overflow_hidden().whitespace_nowrap().text_ellipsis_start().text_size(11.5).text_color(this.where ? t.muted : t.blocked).child(this.where ?? "no folder"))
+      .child(div().flex_shrink_0().text_size(11).text_color(t.muted).child(this.menu === "folder" ? "▴" : "▾"));
     const branchPill = choice("fm-branch", "branch", clip(this.base ?? branch ?? "current", 28), "branch");
     if (compact) mid.child(v_flex().flex_shrink_0().gap(8).child(leaderPill).child(folderPill).child(branchPill));
     else mid.child(h_flex().flex_shrink_0().items_center().gap(8).child(folderPill).child(branchPill));
@@ -349,6 +416,25 @@ export default class Foreman extends View {
         .child(div().text_size(11).text_color(t.dim).child(names.length ? "Workers start from this branch, and the result is merged back into it" : "No local branches found"))
         .child(h_flex().flex_wrap().gap(6).children(names.slice(0, 24).map((b, i) => chip(`fm-base-${i}`, clip(b, 32), b === current ? t.foreground : t.muted, pick(() => { this.base = b === branch ? null : b; }), b === current))))
         .children(names.length > 24 ? [div().text_size(11).text_color(t.dim).child(`${names.length - 24} more branches not shown`)] : []));
+    } else if (this.menu === "folder") {
+      // The person's choice stays: neither the terminal's prompt line nor a later cd replaces it.
+      const use = (where) => { this.picked = true; this.acx.spawn(async (cx) => { await this.useFolder(where); cx.notify(); }); };
+      const others = folderChoices({ space: spaceOf(this.origin), panes: panes(), current: this.where, skip: `${this.dir}/worktrees` });
+      const browse = (_e, hcx) => {
+        this.menu = null;
+        hcx.notify();
+        this.acx.spawn(async (cx) => {
+          const chosen = await pickFolder({ prompt: "Use this folder" }).catch(() => null);
+          if (chosen) use(chosen);
+          this.input.focus();
+          cx.notify();
+        });
+      };
+      mid.child(v_flex().flex_shrink_0().gap(6)
+        .child(div().text_size(11).text_color(t.dim).child(others.length ? "Run the task in a folder your terminals are in, or choose another" : "Run the task in another folder"))
+        .child(h_flex().flex_wrap().gap(6)
+          .children(others.slice(0, 12).map((p, i) => chip(`fm-folder-${i}`, p.length > 48 ? `…${p.slice(-47)}` : p, t.muted, pick(() => use(p)))))
+          .children(local(this.origin) ? [chip("fm-folder-pick", "Choose a folder…", t.accent, browse)] : [])));
     }
 
     if (this.problem) {

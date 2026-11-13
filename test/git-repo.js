@@ -8,8 +8,14 @@ export function git(dir, ...args) {
   return execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
+// A fresh temp dir in its long, canonical form: on Windows os.tmpdir() can be an 8.3 short path
+// (RUNNER~1) while git reports the long one, and only the native realpath expands it.
+export function makeTempDir(prefix) {
+  return realpathSync.native(mkdtempSync(path.join(tmpdir(), prefix)));
+}
+
 export function makeRepo(files = { 'a.txt': 'one\n' }) {
-  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'foreman-git-')));
+  const dir = makeTempDir('foreman-git-');
   git(dir, 'init', '-q');
   git(dir, 'config', 'user.email', 'test@example.com');
   git(dir, 'config', 'user.name', 'test');

@@ -3,6 +3,7 @@
 // merge, land and cleanup add to it here, so `foreman runs` and
 // `foreman show` can tell what happened after the leader is gone.
 import path from 'node:path';
+import { pathKey } from './pathkey.js';
 import { loadRun, saveRun } from './runs.js';
 import { formatUsage, formatTokens, costText } from './usage.js';
 import { createUi, table, isNarrow, kv } from './ui.js';
@@ -15,10 +16,7 @@ export const taskFile = (paths, slug) => path.join(paths.home ?? path.dirname(pa
 
 const iso = (now) => new Date(now()).toISOString();
 
-const norm = (p) => {
-  const r = path.resolve(p).replace(/[\\/]+$/, '');
-  return process.platform === 'win32' ? r.toLowerCase() : r;
-};
+const norm = (p) => pathKey(p);
 
 export const isInside = (child, parent) => norm(child) === norm(parent) || norm(child).startsWith(norm(parent) + path.sep);
 

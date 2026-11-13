@@ -12,7 +12,7 @@ import { spawnWorkers, SPEC_PATTERN } from './spawn.js';
 import { loadRun, listRuns } from './runs.js';
 import { workerStatus, mergeWorkers, land, cleanup, findLeftovers } from './collect.js';
 import { startForeman } from './start.js';
-import { runSetup, formatSetup } from './setup.js';
+import { runSetup, formatSetup, shellHookState, setShellHook, formatShellHook } from './setup.js';
 import { recentStartFailures } from './startfail.js';
 import { fail } from './errors.js';
 import { createUi } from './ui.js';
@@ -94,6 +94,8 @@ Starting without a shortcut (for you):
                                        --ensure opens one when config.json has "launcher": true
   launcher on|off                      keep a launcher terminal named foreman open for the Herdr
                                        phone app, or stop it (saved as "launcher" in config.json)
+  shell-hook [on|off]                  Windows: whether your PowerShell profile tells the Herdr app
+                                       about cd; on adds a few marked lines (backed up), off removes them
 
 Runs (for you):
   runs                                 earlier and current runs: phase, branch, workers, cost
@@ -144,6 +146,7 @@ const COMMANDS = {
   // No words after them, so "new login page" and "launcher is slow" are still tasks.
   new: { flags: {}, positionals: (p) => p.length === 0 },
   launcher: { flags: { '--ensure': false, '--json': false }, positionals: (p) => p.length === 0 || (p.length === 1 && ['on', 'off'].includes(p[0])) },
+  'shell-hook': { flags: { '--json': false }, positionals: (p) => p.length === 0 || (p.length === 1 && ['on', 'off'].includes(p[0])) },
   ...RUN_COMMANDS,
 };
 
@@ -284,6 +287,8 @@ function defaultOps(deps) {
       }
     },
     setup: (opts) => runSetup(setupDeps(), opts),
+    // No answer: what the profiles hold now; true or false: add or remove the block.
+    shellHook: (on) => (on === undefined ? shellHookState(setupDeps()) : setShellHook(setupDeps(), on)),
     autoSetupOff: () => Boolean(deps.env?.FOREMAN_NO_SETUP) || config().autoSetup === false,
     // First run of a task: set up quietly once, unless the user turned it off.
     async ensureSetup() {
@@ -529,6 +534,13 @@ export async function main(argv, deps) {
         if (!r.flags['--ensure']) return await (deps.launcher ?? runLauncher)({ deps, main, stdin: deps.stdin ?? process.stdin });
         const res = await ops.ensureLauncher();
         print(res, (v) => stdout.write(`${launcherText(v, deps)}\n`));
+        return res.status === 'failed' ? 1 : 0;
+      }
+      case 'shell-hook': {
+        const [onOff] = r.positionals;
+        const res = await ops.shellHook(onOff === undefined ? undefined : onOff === 'on');
+        print(res, (v) => stdout.write(`${formatShellHook(v)}
+`));
         return res.status === 'failed' ? 1 : 0;
       }
       case 'setup':

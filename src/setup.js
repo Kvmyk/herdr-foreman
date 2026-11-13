@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { DEFAULT_CONFIG, paths } from './config.js';
 import { HERDR_KINDS } from './inventory/kinds.js';
 import { findTool } from './backend.js';
+import { PROMPT_HOOK } from '../app/foreman/folder.js';
 
 export const PLUGIN_ID = 'herdr-foreman';
 export const ACTION = `${PLUGIN_ID}.start`;
@@ -191,6 +192,11 @@ export function appHome({ env, homedir }) {
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 const forward = (p) => p.replace(/\\/g, '/');
 
+// Files of the mod that are copied as they are, beside main.js: its logo, and
+// folder.js (which folder the prompt works in, and how its tab starts), a module
+// main.js imports. Both are foreman's and rewritten with main.js.
+export const APP_FILES = Object.freeze(['logo.svg', 'folder.js']);
+
 // The mod's files with this machine's node and foreman paths filled in; main.js
 // starts with a marker holding the version and a hash of the rest.
 export function renderAppMod(d, version) {
@@ -202,20 +208,20 @@ export function renderAppMod(d, version) {
   return {
     main: `// foreman-managed ${version} ${sha(body)}\n${body}`,
     modJson: d.readFile(path.join(root, 'app', APP_MOD, 'mod.json')),
-    logo: d.readFile(path.join(root, 'app', APP_MOD, 'logo.svg')),
+    files: Object.fromEntries(APP_FILES.map((f) => [f, d.readFile(path.join(root, 'app', APP_MOD, f))])),
   };
 }
 
 // A rendered main.js without its marker and this machine's paths.
 const withoutPaths = (main) => main.replace(APP_MARKER, '').replace(/^const (NODE|BIN) = "[^"\n]*";/gm, 'const $1 = "";');
 
-async function appCheck(d, main, modJson, logo) {
+async function appCheck(d, main, modJson, extra) {
   const dir = path.join(d.tmpdir, 'foreman-app-mod-check', APP_MOD);
-  const files = [path.join(dir, 'main.js'), path.join(dir, 'mod.json'), path.join(dir, 'logo.svg')];
+  const files = [path.join(dir, 'main.js'), path.join(dir, 'mod.json'), ...APP_FILES.map((f) => path.join(dir, f))];
   try {
     d.writeFile(files[0], main);
     d.writeFile(files[1], modJson);
-    d.writeFile(files[2], logo);
+    APP_FILES.forEach((f, i) => d.writeFile(files[2 + i], extra[f]));
     const res = await d.run('herdr-app', ['check', dir], { env: d.env, cwd: d.tmpdir, timeoutMs: 30000 });
     if (res.code === 0) return null;
     const last = `${res.stdout}\n${res.stderr}`.trim().split(/\r?\n/).filter(Boolean).pop();
@@ -263,14 +269,16 @@ export async function installAppMod(d, version) {
   } catch (err) {
     if (err.code !== 'ENOENT') return { status: 'failed', dir, reason: `cannot read ${mainFile}: ${err.message}` };
   }
-  const logoFile = path.join(dir, 'logo.svg');
-  let haveLogo = null;
-  try {
-    haveLogo = d.readFile(logoFile);
-  } catch {
-    // missing: written below
-  }
-  if (have === want.main && haveLogo === want.logo) return { status: 'already', dir };
+  // The logo and folder.js that are missing or differ from this foreman's.
+  const stale = () => APP_FILES.filter((f) => {
+    try {
+      return d.readFile(path.join(dir, f)) !== want.files[f];
+    } catch {
+      return true;
+    }
+  });
+  const writeStale = (names) => { for (const f of names) d.writeFile(path.join(dir, f), want.files[f]); };
+  if (have === want.main && !stale().length) return { status: 'already', dir };
   if (have !== null) {
     const marker = have.match(APP_MARKER);
     if (!marker || sha(have.slice(marker[0].length)) !== marker[2]) {
@@ -285,18 +293,20 @@ export async function installAppMod(d, version) {
       const order = compareVersions(marker[1], version);
       if (order > 0) return { status: 'newer', dir, version: marker[1] };
       if (order === 0 && withoutPaths(have) === withoutPaths(want.main)) {
-        if (haveLogo === want.logo) return { status: 'already', dir };
-        d.writeFile(logoFile, want.logo);
+        const names = stale();
+        if (!names.length) return { status: 'already', dir };
+        writeStale(names);
         return { status: 'updated', dir };
       }
     }
   } else if (d.exists(dir)) {
     return { status: 'skipped', dir, reason: `${dir} exists and is not foreman's, so it is left alone` };
   }
-  const problem = await appCheck(d, want.main, want.modJson, want.logo);
+  const problem = await appCheck(d, want.main, want.modJson, want.files);
   if (problem) return { status: 'failed', dir, reason: problem };
   d.writeFile(path.join(dir, 'mod.json'), want.modJson);
-  d.writeFile(logoFile, want.logo);
+  // main.js last: it imports folder.js, and the app reloads the mod when main.js changes.
+  writeStale(APP_FILES);
   d.writeFile(mainFile, want.main);
   return { status: have === null ? 'added' : 'updated', dir };
 }
@@ -352,6 +362,146 @@ export async function setupApp(d, version) {
 }
 
 export const humanAppKey = (key) => chord(key.replace(/-/g, '+'));
+
+// ---- Windows: a PowerShell prompt that tells Herdr where the shell is ----
+// Herdr reads a terminal's folder from the shell's working directory, which cd
+// does not change in PowerShell. Herdr hooks the shells it starts as plain
+// shells; a shell started with a command (a tab running foreman, an agent's
+// tab) is not, so the app shows where it started. `foreman shell-hook on` puts
+// the same hook in the PowerShell profile, only when asked; off takes it out.
+
+export const PS_HOOK_BEGIN = '# >>> foreman shell-hook >>>';
+export const PS_HOOK_END = '# <<< foreman shell-hook <<<';
+const PS_SHELLS = Object.freeze(['powershell.exe', 'pwsh.exe']);
+// Execution policies under which PowerShell does not run an unsigned profile.
+const PS_NO_SCRIPTS = new Set(['Restricted', 'AllSigned']);
+
+export function psHookBlock(eol = '\n') {
+  return [
+    PS_HOOK_BEGIN,
+    '# Added by "foreman shell-hook on"; "foreman shell-hook off" removes it.',
+    '# Herdr shows a terminal\'s folder from the shell\'s working directory, which',
+    '# cd does not change in PowerShell: this prompt keeps the two in step.',
+    PROMPT_HOOK,
+    PS_HOOK_END,
+    '',
+  ].join(eol);
+}
+
+// From the first marker line to the end of the last one.
+const BLOCK = /^# >>> foreman shell-hook >>>[^\n]*\n[\s\S]*?^# <<< foreman shell-hook <<<[^\S\n]*(?:\r?\n|$)/m;
+
+export const hasPsHook = (text) => BLOCK.test(text);
+
+const eolOf = (text) => (/\r\n/.test(text) ? '\r\n' : '\n');
+
+// The profile without foreman's block; the rest stays as it was (a block at the
+// end also takes the blank line addPsHook put before it).
+export function removePsHook(text) {
+  const m = text.match(BLOCK);
+  if (!m) return text;
+  const before = text.slice(0, m.index);
+  const after = text.slice(m.index + m[0].length);
+  if (after) return before + after;
+  return before.trim() ? `${before.replace(/\s*$/, '')}${eolOf(text)}` : '';
+}
+
+// The profile with foreman's block at the end, or with the block brought up to
+// date where it is. Line endings follow the file.
+export function addPsHook(text) {
+  const eol = eolOf(text);
+  const block = psHookBlock(eol);
+  if (hasPsHook(text)) return text.replace(BLOCK, () => block);
+  if (!text.trim()) return block;
+  return `${text.replace(/\s*$/, '')}${eol}${eol}${block}`;
+}
+
+// The profile each installed PowerShell runs for this user in every host
+// ($PROFILE.CurrentUserAllHosts; Documents can be moved, e.g. into OneDrive)
+// and whether its execution policy lets that profile run.
+export async function powershellProfiles(d) {
+  const out = [];
+  for (const shell of PS_SHELLS) {
+    const res = await d.run(shell, ['-NoProfile', '-NonInteractive', '-Command', '$PROFILE.CurrentUserAllHosts; Get-ExecutionPolicy'], { env: d.env, timeoutMs: 20000 }).catch(() => null);
+    if (res?.code !== 0) continue;
+    const [file, policy = ''] = res.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (file) out.push({ shell, file, policy });
+  }
+  return out;
+}
+
+function readProfile(d, file) {
+  try {
+    return { text: d.readFile(file), existed: true };
+  } catch (err) {
+    if (err.code === 'ENOENT') return { text: '', existed: false };
+    return { error: `cannot read ${file}: ${err.message}` };
+  }
+}
+
+// Whether the hook is in each profile: on (all of them), off (none), partly.
+export async function shellHookState(d) {
+  if ((d.platform ?? process.platform) !== 'win32') return { status: 'not-windows', profiles: [] };
+  const profiles = await powershellProfiles(d);
+  if (!profiles.length) return { status: 'no-powershell', profiles };
+  for (const p of profiles) p.hooked = hasPsHook(readProfile(d, p.file).text ?? '');
+  const n = profiles.filter((p) => p.hooked).length;
+  return { status: n === profiles.length ? 'on' : n ? 'partly' : 'off', profiles };
+}
+
+// Adds (on) or takes out (off) foreman's block in every PowerShell profile. A
+// profile that changes is saved as <profile>.foreman-backup first; a profile
+// holding nothing but the block is removed again. Nothing happens without
+// being asked: setup only mentions the command.
+export async function setShellHook(d, on) {
+  if ((d.platform ?? process.platform) !== 'win32') return { status: 'not-windows', profiles: [] };
+  const profiles = await powershellProfiles(d);
+  if (!profiles.length) return { status: 'no-powershell', profiles };
+  for (const p of profiles) {
+    const read = readProfile(d, p.file);
+    if (read.error) Object.assign(p, { status: 'failed', reason: read.error });
+    else if (read.text.includes('\u0000')) Object.assign(p, { status: 'failed', reason: `${p.file} is not saved as UTF-8, so it is left alone` });
+    else if (on && PS_NO_SCRIPTS.has(p.policy)) {
+      Object.assign(p, { status: 'failed', reason: `${p.shell} does not run profile scripts (execution policy ${p.policy}); type Set-ExecutionPolicy -Scope CurrentUser RemoteSigned in PowerShell first` });
+    } else {
+      const next = on ? addPsHook(read.text) : removePsHook(read.text);
+      if (next === read.text) {
+        p.status = on ? 'already' : 'absent';
+      } else {
+        if (read.existed && read.text.trim()) {
+          p.backup = `${p.file}.foreman-backup`;
+          d.writeFile(p.backup, read.text);
+        }
+        if (!on && !next.trim()) d.removeFile(p.file);
+        else d.writeFile(p.file, next);
+        p.status = on ? 'added' : 'removed';
+      }
+    }
+  }
+  const failed = profiles.filter((p) => p.status === 'failed');
+  return { status: failed.length === profiles.length ? 'failed' : on ? 'on' : 'off', profiles };
+}
+
+// What `foreman shell-hook [on|off]` found or did, in words.
+export function formatShellHook(r) {
+  if (r.status === 'not-windows') return 'foreman shell-hook is for PowerShell on Windows; other shells tell Herdr their folder already.';
+  if (r.status === 'no-powershell') return 'No PowerShell found (powershell.exe or pwsh.exe), so there is no profile to change.';
+  const words = {
+    added: 'added: new PowerShell windows and tabs tell Herdr their folder after cd',
+    already: 'already there',
+    removed: 'removed',
+    absent: 'not there',
+  };
+  const lines = r.profiles.map((p) => {
+    if (p.status === 'failed') return `${p.shell}: ${p.reason}`;
+    if (p.status) return `${p.shell}: ${p.file}: ${words[p.status]}${p.backup ? ` (the old profile is saved as ${p.backup})` : ''}`;
+    return `${p.shell}: ${p.file}: ${p.hooked ? 'on' : 'off'}`;
+  });
+  if (['off', 'partly'].includes(r.status) && !r.profiles.some((p) => p.status)) {
+    lines.push('Type "foreman shell-hook on" so the Herdr app follows cd in every PowerShell, also in tabs started with a command.');
+  }
+  return lines.join('\n');
+}
 
 // Apply config.toml to a running server; false when no server runs (herdr
 // reads the file when it starts).
@@ -477,6 +627,8 @@ export async function runSetup(d, { quiet = false, postinstall = false } = {}) {
     const { mod, key } = r.app;
     if (mod.status === 'added' || mod.status === 'updated') r.changes.push(`${mod.status} its task prompt in the Herdr app`);
     if (key.status === 'added') r.changes.push(`added the shortcut ${humanAppKey(key.key)} to the Herdr app`);
+    // Only looked at, never changed: the profile is the person's (foreman shell-hook on).
+    if (!quiet && (d.platform ?? process.platform) === 'win32') r.shellHook = await shellHookState(d).catch(() => null);
   }
 
   // Quiet runs ask herdr-core only when nothing else is there to run tasks in.
@@ -596,6 +748,9 @@ export function formatSetup(r, ui = createUi()) {
     if (key.status === 'already') ok(`Herdr app shortcut: ${humanAppKey(key.key)}`);
     else if (key.status === 'added') ok(`Herdr app shortcut: ${humanAppKey(key.key)} (just added to ${key.file}; your old keys are saved as ${key.backup})`);
     else if (key.status !== 'skipped') todo(`foreman could not add its shortcut to the Herdr app: ${key.reason}`);
+    if (['off', 'partly'].includes(r.shellHook?.status)) {
+      out.push('       PowerShell tabs started with a command do not tell the app about cd. To fix that in every', '       PowerShell, type: foreman shell-hook on (it adds a few marked lines to your PowerShell profile).');
+    }
   }
 
   if (['started', 'already'].includes(r.launcher?.status)) ok(`Launcher: a terminal named foreman is open${r.launcher.status === 'started' ? ' (just now)' : ''}; in the Herdr phone app it is in the Inbox`);
