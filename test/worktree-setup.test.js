@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import { makeTempDir } from './git-repo.js';
 import { setupSettings, expandGlobs, prepareWorktree, prepareWorktrees, runShell, formatSetup } from '../src/worktree-setup.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
 function tree(files) {
-  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'foreman-setup-')));
+  const dir = makeTempDir('foreman-setup-');
   for (const [rel, text] of Object.entries(files)) {
     mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
     writeFileSync(path.join(dir, rel), text);
