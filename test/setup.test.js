@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  parseKeys, addBinding, humanKey, versionAtLeast, compareVersions, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey, PACKAGE_ROOT,
+  parseKeys, addBinding, humanKey, versionAtLeast, compareVersions, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey, PACKAGE_ROOT, insideWorktrees,
 } from '../src/setup.js';
 import { fakeRun } from './helpers.js';
 import { paths } from '../src/config.js';
@@ -316,6 +316,27 @@ test('setupApp: a copy of the same version with other paths keeps the installed 
   assert.match(w.fs[MOD_MAIN], /D:\/other\/node\.exe[\s\S]*\/\/ changed\n$/);
 });
 
+test('setupApp: a foreman inside one of its task worktrees never writes its path into the prompt', async () => {
+  const w = appWorld();
+  w.fs[path.join(w.d.root, 'bin', 'foreman.js')] = '';
+  await setupApp(w.d, '1.2.3');
+  const installed = w.fs[MOD_MAIN];
+  w.checks.length = 0;
+  const tree = path.resolve('/h/.herdr-foreman/worktrees/repo-1/task/w1');
+  for (const f of ['main.js', 'mod.json', 'logo.svg']) w.fs[path.join(tree, 'app', 'foreman', f)] = w.fs[path.join(w.d.root, 'app', 'foreman', f)];
+  w.d.root = tree;
+  const r = await setupApp(w.d, '9.9.9');
+  assert.equal(r.mod.status, 'skipped');
+  assert.match(r.mod.reason, /task worktree/);
+  assert.equal(w.checks.length, 0);
+  assert.equal(w.fs[MOD_MAIN], installed);
+  assert.ok(!w.fs[MOD_MAIN].includes('worktrees'));
+  // FOREMAN_HOME moves the worktrees with it; a lasting copy next to them still installs.
+  assert.equal(insideWorktrees({ env: { FOREMAN_HOME: path.resolve('/f') }, homedir: path.resolve('/h') }, path.resolve('/f/worktrees/a')), true);
+  assert.equal(insideWorktrees({ env: {}, homedir: path.resolve('/h') }, path.resolve('/h/.herdr-foreman/worktrees-old/a')), false);
+  assert.equal(insideWorktrees({ env: {}, homedir: path.resolve('/h') }, path.resolve('/lib/node_modules/herdr-foreman')), false);
+});
+
 test('compareVersions: numbers, then a release after its pre-release', () => {
   assert.equal(compareVersions('0.7.0', '0.6.9'), 1);
   assert.equal(compareVersions('0.6.0', '0.6.0'), 0);
@@ -431,24 +452,32 @@ test('the real app mod keeps its placeholders and the keys the prompt documents'
   const main = readFileSync(path.join(PACKAGE_ROOT, 'app', 'foreman', 'main.js'), 'utf8');
   assert.equal(main.split('"__NODE__"').length, 2);
   assert.equal(main.split('"__BIN__"').length, 2);
-  assert.match(main, /hint\(\["Ctrl", "Enter"\], "start"\)/);
+  // ⌘ on a Mac, Ctrl elsewhere: the submit handler takes either as the secondary key.
+  assert.ok(main.includes('hint([window()?.platform === "macos" ? "⌘" : "Ctrl", "Enter"], "start")'));
   assert.match(main, /hint\(\["Esc"\], "cancel"\)/);
   for (const flag of ['--auto-answer', '--include-uncommitted']) assert.ok(main.includes(`"${flag}"`), flag);
   const mod = JSON.parse(readFileSync(path.join(PACKAGE_ROOT, 'app', 'foreman', 'mod.json'), 'utf8'));
-  // No fixed height: the dialog is as tall as its content and the app caps it at
-  // most of the window; the width is in pixels (a value up to 1 would be a share).
-  assert.equal(mod.overlay.height, undefined);
+  // A real height: a scroll area has no height of its own, so in a dialog sized by
+  // its content the middle (pills, task box, switches) collapsed to nothing. Both
+  // are in pixels (a value up to 1 would be a share).
+  assert.ok(mod.overlay.height >= 480);
   assert.ok(mod.overlay.width >= 420);
   // What is between the header and the buttons scrolls, and under 520 px the prompt
   // is one column of 44 px targets without key caps.
   assert.match(main, /const COMPACT_WIDTH = 520;/);
   assert.match(main, /const TAP = 44;/);
   assert.ok(main.includes('.on_size_change((size, cx) => this.resized(size, cx))'));
-  assert.ok(main.split('\n').some((l) => l.includes('id("fm-scroll")') && l.includes('.overflow_y_scrollbar()')));
+  // The body fills the dialog and the middle takes what the header and buttons leave.
+  assert.ok(main.includes('.size_full().min_h(0).p(compact ? 16 : 24)'));
+  assert.ok(main.split('\n').some((l) => l.includes('id("fm-scroll")') && l.includes('.flex_1().min_h(0).overflow_y_scrollbar()')));
+  // The task box is as tall as its rows, and its border follows the state's focus.
+  assert.ok(main.includes('this.input.on("blur"'));
+  assert.ok(main.includes('.border_color(this.inputFocused ? t.accent : t.border)'));
+  assert.ok(!main.split('\n').some((l) => l.includes('Textarea.new(') && l.includes('.h(')));
   // The key caps are only drawn when the prompt is not narrow.
   const footer = main.slice(main.indexOf('if (!compact) {'));
-  assert.ok(footer.indexOf('hint(["Ctrl", "Enter"], "start")') > 0 && footer.indexOf('hint(["Ctrl", "Enter"], "start")') < footer.indexOf('}'));
-  assert.ok(!main.includes('.h_full()'));
+  const caps = footer.indexOf('"Enter"], "start")');
+  assert.ok(caps > 0 && caps < footer.indexOf('}\n'));
 });
 
 // ---- herdr-core alone: a server, or a computer reached from the Herdr phone app ----
