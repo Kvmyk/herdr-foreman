@@ -4,14 +4,11 @@ import path from 'node:path';
 import os from 'node:os';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { worktreeRoot } from './runs.js';
+import { pathKey } from './pathkey.js';
 
 function isInside(child, parent) {
-  const norm = (p) => {
-    const r = path.resolve(p).replace(/[\\/]+$/, '');
-    return process.platform === 'win32' ? r.toLowerCase() : r;
-  };
-  const c = norm(child);
-  const p = norm(parent);
+  const c = pathKey(child);
+  const p = pathKey(parent);
   return c === p || c.startsWith(p + path.sep);
 }
 

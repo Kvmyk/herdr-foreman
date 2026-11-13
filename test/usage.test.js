@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import { makeTempDir } from './git-repo.js';
 import {
   claudeProjectName, claudeUsage, codexUsage, costOf, workerUsage, runUsage, formatUsage, formatTokens, usageForEntries,
 } from '../src/usage.js';
 import { computeStats } from '../src/journal.js';
 import { formatShow, formatRuns } from '../src/history.js';
 
-const home = () => realpathSync(mkdtempSync(path.join(tmpdir(), 'foreman-usage-')));
+const home = () => makeTempDir('foreman-usage-');
 const worktree = path.resolve('/s/worktrees/shop-abc/fix-login/w1');
 const prices = { 'claude-opus-5-5': { costIn: 5, costOut: 25, costCacheRead: 0.5, costCacheWrite: 6.25 }, 'gpt-5-1-codex': { costIn: 1.25, costOut: 10 } };
 

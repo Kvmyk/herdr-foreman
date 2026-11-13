@@ -1,6 +1,7 @@
 // Task slugs, where a task's worktrees live, and the record of each run.
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { canonicalPath } from './pathkey.js';
 
 const POLISH = { ą: 'a', ć: 'c', ę: 'e', ł: 'l', ń: 'n', ó: 'o', ś: 's', ź: 'z', ż: 'z' };
 
@@ -26,7 +27,7 @@ export function uniqueSlug(base, exists) {
 
 export function worktreeRoot({ paths, repo, task }) {
   const resolved = path.resolve(repo);
-  const hash = createHash('sha1').update(resolved.toLowerCase()).digest('hex').slice(0, 6);
+  const hash = createHash('sha1').update(canonicalPath(resolved).toLowerCase()).digest('hex').slice(0, 6);
   return path.join(paths.worktrees, `${path.basename(resolved)}-${hash}`, task);
 }
 

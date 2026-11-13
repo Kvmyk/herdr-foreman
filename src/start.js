@@ -8,6 +8,7 @@ import { EXAMPLE, resolveMentions } from './task.js';
 import { classifyScreen, describeBlocked } from './blocked.js';
 import { screenTail } from './wait.js';
 import { isInside, taskFile as taskPath } from './history.js';
+import { pathKey } from './pathkey.js';
 import { prefsText } from './start-prefs.js';
 import { layoutHint } from './layout.js';
 
@@ -25,10 +26,7 @@ export function buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd = '
   return `You are the foreman leader for task "${slug}". Read ${instructionsPath} and follow it exactly.${cmd} The user's task${body}${pointed}${prefsText(prefs)}`;
 }
 
-const samePath = (a, b) => {
-  const norm = (p) => path.resolve(p).replace(/[\\/]+$/, '');
-  return process.platform === 'win32' ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
-};
+const samePath = (a, b) => pathKey(a) === pathKey(b);
 
 const failed = (message) => ({ ok: false, message });
 
