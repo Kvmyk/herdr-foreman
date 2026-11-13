@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import path from 'node:path';
+import { makeTempDir } from './git-repo.js';
 import {
   PROMPT_HOOK, chooseFolder, sameFolder, promptFolder, folderChoices, psQuote, windowsShell, startArgv,
 } from '../app/foreman/folder.js';
@@ -106,7 +106,7 @@ test('startArgv on Windows: PowerShell with the cwd prompt hook, foreman reading
 const hasPowerShell = process.platform === 'win32' && spawnSync('powershell.exe', ['-NoProfile', '-Command', 'exit 0']).status === 0;
 
 test('PowerShell: the hook moves the working directory on cd, wraps once, and the argv runs foreman with the file', { skip: !hasPowerShell && 'needs Windows PowerShell' }, () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'foreman-folder-'));
+  const dir = makeTempDir('foreman-folder-');
   try {
     const inner = path.join(dir, "it's here");
     mkdirSync(inner);
