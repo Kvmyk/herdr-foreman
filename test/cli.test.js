@@ -438,10 +438,13 @@ test('route: answers given in front of a task go to the leader', () => {
   assert.equal(route(['spawn', '--task', 'x', '--include-uncommitted', 'a=claude']).name, 'spawn');
 });
 
-test('--help lists every subcommand of the README table, the shortcuts and examples', async () => {
+test('--help lists every subcommand of the reference table, the shortcuts and examples', async () => {
   const { readFileSync } = await import('node:fs');
-  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-  const table = readme.slice(readme.indexOf('## Subcommands'), readme.indexOf('## Choosing agents'));
+  const reference = readFileSync(new URL('../docs/reference.md', import.meta.url), 'utf8');
+  const start = reference.indexOf('## Subcommands');
+  assert.ok(start >= 0, 'docs/reference.md has a Subcommands section');
+  const end = reference.indexOf('\n## ', start + 1);
+  const table = reference.slice(start, end < 0 ? undefined : end);
   const names = [...new Set([...table.matchAll(/^\| `foreman ([a-z-]+)/gm)].map((m) => m[1]))];
   assert.ok(names.length >= 10);
   const h = harness();
