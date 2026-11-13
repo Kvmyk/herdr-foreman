@@ -201,6 +201,7 @@ const APP = path.join(path.resolve('/h'), '.config', 'herdr-app');
 const MOD_MAIN = path.join(APP, 'mods', 'foreman', 'main.js');
 const KEYS = path.join(APP, 'keys.json');
 const TEMPLATE = 'const NODE = "__NODE__";\nconst BIN = "__BIN__";\n';
+const FOLDER_JS = 'export const x = 1;\n';
 const DEFAULT_KEYS = JSON.stringify({ global: { 'ctrl-shift-t': 'tab.new' }, terminal: { 'ctrl-shift-f': 'terminal.search' } });
 
 function appWorld({ keys = DEFAULT_KEYS, check = { code: 0 }, files = {}, keyError = false, herdr = false } = {}) {
@@ -209,6 +210,7 @@ function appWorld({ keys = DEFAULT_KEYS, check = { code: 0 }, files = {}, keyErr
   w.fs[path.join(root, 'app', 'foreman', 'main.js')] = TEMPLATE;
   w.fs[path.join(root, 'app', 'foreman', 'mod.json')] = '{"place":"none"}\n';
   w.fs[path.join(root, 'app', 'foreman', 'logo.svg')] = '<svg/>\n';
+  w.fs[path.join(root, 'app', 'foreman', 'folder.js')] = FOLDER_JS;
   w.fs[path.join(root, 'package.json')] = '{"version":"1.2.3"}';
   w.d.env = {};
   w.d.nodePath = 'C:\\n\\node.exe';
@@ -217,7 +219,7 @@ function appWorld({ keys = DEFAULT_KEYS, check = { code: 0 }, files = {}, keyErr
   w.checks = [];
   w.d.run = async (cmd, args, opts) => {
     if (cmd !== 'herdr-app') return base(cmd, args, opts);
-    w.checks.push({ args, main: w.fs[path.join(args[1], 'main.js')] });
+    w.checks.push({ args, main: w.fs[path.join(args[1], 'main.js')], folder: w.fs[path.join(args[1], 'folder.js')] });
     if (check instanceof Error) throw check;
     return { code: 0, stdout: '', stderr: '', ...check };
   };
@@ -244,6 +246,9 @@ test('setupApp: first install checks the mod, writes it with a marker and binds 
   assert.match(main, /const BIN = ".*\/bin\/foreman\.js";/);
   assert.equal(w.fs[path.join(APP, 'mods', 'foreman', 'mod.json')], '{"place":"none"}\n');
   assert.equal(w.fs[path.join(APP, 'mods', 'foreman', 'logo.svg')], '<svg/>\n');
+  // main.js imports folder.js: it is checked with the mod and written beside it.
+  assert.equal(w.fs[path.join(APP, 'mods', 'foreman', 'folder.js')], FOLDER_JS);
+  assert.equal(w.checks[0].folder, FOLDER_JS);
   assert.equal(w.fs[`${KEYS}.foreman-backup`], DEFAULT_KEYS);
   assert.deepEqual(JSON.parse(w.fs[KEYS]), { global: { 'ctrl-shift-t': 'tab.new', 'ctrl-shift-y': 'mod.open:foreman' }, terminal: { 'ctrl-shift-f': 'terminal.search' } });
 });
@@ -270,6 +275,19 @@ test('setupApp: a missing logo is written when main.js is current; an edited mai
   w.fs[MOD_MAIN] += '// mine\n';
   assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'skipped');
   assert.equal(logo in w.fs, false);
+});
+
+test('setupApp: a missing or older folder.js is written when main.js is current', async () => {
+  const w = appWorld();
+  await setupApp(w.d, '1.2.3');
+  const helper = path.join(APP, 'mods', 'foreman', 'folder.js');
+  delete w.fs[helper];
+  assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'updated');
+  assert.equal(w.fs[helper], FOLDER_JS);
+  w.fs[path.join(w.d.root, 'app', 'foreman', 'folder.js')] = 'export const x = 2;\n';
+  assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'updated');
+  assert.equal(w.fs[helper], 'export const x = 2;\n');
+  assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'already');
 });
 
 test('setupApp: an unedited mod of an older version is updated, an edited one is left alone', async () => {
@@ -323,7 +341,7 @@ test('setupApp: a foreman inside one of its task worktrees never writes its path
   const installed = w.fs[MOD_MAIN];
   w.checks.length = 0;
   const tree = path.resolve('/h/.herdr-foreman/worktrees/repo-1/task/w1');
-  for (const f of ['main.js', 'mod.json', 'logo.svg']) w.fs[path.join(tree, 'app', 'foreman', f)] = w.fs[path.join(w.d.root, 'app', 'foreman', f)];
+  for (const f of ['main.js', 'mod.json', 'logo.svg', 'folder.js']) w.fs[path.join(tree, 'app', 'foreman', f)] = w.fs[path.join(w.d.root, 'app', 'foreman', f)];
   w.d.root = tree;
   const r = await setupApp(w.d, '9.9.9');
   assert.equal(r.mod.status, 'skipped');
@@ -413,7 +431,9 @@ test('app/foreman template: placeholders for node and foreman, the backend flag,
   const main = readFileSync(new URL('../app/foreman/main.js', import.meta.url), 'utf8');
   assert.match(main, /const NODE = "__NODE__";/);
   assert.match(main, /const BIN = "__BIN__";/);
-  assert.match(main, /\[NODE, BIN, "--backend", "app", [^\n]*"--", task\]/);
+  assert.match(main, /const flags = \["--backend", "app", /);
+  assert.match(main, /startArgv\(\{ windows, shell, nodePath: NODE, binPath: BIN, flags, task, taskFile \}\)/);
+  assert.match(main, /import \{[^}]*\} from "\.\/folder\.js";/);
   assert.match(main, /"--leader", this\.leader/);
   assert.match(main, /"--base", this\.base/);
   // The prompt shows the agents foreman kept last time, then asks quickly.

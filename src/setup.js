@@ -191,6 +191,11 @@ export function appHome({ env, homedir }) {
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 const forward = (p) => p.replace(/\\/g, '/');
 
+// Files of the mod that are copied as they are, beside main.js: its logo, and
+// folder.js (which folder the prompt works in, and how its tab starts), a module
+// main.js imports. Both are foreman's and rewritten with main.js.
+export const APP_FILES = Object.freeze(['logo.svg', 'folder.js']);
+
 // The mod's files with this machine's node and foreman paths filled in; main.js
 // starts with a marker holding the version and a hash of the rest.
 export function renderAppMod(d, version) {
@@ -202,20 +207,20 @@ export function renderAppMod(d, version) {
   return {
     main: `// foreman-managed ${version} ${sha(body)}\n${body}`,
     modJson: d.readFile(path.join(root, 'app', APP_MOD, 'mod.json')),
-    logo: d.readFile(path.join(root, 'app', APP_MOD, 'logo.svg')),
+    files: Object.fromEntries(APP_FILES.map((f) => [f, d.readFile(path.join(root, 'app', APP_MOD, f))])),
   };
 }
 
 // A rendered main.js without its marker and this machine's paths.
 const withoutPaths = (main) => main.replace(APP_MARKER, '').replace(/^const (NODE|BIN) = "[^"\n]*";/gm, 'const $1 = "";');
 
-async function appCheck(d, main, modJson, logo) {
+async function appCheck(d, main, modJson, extra) {
   const dir = path.join(d.tmpdir, 'foreman-app-mod-check', APP_MOD);
-  const files = [path.join(dir, 'main.js'), path.join(dir, 'mod.json'), path.join(dir, 'logo.svg')];
+  const files = [path.join(dir, 'main.js'), path.join(dir, 'mod.json'), ...APP_FILES.map((f) => path.join(dir, f))];
   try {
     d.writeFile(files[0], main);
     d.writeFile(files[1], modJson);
-    d.writeFile(files[2], logo);
+    APP_FILES.forEach((f, i) => d.writeFile(files[2 + i], extra[f]));
     const res = await d.run('herdr-app', ['check', dir], { env: d.env, cwd: d.tmpdir, timeoutMs: 30000 });
     if (res.code === 0) return null;
     const last = `${res.stdout}\n${res.stderr}`.trim().split(/\r?\n/).filter(Boolean).pop();
@@ -263,14 +268,16 @@ export async function installAppMod(d, version) {
   } catch (err) {
     if (err.code !== 'ENOENT') return { status: 'failed', dir, reason: `cannot read ${mainFile}: ${err.message}` };
   }
-  const logoFile = path.join(dir, 'logo.svg');
-  let haveLogo = null;
-  try {
-    haveLogo = d.readFile(logoFile);
-  } catch {
-    // missing: written below
-  }
-  if (have === want.main && haveLogo === want.logo) return { status: 'already', dir };
+  // The logo and folder.js that are missing or differ from this foreman's.
+  const stale = () => APP_FILES.filter((f) => {
+    try {
+      return d.readFile(path.join(dir, f)) !== want.files[f];
+    } catch {
+      return true;
+    }
+  });
+  const writeStale = (names) => { for (const f of names) d.writeFile(path.join(dir, f), want.files[f]); };
+  if (have === want.main && !stale().length) return { status: 'already', dir };
   if (have !== null) {
     const marker = have.match(APP_MARKER);
     if (!marker || sha(have.slice(marker[0].length)) !== marker[2]) {
@@ -285,18 +292,20 @@ export async function installAppMod(d, version) {
       const order = compareVersions(marker[1], version);
       if (order > 0) return { status: 'newer', dir, version: marker[1] };
       if (order === 0 && withoutPaths(have) === withoutPaths(want.main)) {
-        if (haveLogo === want.logo) return { status: 'already', dir };
-        d.writeFile(logoFile, want.logo);
+        const names = stale();
+        if (!names.length) return { status: 'already', dir };
+        writeStale(names);
         return { status: 'updated', dir };
       }
     }
   } else if (d.exists(dir)) {
     return { status: 'skipped', dir, reason: `${dir} exists and is not foreman's, so it is left alone` };
   }
-  const problem = await appCheck(d, want.main, want.modJson, want.logo);
+  const problem = await appCheck(d, want.main, want.modJson, want.files);
   if (problem) return { status: 'failed', dir, reason: problem };
   d.writeFile(path.join(dir, 'mod.json'), want.modJson);
-  d.writeFile(logoFile, want.logo);
+  // main.js last: it imports folder.js, and the app reloads the mod when main.js changes.
+  writeStale(APP_FILES);
   d.writeFile(mainFile, want.main);
   return { status: have === null ? 'added' : 'updated', dir };
 }
