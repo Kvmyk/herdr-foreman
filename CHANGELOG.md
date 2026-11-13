@@ -4,6 +4,12 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-13
+
+### Fixed
+
+- The tests pass on Windows again: the PowerShell folder test used the short 8.3 form of the temp folder (`RUNNER~1`).
+
 ## [0.13.0] - 2026-11-13
 
 ### Added
@@ -234,7 +240,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.10.0...v0.11.0

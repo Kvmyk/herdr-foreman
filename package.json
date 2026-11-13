@@ -1,6 +1,6 @@
 {
   "name": "herdr-foreman",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "description": "Describe a task in plain words; a lead agent splits it across the coding agents you have installed and runs them in herdr panes.",
   "keywords": [
     "herdr",
