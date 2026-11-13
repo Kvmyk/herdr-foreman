@@ -19,6 +19,14 @@ test('pathKey uses the real path on win32 only', () => {
   assert.equal(canonicalPath('/a/b', { platform: 'linux', realpath: real }), path.resolve('/a/b'));
 });
 
+test('trailing separators of both kinds are stripped on win32, also at a drive root', () => {
+  const same = { platform: 'win32', realpath: (p) => p };
+  const bs = String.fromCharCode(92);
+  assert.equal(pathKey('C:/Proj' + bs, same), pathKey('C:/Proj', same));
+  assert.equal(pathKey('C:/Proj/', same), pathKey('C:/Proj', same));
+  assert.ok(!pathKey('C:' + bs, same).endsWith(bs) && !pathKey('C:' + bs, same).endsWith('/'));
+});
+
 test('an 8.3 short path and the long one give the same key and worktree root', { skip: process.platform !== 'win32' }, (t) => {
   const dir = makeTempDir('foreman-pathkey-');
   t.after(() => rmSync(dir, { recursive: true, force: true }));
