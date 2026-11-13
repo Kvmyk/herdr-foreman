@@ -4,6 +4,10 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- CI workflow running the tests on Linux, Windows and macOS with Node 20 and 22, and a release workflow that publishes a GitHub Release from the matching CHANGELOG section when a `v*` tag is pushed (`scripts/changelog-section.js`).
+
 ### Changed
 
 - The README is shorter and starts with what herdr is, the problem foreman solves and the approval step, with release, license and CI badges and one install command (`herdr plugin install Kvmyk/herdr-foreman`). The desktop install scripts are under "Other ways to install".
