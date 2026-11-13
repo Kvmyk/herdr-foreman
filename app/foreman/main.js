@@ -1,11 +1,11 @@
 // foreman: describe a task, a lead agent splits it across your coding agents.
 // Installed and updated by "foreman setup"; edit a copy under another name,
 // a changed file is left alone. Ctrl+Enter starts, Enter adds a line, Esc cancels.
-// The dialog is as tall as its content (mod.json names no height) and its middle
-// scrolls in a low window; under COMPACT_WIDTH it becomes one column of large targets.
+// The dialog has the height mod.json names; its middle scrolls when it holds more
+// than that. Under COMPACT_WIDTH it becomes one column of large targets.
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
-import { run, props, closeOverlay, theme, spaces, focused, panes, notify, exec, readTextFile, writeTextFile, home, shared, setShared, settings } from "herdr";
+import { run, props, closeOverlay, theme, spaces, focused, panes, notify, exec, readTextFile, writeTextFile, home, shared, setShared, settings, window } from "herdr";
 
 // Filled in by "foreman setup" with this machine's node and foreman paths.
 const NODE = "__NODE__";
@@ -17,6 +17,9 @@ const HINTS = 5;
 // there) the prompt is one column and every target is at least TAP high.
 const COMPACT_WIDTH = 520;
 const TAP = 44;
+// Rows of the task box; the box is as tall as its rows.
+const ROWS = 8;
+const COMPACT_ROWS = 6;
 
 // Where the focused terminal is now, else where its space was made.
 function folder() {
@@ -63,8 +66,12 @@ export default class Foreman extends View {
     this.launcher = null;
     this.saving = Promise.resolve();
 
-    this.input = TextareaState.new({ placeholder: "What should be done? Point at files with @name.", rows: 6 });
+    this.input = TextareaState.new({ placeholder: "What should be done? Point at files with @name.", rows: ROWS });
     this.input.on("change", (_e, cx) => { this.text = this.input.value(); cx.notify(); });
+    // The box's border turns accent while it has the keyboard; the state knows, the frame does not.
+    this.inputFocused = true;
+    this.input.on("focus", (_e, cx) => { this.inputFocused = true; cx.notify(); });
+    this.input.on("blur", (_e, cx) => { this.inputFocused = false; cx.notify(); });
     // Enter adds a line; Ctrl+Enter (Cmd on a Mac) starts.
     this.input.on("submit", (e) => {
       if (e?.secondary) this.submit();
@@ -238,7 +245,11 @@ export default class Foreman extends View {
   // when it crosses COMPACT_WIDTH.
   resized(size, cx) {
     const compact = size.width / (Number(settings()?.zoom) || 1) < COMPACT_WIDTH;
-    if (compact !== this.compact) { this.compact = compact; cx.notify(); }
+    if (compact !== this.compact) {
+      this.compact = compact;
+      this.input.set_rows(compact ? COMPACT_ROWS : ROWS);
+      cx.notify();
+    }
   }
 
   // The git branch of the terminal the prompt was opened from, if the app knows it.
@@ -292,22 +303,22 @@ export default class Foreman extends View {
     // A pill that opens its choices below: a label, the value, a caret.
     const open = (name) => (_e, hcx) => { this.menu = this.menu === name ? null : name; hcx.notify(); };
     const pick = (apply) => (_e, hcx) => { apply(); this.menu = null; hcx.notify(); this.input.focus(); };
-    const choice = (id, label, value, name) => pill(div().text_color(t.dim).child(label), div().text_color(t.foreground).child(value), div().text_size(9).text_color(t.dim).child(this.menu === name ? "▴" : "▾"))
+    const choice = (id, label, value, name) => pill(div().text_color(t.dim).child(label), div().text_color(t.foreground).child(value), div().text_size(11).text_color(t.muted).child(this.menu === name ? "▴" : "▾"))
       .id(id).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(open(name));
 
     const branch = this.branch();
     const hints = this.hints();
-    // No height of its own: the dialog is as tall as what it holds, and the app
-    // caps it at most of the window. The header and the buttons keep their place;
-    // what is between them (mid) scrolls when the window is too low for it.
+    // The dialog's height comes from mod.json. The header and the buttons keep
+    // their place; what is between them (mid) takes the rest and scrolls. A scroll
+    // area has no height of its own, so mid must be given one: flex_1 in a full-height body.
     const body = v_flex().id("foreman").track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
       .on_size_change((size, cx) => this.resized(size, cx))
-      .w_full().min_h(0).p(compact ? 16 : 24).gap(16).bg(t.popover).text_color(t.foreground);
-    const mid = v_flex().id("fm-scroll").min_h(0).flex_shrink(1).overflow_y_scrollbar().gap(16);
+      .size_full().min_h(0).p(compact ? 16 : 24).gap(16).bg(t.popover).text_color(t.foreground);
+    const mid = v_flex().id("fm-scroll").flex_1().min_h(0).overflow_y_scrollbar().gap(16);
 
     // Header: mark, title with subtitle, and the leader that will run the task
     // (narrow: the leader pill goes on a line of its own below).
-    const leaderPill = choice("fm-leader", "leader", this.leader, "leader");
+    const leaderPill = choice("fm-leader", "leader", clip(this.leader, 20), "leader").flex_shrink_0();
     body.child(h_flex().flex_shrink_0().items_center().gap(12)
       .child(image("mods/foreman/logo.svg").w(32).h(32).flex_none())
       .child(v_flex().flex_1().min_w(0)
@@ -347,10 +358,10 @@ export default class Foreman extends View {
     }
 
     // The task box, with a quiet border that turns accent on focus, and a count.
-    // Its height is fixed: nothing above it says how tall the dialog is.
+    // Its height is its rows (ROWS, fewer when narrow).
     mid.child(v_flex().flex_shrink_0().gap(6)
-      .child(Textarea.new(this.input).w_full().h(compact ? 150 : 200).p(12).rounded(10).border_1().border_color(t.border)
-        .focus((s) => s.border_color(t.accent)).bg(t.background).text_size(12.8).text_color(t.foreground))
+      .child(Textarea.new(this.input).w_full().p(12).rounded(10).border_1().border_color(this.inputFocused ? t.accent : t.border)
+        .bg(t.background).text_size(12.8).text_color(t.foreground))
       .child(h_flex().items_center().px(2)
         .child(div().flex_1().text_size(11).text_color(t.dim).child(mention(this.text) !== null ? "Pick a file below, or keep typing." : "Type @ to point at a file."))
         .child(div().text_size(11).text_color(t.dim).child(`${chars} chars · ${lines} ${lines === 1 ? "line" : "lines"}`))));
@@ -371,12 +382,12 @@ export default class Foreman extends View {
         : "Off. Turn on to start tasks from the Herdr phone app. Saved for every task.", "launcher")]));
     body.child(mid);
 
-    // Footer: key caps on the left, buttons on the right. Narrow: no key caps
-    // (there may be no keyboard), and the two buttons share the row.
+    // Footer: key caps on the left (⌘ on a Mac, Ctrl elsewhere), buttons on the
+    // right. Narrow: no key caps (there may be no keyboard), and the two buttons share the row.
     const footer = h_flex().flex_shrink_0().items_center().gap(8).pt(8).border_t_1().border_color(t.border);
     if (!compact) {
       footer.child(h_flex().flex_1().min_w(0).items_center().gap(12)
-        .child(hint(["Ctrl", "Enter"], "start")).child(hint(["Esc"], "cancel")));
+        .child(hint([window()?.platform === "macos" ? "⌘" : "Ctrl", "Enter"], "start")).child(hint(["Esc"], "cancel")));
     }
     body.child(footer
       .child(button("fm-cancel", "Cancel", false, true, () => this.cancel()))
