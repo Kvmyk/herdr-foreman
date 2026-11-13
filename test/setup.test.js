@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  parseKeys, addBinding, humanKey, versionAtLeast, compareVersions, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey, PACKAGE_ROOT,
+  parseKeys, addBinding, humanKey, versionAtLeast, compareVersions, chooseLeader, describeAgent, configPath, bindKey, runSetup, formatSetup, installedByNpm, ACTION, setupApp, bindAppKey, PACKAGE_ROOT, insideWorktrees,
 } from '../src/setup.js';
 import { fakeRun } from './helpers.js';
 import { paths } from '../src/config.js';
@@ -314,6 +314,27 @@ test('setupApp: a copy of the same version with other paths keeps the installed 
   w.fs[path.join(w.d.root, 'app', 'foreman', 'main.js')] = `${TEMPLATE}// changed\n`;
   assert.equal((await setupApp(w.d, '1.2.3')).mod.status, 'updated');
   assert.match(w.fs[MOD_MAIN], /D:\/other\/node\.exe[\s\S]*\/\/ changed\n$/);
+});
+
+test('setupApp: a foreman inside one of its task worktrees never writes its path into the prompt', async () => {
+  const w = appWorld();
+  w.fs[path.join(w.d.root, 'bin', 'foreman.js')] = '';
+  await setupApp(w.d, '1.2.3');
+  const installed = w.fs[MOD_MAIN];
+  w.checks.length = 0;
+  const tree = path.resolve('/h/.herdr-foreman/worktrees/repo-1/task/w1');
+  for (const f of ['main.js', 'mod.json', 'logo.svg']) w.fs[path.join(tree, 'app', 'foreman', f)] = w.fs[path.join(w.d.root, 'app', 'foreman', f)];
+  w.d.root = tree;
+  const r = await setupApp(w.d, '9.9.9');
+  assert.equal(r.mod.status, 'skipped');
+  assert.match(r.mod.reason, /task worktree/);
+  assert.equal(w.checks.length, 0);
+  assert.equal(w.fs[MOD_MAIN], installed);
+  assert.ok(!w.fs[MOD_MAIN].includes('worktrees'));
+  // FOREMAN_HOME moves the worktrees with it; a lasting copy next to them still installs.
+  assert.equal(insideWorktrees({ env: { FOREMAN_HOME: path.resolve('/f') }, homedir: path.resolve('/h') }, path.resolve('/f/worktrees/a')), true);
+  assert.equal(insideWorktrees({ env: {}, homedir: path.resolve('/h') }, path.resolve('/h/.herdr-foreman/worktrees-old/a')), false);
+  assert.equal(insideWorktrees({ env: {}, homedir: path.resolve('/h') }, path.resolve('/lib/node_modules/herdr-foreman')), false);
 });
 
 test('compareVersions: numbers, then a release after its pre-release', () => {

@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { createUi } from './ui.js';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_CONFIG } from './config.js';
+import { DEFAULT_CONFIG, paths } from './config.js';
 import { HERDR_KINDS } from './inventory/kinds.js';
 import { findTool } from './backend.js';
 
@@ -233,11 +233,24 @@ async function appCheck(d, main, modJson, logo) {
   }
 }
 
+// True when dir is foreman's worktrees folder or inside it.
+export function insideWorktrees(d, dir) {
+  const worktrees = d.paths?.worktrees ?? paths({ env: d.env ?? {}, homedir: d.homedir }).worktrees;
+  const rel = path.relative(path.resolve(worktrees), path.resolve(dir));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 // Add or update mods/foreman in the Herdr app. Only a file foreman wrote and
 // the user did not touch is ever replaced; a candidate is checked by herdr-app first.
 export async function installAppMod(d, version) {
   const dir = path.join(appHome(d), 'mods', APP_MOD);
   const mainFile = path.join(dir, 'main.js');
+  // A copy of foreman inside one of its own task worktrees goes away when the
+  // task ends; a prompt pointing at it would then only say "foreman moved".
+  const root = d.root ?? PACKAGE_ROOT;
+  if (insideWorktrees(d, root)) {
+    return { status: 'skipped', dir, reason: `foreman runs from a task worktree (${root}), which is removed when the task ends, so the task prompt is left as is: run "foreman setup" from the installed foreman` };
+  }
   let want;
   try {
     want = renderAppMod(d, version);
