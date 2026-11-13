@@ -16,6 +16,6 @@ export function canonicalPath(p, { platform = process.platform, realpath = realp
 }
 
 export function pathKey(p, { platform = process.platform, realpath } = {}) {
-  const r = canonicalPath(p, { platform, realpath }).replace(/[\/]+$/, '');
+  const r = canonicalPath(p, { platform, realpath }).replace(/[\\/]+$/, '');
   return platform === 'win32' ? r.toLowerCase() : r;
 }
