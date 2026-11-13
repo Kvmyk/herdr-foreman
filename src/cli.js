@@ -115,7 +115,7 @@ Examples:
   foreman cleanup --all                remove what an interrupted run left behind
 
 Foreman never pushes and creates no pull request. It arms a push guard (a tripwire) on each worker worktree.
-More: README.md ("If something does not work", FAQ) and https://github.com/Kvmyk/herdr-foreman
+More: docs/troubleshooting.md, docs/faq.md and https://github.com/Kvmyk/herdr-foreman
 `;
 
 // Each subcommand: flags it accepts (true = takes a value), required flags,
