@@ -1,5 +1,5 @@
 {
-  "updated": "2026-11-15",
+  "updated": "2026-11-16",
   "note": "Every claim here is a dated fact from a renewable source (see sourceMeta), written by scripts/refresh-knowledge.js; a source that stops updating is dropped. The user's own journal outweighs this file once a category has trusted stats.",
   "categories": ["analysis", "security-audit", "testing", "bugfix", "feature", "refactor", "test-writing", "docs"],
   "rules": [
@@ -43,7 +43,7 @@
         {"text":"terminal-bench-4.1, kimi-k3.1-pro (max): 59.7% (#7 of 46, with Claude Code, 2026-10-24)","benchmark":"terminal-bench-4.1","model":"kimi-k3.1-pro","effort":"max","score":59.7,"unit":"%","rank":7,"of":46,"harness":"claude","category":null,"date":"2026-10-24","source":"tbench"},
         {"text":"swe-bench-pro-v2, claude-opus-5 (xhigh): 99.4% (#1 of 6, with Claude Code, 2026-10-07)","benchmark":"swe-bench-pro-v2","model":"claude-opus-5","effort":"xhigh","score":99.4,"unit":"%","rank":1,"of":6,"harness":"claude","category":null,"date":"2026-10-07","source":"seal"},
         {"text":"swe-bench-pro-v2-hard, claude-fable-5.1 (high): 92.2% (#2 of 7, with Claude Code, 2026-09-22)","benchmark":"swe-bench-pro-v2-hard","model":"claude-fable-5.1","effort":"high","score":92.2,"unit":"%","rank":2,"of":7,"harness":"claude","category":null,"date":"2026-09-22","source":"seal"},
-        {"text":"vibe-code-bench, claude-opus-4.8: 77.5% (#39 of 123, with Claude Code, 2026-11-11)","benchmark":"vibe-code-bench","model":"claude-opus-4.8","score":77.485,"unit":"%","rank":39,"of":123,"harness":"claude","category":null,"date":"2026-11-11","source":"vals"}
+        {"text":"vibe-code-bench, claude-opus-4.8: 77.5% (#40 of 124, with Claude Code, 2026-11-11)","benchmark":"vibe-code-bench","model":"claude-opus-4.8","score":77.485,"unit":"%","rank":40,"of":124,"harness":"claude","category":null,"date":"2026-11-11","source":"vals"}
       ]
     },
     "codex": {
@@ -55,11 +55,11 @@
       "release": {"version":"0.169.0","date":"2026-11-13","source":"npm"},
       "facts": [
         {"text":"terminal-bench-4.1, gpt-6.1-sol (max): 60.9% (#5 of 46, with Codex CLI, 2026-09-29)","benchmark":"terminal-bench-4.1","model":"gpt-6.1-sol","effort":"max","score":60.91,"unit":"%","rank":5,"of":46,"harness":"codex","category":null,"date":"2026-09-29","source":"tbench"},
-        {"text":"webdev-arena, gpt-5.6-sol (xhigh): 1615.2 elo (#31 of 142, with Codex CLI, 2026-11-11)","benchmark":"webdev-arena","model":"gpt-5.6-sol","effort":"xhigh","score":1615.2,"unit":"elo","rank":31,"of":142,"harness":"codex","category":null,"date":"2026-11-11","source":"lmarena-webdev"},
+        {"text":"webdev-arena, gpt-5.6-sol (xhigh): 1615.7 elo (#32 of 143, with Codex CLI, 2026-11-15)","benchmark":"webdev-arena","model":"gpt-5.6-sol","effort":"xhigh","score":1615.7,"unit":"elo","rank":32,"of":143,"harness":"codex","category":null,"date":"2026-11-15","source":"lmarena-webdev"},
         {"text":"swe-bench-pro-v2-hard, gpt-6-astra (high): 90.2% (#3 of 7, with Codex CLI, 2026-09-22)","benchmark":"swe-bench-pro-v2-hard","model":"gpt-6-astra","effort":"high","score":90.2,"unit":"%","rank":3,"of":7,"harness":"codex","category":null,"date":"2026-09-22","source":"seal"},
         {"text":"swe-bench-pro-v2, gpt-6-astra (high): 96.9% (#3 of 6, with Codex CLI, 2026-10-07)","benchmark":"swe-bench-pro-v2","model":"gpt-6-astra","effort":"high","score":96.9,"unit":"%","rank":3,"of":6,"harness":"codex","category":null,"date":"2026-10-07","source":"seal"},
-        {"text":"vibe-code-bench, gpt-5.5: 58.2% (#62 of 123, with Codex CLI, 2026-11-11)","benchmark":"vibe-code-bench","model":"gpt-5.5","score":58.194,"unit":"%","rank":62,"of":123,"harness":"codex","category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"webdev-arena, gpt-5.3-codex: 1405.8 elo (#91 of 142, with Codex CLI, 2026-11-11)","benchmark":"webdev-arena","model":"gpt-5.3-codex","score":1405.8,"unit":"elo","rank":91,"of":142,"harness":"codex","category":null,"date":"2026-11-11","source":"lmarena-webdev"}
+        {"text":"vibe-code-bench, gpt-5.5: 58.2% (#63 of 124, with Codex CLI, 2026-11-11)","benchmark":"vibe-code-bench","model":"gpt-5.5","score":58.194,"unit":"%","rank":63,"of":124,"harness":"codex","category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"webdev-arena, gpt-5.3-codex: 1406.1 elo (#92 of 143, with Codex CLI, 2026-11-15)","benchmark":"webdev-arena","model":"gpt-5.3-codex","score":1406.1,"unit":"elo","rank":92,"of":143,"harness":"codex","category":null,"date":"2026-11-15","source":"lmarena-webdev"}
       ]
     },
     "opencode": {
@@ -102,12 +102,12 @@
       "id": "gpt-codex",
       "match": "gpt-[0-9.]+-codex",
       "vendor": "openai",
-      "tendencies": ["webdev-arena, gpt-5.3-codex: 1405.8 elo (#91 of 142, with Codex CLI, 2026-11-11)", "vibe-code-bench, gpt-5.3-codex: 61.8% (#60 of 123, 2026-11-11)"],
-      "updated": "2026-11-11",
+      "tendencies": ["webdev-arena, gpt-5.3-codex: 1406.1 elo (#92 of 143, with Codex CLI, 2026-11-15)", "vibe-code-bench, gpt-5.3-codex: 61.8% (#61 of 124, 2026-11-11)"],
+      "updated": "2026-11-15",
       "sources": ["lmarena-webdev", "vals"],
       "facts": [
-        {"text":"webdev-arena, gpt-5.3-codex: 1405.8 elo (#91 of 142, with Codex CLI, 2026-11-11)","benchmark":"webdev-arena","model":"gpt-5.3-codex","score":1405.8,"unit":"elo","rank":91,"of":142,"harness":"codex","category":null,"date":"2026-11-11","source":"lmarena-webdev"},
-        {"text":"vibe-code-bench, gpt-5.3-codex: 61.8% (#60 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"gpt-5.3-codex","score":61.767,"unit":"%","rank":60,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
+        {"text":"webdev-arena, gpt-5.3-codex: 1406.1 elo (#92 of 143, with Codex CLI, 2026-11-15)","benchmark":"webdev-arena","model":"gpt-5.3-codex","score":1406.1,"unit":"elo","rank":92,"of":143,"harness":"codex","category":null,"date":"2026-11-15","source":"lmarena-webdev"},
+        {"text":"vibe-code-bench, gpt-5.3-codex: 61.8% (#61 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"gpt-5.3-codex","score":61.767,"unit":"%","rank":61,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
       ],
       "latest": {"id":"gpt-5.3-codex","date":"2026-02-05"}
     },
@@ -116,7 +116,7 @@
       "match": "gpt-[0-9]",
       "vendor": "openai",
       "tendencies": ["swe-atlas-refactoring (refactor), gpt-6-astra: 71.4% (#3 of 28, 2026-11-06)", "terminal-bench-4.1, gpt-6.1-sol (max): 60.9% (#5 of 46, with Codex CLI, 2026-09-29)", "swe-atlas-testwriting (test-writing), gpt-6.1-sol: 66.7% (#8 of 28, 2026-11-06)", "swe-atlas-qna (analysis), gpt-6.1-sol: 71% (#10 of 28, 2026-11-06)", "swe-bench-pro-v2-hard, gpt-6-astra (high): 90.2% (#3 of 7, with Codex CLI, 2026-09-22)", "swe-bench-pro-v2, gpt-6-astra (high): 96.9% (#3 of 6, with Codex CLI, 2026-10-07)"],
-      "updated": "2026-11-11",
+      "updated": "2026-11-15",
       "sources": ["seal", "tbench", "lmarena-webdev", "livebench"],
       "facts": [
         {"text":"swe-atlas-refactoring (refactor), gpt-6-astra: 71.4% (#3 of 28, 2026-11-06)","benchmark":"swe-atlas-refactoring","model":"gpt-6-astra","score":71.4,"unit":"%","rank":3,"of":28,"harness":null,"category":"refactor","date":"2026-11-06","source":"seal"},
@@ -125,7 +125,7 @@
         {"text":"swe-atlas-qna (analysis), gpt-6.1-sol: 71% (#10 of 28, 2026-11-06)","benchmark":"swe-atlas-qna","model":"gpt-6.1-sol","score":71,"unit":"%","rank":10,"of":28,"harness":null,"category":"analysis","date":"2026-11-06","source":"seal"},
         {"text":"swe-bench-pro-v2-hard, gpt-6-astra (high): 90.2% (#3 of 7, with Codex CLI, 2026-09-22)","benchmark":"swe-bench-pro-v2-hard","model":"gpt-6-astra","effort":"high","score":90.2,"unit":"%","rank":3,"of":7,"harness":"codex","category":null,"date":"2026-09-22","source":"seal"},
         {"text":"swe-bench-pro-v2, gpt-6-astra (high): 96.9% (#3 of 6, with Codex CLI, 2026-10-07)","benchmark":"swe-bench-pro-v2","model":"gpt-6-astra","effort":"high","score":96.9,"unit":"%","rank":3,"of":6,"harness":"codex","category":null,"date":"2026-10-07","source":"seal"},
-        {"text":"webdev-arena, gpt-6-astra (max): 1763.8 elo (#5 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"gpt-6-astra","effort":"max","score":1763.8,"unit":"elo","rank":5,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
+        {"text":"webdev-arena, gpt-6-astra (max): 1762.9 elo (#5 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"gpt-6-astra","effort":"max","score":1762.9,"unit":"elo","rank":5,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
         {"text":"livebench-long-agentic, gpt-6-astra: 75.6% (#2 of 35, 2026-11-06)","benchmark":"livebench-long-agentic","model":"gpt-6-astra","score":75.6,"unit":"%","rank":2,"of":35,"harness":null,"category":null,"date":"2026-11-06","source":"livebench"}
       ],
       "latest": {"id":"gpt-6.1-terra","date":"2026-10-26"}
@@ -148,7 +148,7 @@
       "match": "claude-opus|^opus$",
       "vendor": "anthropic",
       "tendencies": ["terminal-bench-4.1, claude-opus-5.5 (max): 65.8% (#1 of 46, with Claude Code, 2026-09-22)", "swe-atlas-testwriting (test-writing), claude-opus-5.5: 77.8% (#2 of 28, 2026-11-06)", "swe-atlas-refactoring (refactor), claude-opus-5.5: 77.1% (#2 of 28, 2026-11-06)", "swe-bench-pro-v2-hard, claude-opus-5 (xhigh): 98% (#1 of 7, with Claude Code, 2026-09-22)", "swe-atlas-qna (analysis), claude-opus-5.5: 77.4% (#4 of 28, 2026-11-06)", "swe-bench-pro-v2, claude-opus-5 (xhigh): 99.4% (#1 of 6, with Claude Code, 2026-10-07)"],
-      "updated": "2026-11-11",
+      "updated": "2026-11-15",
       "sources": ["tbench", "seal", "lmarena-webdev", "vals"],
       "facts": [
         {"text":"terminal-bench-4.1, claude-opus-5.5 (max): 65.8% (#1 of 46, with Claude Code, 2026-09-22)","benchmark":"terminal-bench-4.1","model":"claude-opus-5.5","effort":"max","score":65.76,"unit":"%","rank":1,"of":46,"harness":"claude","category":null,"date":"2026-09-22","source":"tbench"},
@@ -157,8 +157,8 @@
         {"text":"swe-bench-pro-v2-hard, claude-opus-5 (xhigh): 98% (#1 of 7, with Claude Code, 2026-09-22)","benchmark":"swe-bench-pro-v2-hard","model":"claude-opus-5","effort":"xhigh","score":98,"unit":"%","rank":1,"of":7,"harness":"claude","category":null,"date":"2026-09-22","source":"seal"},
         {"text":"swe-atlas-qna (analysis), claude-opus-5.5: 77.4% (#4 of 28, 2026-11-06)","benchmark":"swe-atlas-qna","model":"claude-opus-5.5","score":77.4,"unit":"%","rank":4,"of":28,"harness":null,"category":"analysis","date":"2026-11-06","source":"seal"},
         {"text":"swe-bench-pro-v2, claude-opus-5 (xhigh): 99.4% (#1 of 6, with Claude Code, 2026-10-07)","benchmark":"swe-bench-pro-v2","model":"claude-opus-5","effort":"xhigh","score":99.4,"unit":"%","rank":1,"of":6,"harness":"claude","category":null,"date":"2026-10-07","source":"seal"},
-        {"text":"webdev-arena, claude-opus-5.5 (max): 1814.7 elo (#2 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"claude-opus-5.5","effort":"max","score":1814.7,"unit":"elo","rank":2,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
-        {"text":"vals-terminal-bench-4, claude-opus-5.5: 65.2% (#1 of 63, 2026-11-11)","benchmark":"vals-terminal-bench-4","model":"claude-opus-5.5","score":65.152,"unit":"%","rank":1,"of":63,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
+        {"text":"webdev-arena, claude-opus-5.5 (max): 1815.6 elo (#2 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"claude-opus-5.5","effort":"max","score":1815.6,"unit":"elo","rank":2,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
+        {"text":"vals-terminal-bench-4, claude-opus-5.5: 65.2% (#1 of 64, 2026-11-11)","benchmark":"vals-terminal-bench-4","model":"claude-opus-5.5","score":65.152,"unit":"%","rank":1,"of":64,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
       ],
       "latest": {"id":"claude-opus-5-5","date":"2026-09-22"}
     },
@@ -167,7 +167,7 @@
       "match": "claude-sonnet|^sonnet$",
       "vendor": "anthropic",
       "tendencies": ["terminal-bench-4.1, claude-sonnet-5.5 (max): 63.9% (#4 of 46, with Claude Code, 2026-09-28)", "swe-atlas-qna (analysis), claude-sonnet-5.5: 74.2% (#5 of 28, 2026-11-06)", "swe-atlas-testwriting (test-writing), claude-sonnet-5.5: 67.8% (#7 of 28, 2026-11-06)", "swe-atlas-refactoring (refactor), claude-sonnet-5.5: 62.9% (#7 of 28, 2026-11-06)", "swe-bench-pro-v2-hard, claude-sonnet-5 (xhigh): 88.2% (#4 of 7, with Claude Code, 2026-09-22)", "swe-bench-pro-v2, claude-sonnet-5 (xhigh): 93.2% (#5 of 6, with Claude Code, 2026-10-07)"],
-      "updated": "2026-11-11",
+      "updated": "2026-11-15",
       "sources": ["tbench", "seal", "vals", "lmarena-webdev"],
       "facts": [
         {"text":"terminal-bench-4.1, claude-sonnet-5.5 (max): 63.9% (#4 of 46, with Claude Code, 2026-09-28)","benchmark":"terminal-bench-4.1","model":"claude-sonnet-5.5","effort":"max","score":63.94,"unit":"%","rank":4,"of":46,"harness":"claude","category":null,"date":"2026-09-28","source":"tbench"},
@@ -176,8 +176,8 @@
         {"text":"swe-atlas-refactoring (refactor), claude-sonnet-5.5: 62.9% (#7 of 28, 2026-11-06)","benchmark":"swe-atlas-refactoring","model":"claude-sonnet-5.5","score":62.9,"unit":"%","rank":7,"of":28,"harness":null,"category":"refactor","date":"2026-11-06","source":"seal"},
         {"text":"swe-bench-pro-v2-hard, claude-sonnet-5 (xhigh): 88.2% (#4 of 7, with Claude Code, 2026-09-22)","benchmark":"swe-bench-pro-v2-hard","model":"claude-sonnet-5","effort":"xhigh","score":88.2,"unit":"%","rank":4,"of":7,"harness":"claude","category":null,"date":"2026-09-22","source":"seal"},
         {"text":"swe-bench-pro-v2, claude-sonnet-5 (xhigh): 93.2% (#5 of 6, with Claude Code, 2026-10-07)","benchmark":"swe-bench-pro-v2","model":"claude-sonnet-5","effort":"xhigh","score":93.15,"unit":"%","rank":5,"of":6,"harness":"claude","category":null,"date":"2026-10-07","source":"seal"},
-        {"text":"vibe-code-bench, claude-sonnet-5.5: 92.4% (#2 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"claude-sonnet-5.5","score":92.392,"unit":"%","rank":2,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"webdev-arena, claude-sonnet-5.5 (xhigh): 1772.3 elo (#3 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"claude-sonnet-5.5","effort":"xhigh","score":1772.3,"unit":"elo","rank":3,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"}
+        {"text":"vibe-code-bench, claude-sonnet-5.5: 92.4% (#2 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"claude-sonnet-5.5","score":92.392,"unit":"%","rank":2,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"webdev-arena, claude-sonnet-5.5 (xhigh): 1772.2 elo (#3 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"claude-sonnet-5.5","effort":"xhigh","score":1772.2,"unit":"elo","rank":3,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"}
       ],
       "latest": {"id":"claude-sonnet-5-5","date":"2026-09-28"}
     },
@@ -185,8 +185,8 @@
       "id": "claude-haiku",
       "match": "claude-haiku|^haiku$",
       "vendor": "anthropic",
-      "tendencies": ["terminal-bench-4.1, claude-haiku-5.5 (max): 40% (#17 of 46, with Claude Code, 2026-10-07)", "swe-atlas-testwriting (test-writing), claude-haiku-5.5: 63.3% (#11 of 28, 2026-11-06)", "swe-atlas-refactoring (refactor), claude-haiku-5.5: 52.9% (#16 of 28, 2026-11-06)", "swe-atlas-qna (analysis), claude-haiku-5.5: 62.1% (#18 of 28, 2026-11-06)", "swe-bench-pro-v2-hard, claude-haiku-4.5 (xhigh): 25.5% (#7 of 7, with Claude Code, 2026-09-22)", "vibe-code-bench, claude-haiku-5.5: 90.4% (#4 of 123, 2026-11-11)"],
-      "updated": "2026-11-11",
+      "tendencies": ["terminal-bench-4.1, claude-haiku-5.5 (max): 40% (#17 of 46, with Claude Code, 2026-10-07)", "swe-atlas-testwriting (test-writing), claude-haiku-5.5: 63.3% (#11 of 28, 2026-11-06)", "swe-atlas-refactoring (refactor), claude-haiku-5.5: 52.9% (#16 of 28, 2026-11-06)", "swe-atlas-qna (analysis), claude-haiku-5.5: 62.1% (#18 of 28, 2026-11-06)", "swe-bench-pro-v2-hard, claude-haiku-4.5 (xhigh): 25.5% (#7 of 7, with Claude Code, 2026-09-22)", "vibe-code-bench, claude-haiku-5.5: 90.4% (#4 of 124, 2026-11-11)"],
+      "updated": "2026-11-15",
       "sources": ["tbench", "seal", "vals", "lmarena-webdev", "livebench"],
       "facts": [
         {"text":"terminal-bench-4.1, claude-haiku-5.5 (max): 40% (#17 of 46, with Claude Code, 2026-10-07)","benchmark":"terminal-bench-4.1","model":"claude-haiku-5.5","effort":"max","score":40,"unit":"%","rank":17,"of":46,"harness":"claude","category":null,"date":"2026-10-07","source":"tbench"},
@@ -194,8 +194,8 @@
         {"text":"swe-atlas-refactoring (refactor), claude-haiku-5.5: 52.9% (#16 of 28, 2026-11-06)","benchmark":"swe-atlas-refactoring","model":"claude-haiku-5.5","score":52.9,"unit":"%","rank":16,"of":28,"harness":null,"category":"refactor","date":"2026-11-06","source":"seal"},
         {"text":"swe-atlas-qna (analysis), claude-haiku-5.5: 62.1% (#18 of 28, 2026-11-06)","benchmark":"swe-atlas-qna","model":"claude-haiku-5.5","score":62.1,"unit":"%","rank":18,"of":28,"harness":null,"category":"analysis","date":"2026-11-06","source":"seal"},
         {"text":"swe-bench-pro-v2-hard, claude-haiku-4.5 (xhigh): 25.5% (#7 of 7, with Claude Code, 2026-09-22)","benchmark":"swe-bench-pro-v2-hard","model":"claude-haiku-4.5","effort":"xhigh","score":25.5,"unit":"%","rank":7,"of":7,"harness":"claude","category":null,"date":"2026-09-22","source":"seal"},
-        {"text":"vibe-code-bench, claude-haiku-5.5: 90.4% (#4 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"claude-haiku-5.5","score":90.444,"unit":"%","rank":4,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"webdev-arena, claude-haiku-5.5 (high): 1593.4 elo (#36 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"claude-haiku-5.5","effort":"high","score":1593.4,"unit":"elo","rank":36,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
+        {"text":"vibe-code-bench, claude-haiku-5.5: 90.4% (#4 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"claude-haiku-5.5","score":90.444,"unit":"%","rank":4,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"webdev-arena, claude-haiku-5.5 (high): 1593.2 elo (#37 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"claude-haiku-5.5","effort":"high","score":1593.2,"unit":"elo","rank":37,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
         {"text":"livebench-long-agentic, claude-haiku-5.5: 47.9% (#11 of 35, 2026-11-06)","benchmark":"livebench-long-agentic","model":"claude-haiku-5.5","score":47.9,"unit":"%","rank":11,"of":35,"harness":null,"category":null,"date":"2026-11-06","source":"livebench"}
       ],
       "latest": {"id":"claude-haiku-5-5","date":"2026-10-07"}
@@ -205,7 +205,7 @@
       "match": "claude-fable|^fable$",
       "vendor": "anthropic",
       "tendencies": ["terminal-bench-4.1, claude-fable-5.2 (max): 65.8% (#1 of 46, with Claude Code, 2026-11-09)", "swe-atlas-qna (analysis), claude-fable-5.2: 83.9% (#1 of 28, 2026-11-11)", "swe-atlas-refactoring (refactor), claude-fable-5.2: 80% (#1 of 28, 2026-11-11)", "swe-atlas-testwriting (test-writing), claude-fable-5.1: 78.9% (#1 of 28, 2026-11-06)", "swe-bench-pro-v2-hard, claude-fable-5.1 (high): 92.2% (#2 of 7, with Claude Code, 2026-09-22)", "swe-bench-pro-v2, claude-fable-5.1 (high): 99.1% (#2 of 6, with Claude Code, 2026-10-07)"],
-      "updated": "2026-11-11",
+      "updated": "2026-11-15",
       "sources": ["tbench", "seal", "lmarena-webdev", "vals"],
       "facts": [
         {"text":"terminal-bench-4.1, claude-fable-5.2 (max): 65.8% (#1 of 46, with Claude Code, 2026-11-09)","benchmark":"terminal-bench-4.1","model":"claude-fable-5.2","effort":"max","score":65.76,"unit":"%","rank":1,"of":46,"harness":"claude","category":null,"date":"2026-11-09","source":"tbench"},
@@ -214,8 +214,8 @@
         {"text":"swe-atlas-testwriting (test-writing), claude-fable-5.1: 78.9% (#1 of 28, 2026-11-06)","benchmark":"swe-atlas-testwriting","model":"claude-fable-5.1","score":78.9,"unit":"%","rank":1,"of":28,"harness":null,"category":"test-writing","date":"2026-11-06","source":"seal"},
         {"text":"swe-bench-pro-v2-hard, claude-fable-5.1 (high): 92.2% (#2 of 7, with Claude Code, 2026-09-22)","benchmark":"swe-bench-pro-v2-hard","model":"claude-fable-5.1","effort":"high","score":92.2,"unit":"%","rank":2,"of":7,"harness":"claude","category":null,"date":"2026-09-22","source":"seal"},
         {"text":"swe-bench-pro-v2, claude-fable-5.1 (high): 99.1% (#2 of 6, with Claude Code, 2026-10-07)","benchmark":"swe-bench-pro-v2","model":"claude-fable-5.1","effort":"high","score":99.1,"unit":"%","rank":2,"of":6,"harness":"claude","category":null,"date":"2026-10-07","source":"seal"},
-        {"text":"webdev-arena, claude-fable-5.2 (xhigh): 1837.8 elo (#1 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"claude-fable-5.2","effort":"xhigh","score":1837.8,"unit":"elo","rank":1,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
-        {"text":"vibe-code-bench, claude-fable-5.2: 93.8% (#1 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"claude-fable-5.2","score":93.771,"unit":"%","rank":1,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
+        {"text":"webdev-arena, claude-fable-5.2 (xhigh): 1826 elo (#1 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"claude-fable-5.2","effort":"xhigh","score":1826,"unit":"elo","rank":1,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
+        {"text":"vibe-code-bench, claude-fable-5.2: 93.8% (#1 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"claude-fable-5.2","score":93.771,"unit":"%","rank":1,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
       ],
       "latest": {"id":"claude-fable-5-2","date":"2026-11-09"}
     },
@@ -223,18 +223,18 @@
       "id": "gemini-pro",
       "match": "gemini-[0-9.]+-pro|gemini-[0-9.]+-argon|gemini-4",
       "vendor": "google",
-      "tendencies": ["terminal-bench-4.1, gemini-4-carbon (high): 64.6% (#3 of 46, with Antigravity CLI, 2026-10-28)", "swe-atlas-testwriting (test-writing), gemini-4-argon: 77.8% (#2 of 28, 2026-11-06)", "swe-atlas-refactoring (refactor), gemini-4-argon: 67.1% (#5 of 28, 2026-11-06)", "swe-atlas-qna (analysis), gemini-4-carbon: 73.4% (#7 of 28, 2026-11-11)", "vibe-code-bench, gemini-4-argon: 91.9% (#3 of 123, 2026-11-11)", "webdev-arena, gemini-4-carbon (high): 1768.2 elo (#4 of 142, 2026-11-11)"],
-      "updated": "2026-11-15",
+      "tendencies": ["terminal-bench-4.1, gemini-4-carbon (high): 64.6% (#3 of 46, with Antigravity CLI, 2026-10-28)", "swe-atlas-testwriting (test-writing), gemini-4-argon: 77.8% (#2 of 28, 2026-11-06)", "swe-atlas-refactoring (refactor), gemini-4-argon: 67.1% (#5 of 28, 2026-11-06)", "swe-atlas-qna (analysis), gemini-4-carbon: 73.4% (#7 of 28, 2026-11-11)", "vibe-code-bench, gemini-4-argon: 91.9% (#3 of 124, 2026-11-11)", "webdev-arena, gemini-4-carbon (high): 1768.3 elo (#4 of 143, 2026-11-15)"],
+      "updated": "2026-11-16",
       "sources": ["tbench", "seal", "vals", "lmarena-webdev", "livebench", "epoch"],
       "facts": [
         {"text":"terminal-bench-4.1, gemini-4-carbon (high): 64.6% (#3 of 46, with Antigravity CLI, 2026-10-28)","benchmark":"terminal-bench-4.1","model":"gemini-4-carbon","effort":"high","score":64.55,"unit":"%","rank":3,"of":46,"harness":"agy","category":null,"date":"2026-10-28","source":"tbench"},
         {"text":"swe-atlas-testwriting (test-writing), gemini-4-argon: 77.8% (#2 of 28, 2026-11-06)","benchmark":"swe-atlas-testwriting","model":"gemini-4-argon","score":77.8,"unit":"%","rank":2,"of":28,"harness":null,"category":"test-writing","date":"2026-11-06","source":"seal"},
         {"text":"swe-atlas-refactoring (refactor), gemini-4-argon: 67.1% (#5 of 28, 2026-11-06)","benchmark":"swe-atlas-refactoring","model":"gemini-4-argon","score":67.1,"unit":"%","rank":5,"of":28,"harness":null,"category":"refactor","date":"2026-11-06","source":"seal"},
         {"text":"swe-atlas-qna (analysis), gemini-4-carbon: 73.4% (#7 of 28, 2026-11-11)","benchmark":"swe-atlas-qna","model":"gemini-4-carbon","score":73.4,"unit":"%","rank":7,"of":28,"harness":null,"category":"analysis","date":"2026-11-11","source":"seal"},
-        {"text":"vibe-code-bench, gemini-4-argon: 91.9% (#3 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"gemini-4-argon","score":91.906,"unit":"%","rank":3,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"webdev-arena, gemini-4-carbon (high): 1768.2 elo (#4 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"gemini-4-carbon","effort":"high","score":1768.2,"unit":"elo","rank":4,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
+        {"text":"vibe-code-bench, gemini-4-argon: 91.9% (#3 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"gemini-4-argon","score":91.906,"unit":"%","rank":3,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"webdev-arena, gemini-4-carbon (high): 1768.3 elo (#4 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"gemini-4-carbon","effort":"high","score":1768.3,"unit":"elo","rank":4,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
         {"text":"livebench-coding, gemini-4-carbon: 91% (#1 of 35, 2026-11-06)","benchmark":"livebench-coding","model":"gemini-4-carbon","score":91,"unit":"%","rank":1,"of":35,"harness":null,"category":null,"date":"2026-11-06","source":"livebench"},
-        {"text":"cursorbench, gemini-4-carbon (high): 60.4% (#1 of 21, 2026-11-15)","benchmark":"cursorbench","model":"gemini-4-carbon","effort":"high","score":60.4,"unit":"%","rank":1,"of":21,"harness":null,"category":null,"date":"2026-11-15","source":"epoch"}
+        {"text":"cursorbench, gemini-4-carbon (high): 60.4% (#1 of 21, 2026-11-16)","benchmark":"cursorbench","model":"gemini-4-carbon","effort":"high","score":60.4,"unit":"%","rank":1,"of":21,"harness":null,"category":null,"date":"2026-11-16","source":"epoch"}
       ],
       "latest": {"id":"gemini-4-hydrogen","date":"2026-11-12"}
     },
@@ -242,18 +242,18 @@
       "id": "gemini-flash",
       "match": "gemini-.*flash",
       "vendor": "google",
-      "tendencies": ["swe-atlas-testwriting (test-writing), gemini-3.8-flash: 71.1% (#6 of 28, 2026-11-06)", "swe-atlas-refactoring (refactor), gemini-3.8-flash: 55.7% (#10 of 28, 2026-11-06)", "swe-atlas-qna (analysis), gemini-3.8-flash: 45.2% (#25 of 28, 2026-11-06)", "webdev-arena, gemini-3.7-flash (high): 1588 elo (#38 of 142, 2026-11-11)", "vibe-code-bench, gemini-3.8-flash: 78.7% (#36 of 123, 2026-11-11)", "agent-arena-rank, gemini-3.8-flash (high): #20 of 57 (2026-11-11)"],
-      "updated": "2026-11-11",
+      "tendencies": ["swe-atlas-testwriting (test-writing), gemini-3.8-flash: 71.1% (#6 of 28, 2026-11-06)", "swe-atlas-refactoring (refactor), gemini-3.8-flash: 55.7% (#10 of 28, 2026-11-06)", "swe-atlas-qna (analysis), gemini-3.8-flash: 45.2% (#25 of 28, 2026-11-06)", "webdev-arena, gemini-3.7-flash (high): 1588.3 elo (#39 of 143, 2026-11-15)", "vibe-code-bench, gemini-3.8-flash: 78.7% (#37 of 124, 2026-11-11)", "agent-arena-rank, gemini-3.8-flash (high): #23 of 59 (2026-11-15)"],
+      "updated": "2026-11-15",
       "sources": ["seal", "lmarena-webdev", "vals", "lmarena-agent", "livebench"],
       "facts": [
         {"text":"swe-atlas-testwriting (test-writing), gemini-3.8-flash: 71.1% (#6 of 28, 2026-11-06)","benchmark":"swe-atlas-testwriting","model":"gemini-3.8-flash","score":71.1,"unit":"%","rank":6,"of":28,"harness":null,"category":"test-writing","date":"2026-11-06","source":"seal"},
         {"text":"swe-atlas-refactoring (refactor), gemini-3.8-flash: 55.7% (#10 of 28, 2026-11-06)","benchmark":"swe-atlas-refactoring","model":"gemini-3.8-flash","score":55.7,"unit":"%","rank":10,"of":28,"harness":null,"category":"refactor","date":"2026-11-06","source":"seal"},
         {"text":"swe-atlas-qna (analysis), gemini-3.8-flash: 45.2% (#25 of 28, 2026-11-06)","benchmark":"swe-atlas-qna","model":"gemini-3.8-flash","score":45.2,"unit":"%","rank":25,"of":28,"harness":null,"category":"analysis","date":"2026-11-06","source":"seal"},
-        {"text":"webdev-arena, gemini-3.7-flash (high): 1588 elo (#38 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"gemini-3.7-flash","effort":"high","score":1588,"unit":"elo","rank":38,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
-        {"text":"vibe-code-bench, gemini-3.8-flash: 78.7% (#36 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"gemini-3.8-flash","score":78.651,"unit":"%","rank":36,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"agent-arena-rank, gemini-3.8-flash (high): #20 of 57 (2026-11-11)","benchmark":"agent-arena-rank","model":"gemini-3.8-flash","effort":"high","score":null,"unit":null,"rank":20,"of":57,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-agent"},
+        {"text":"webdev-arena, gemini-3.7-flash (high): 1588.3 elo (#39 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"gemini-3.7-flash","effort":"high","score":1588.3,"unit":"elo","rank":39,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
+        {"text":"vibe-code-bench, gemini-3.8-flash: 78.7% (#37 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"gemini-3.8-flash","score":78.651,"unit":"%","rank":37,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"agent-arena-rank, gemini-3.8-flash (high): #23 of 59 (2026-11-15)","benchmark":"agent-arena-rank","model":"gemini-3.8-flash","effort":"high","score":null,"unit":null,"rank":23,"of":59,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-agent"},
         {"text":"livebench-coding, gemini-3.8-flash: 73.3% (#18 of 35, 2026-11-06)","benchmark":"livebench-coding","model":"gemini-3.8-flash","score":73.3,"unit":"%","rank":18,"of":35,"harness":null,"category":null,"date":"2026-11-06","source":"livebench"},
-        {"text":"vals-terminal-bench-4, gemini-3.8-flash: 19.7% (#37 of 63, 2026-11-11)","benchmark":"vals-terminal-bench-4","model":"gemini-3.8-flash","score":19.697,"unit":"%","rank":37,"of":63,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
+        {"text":"vals-terminal-bench-4, gemini-3.8-flash: 19.7% (#38 of 64, 2026-11-11)","benchmark":"vals-terminal-bench-4","model":"gemini-3.8-flash","score":19.697,"unit":"%","rank":38,"of":64,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
       ],
       "latest": {"id":"gemini-3.8-flash","date":"2026-09-02"}
     },
@@ -269,18 +269,18 @@
       "id": "qwen",
       "match": "qwen",
       "vendor": "alibaba",
-      "tendencies": ["swe-atlas-qna (analysis), qwen-3.8-max: 81.5% (#2 of 28, 2026-11-11)", "terminal-bench-4.1, qwen3.8-max-0902 (max): 27% (#25 of 46, with Claude Code, 2026-09-02)", "swe-atlas-testwriting (test-writing), qwen-3.8-max: 58.9% (#16 of 28, 2026-11-11)", "swe-atlas-refactoring (refactor), qwen-3.8-max: 52.9% (#16 of 28, 2026-11-11)", "webdev-arena, qwen3.8-max-0902: 1676.3 elo (#14 of 142, 2026-11-11)", "vals-terminal-bench-4, qwen3.8-max-internal: 38.9% (#19 of 63, 2026-11-11)"],
-      "updated": "2026-11-11",
-      "sources": ["seal", "tbench", "lmarena-webdev", "vals"],
+      "tendencies": ["swe-atlas-qna (analysis), qwen-3.8-max: 81.5% (#2 of 28, 2026-11-11)", "terminal-bench-4.1, qwen3.8-max-0902 (max): 27% (#25 of 46, with Claude Code, 2026-09-02)", "swe-atlas-testwriting (test-writing), qwen-3.8-max: 58.9% (#16 of 28, 2026-11-11)", "swe-atlas-refactoring (refactor), qwen-3.8-max: 52.9% (#16 of 28, 2026-11-11)", "webdev-arena, qwen4-max (xhigh): 1749.8 elo (#6 of 143, 2026-11-15)", "vibe-code-bench, qwen4-max: 86.7% (#15 of 124, 2026-11-11)"],
+      "updated": "2026-11-15",
+      "sources": ["seal", "tbench", "lmarena-webdev", "vals", "lmarena-agent"],
       "facts": [
         {"text":"swe-atlas-qna (analysis), qwen-3.8-max: 81.5% (#2 of 28, 2026-11-11)","benchmark":"swe-atlas-qna","model":"qwen-3.8-max","score":81.5,"unit":"%","rank":2,"of":28,"harness":null,"category":"analysis","date":"2026-11-11","source":"seal"},
         {"text":"terminal-bench-4.1, qwen3.8-max-0902 (max): 27% (#25 of 46, with Claude Code, 2026-09-02)","benchmark":"terminal-bench-4.1","model":"qwen3.8-max-0902","effort":"max","score":26.97,"unit":"%","rank":25,"of":46,"harness":"claude","category":null,"date":"2026-09-02","source":"tbench"},
         {"text":"swe-atlas-testwriting (test-writing), qwen-3.8-max: 58.9% (#16 of 28, 2026-11-11)","benchmark":"swe-atlas-testwriting","model":"qwen-3.8-max","score":58.9,"unit":"%","rank":16,"of":28,"harness":null,"category":"test-writing","date":"2026-11-11","source":"seal"},
         {"text":"swe-atlas-refactoring (refactor), qwen-3.8-max: 52.9% (#16 of 28, 2026-11-11)","benchmark":"swe-atlas-refactoring","model":"qwen-3.8-max","score":52.9,"unit":"%","rank":16,"of":28,"harness":null,"category":"refactor","date":"2026-11-11","source":"seal"},
-        {"text":"webdev-arena, qwen3.8-max-0902: 1676.3 elo (#14 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"qwen3.8-max-0902","score":1676.3,"unit":"elo","rank":14,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
-        {"text":"vals-terminal-bench-4, qwen3.8-max-internal: 38.9% (#19 of 63, 2026-11-11)","benchmark":"vals-terminal-bench-4","model":"qwen3.8-max-internal","score":38.889,"unit":"%","rank":19,"of":63,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"vibe-code-bench, qwen3.8-max-internal: 77.1% (#41 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"qwen3.8-max-internal","score":77.141,"unit":"%","rank":41,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"vals-index, qwen3.8-max-internal: 59% (#17 of 37, 2026-11-11)","benchmark":"vals-index","model":"qwen3.8-max-internal","score":59.045,"unit":"%","rank":17,"of":37,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
+        {"text":"webdev-arena, qwen4-max (xhigh): 1749.8 elo (#6 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"qwen4-max","effort":"xhigh","score":1749.8,"unit":"elo","rank":6,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
+        {"text":"vibe-code-bench, qwen4-max: 86.7% (#15 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"qwen4-max","score":86.658,"unit":"%","rank":15,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"agent-arena-rank, qwen4-max (xhigh): #12 of 59 (2026-11-15)","benchmark":"agent-arena-rank","model":"qwen4-max","effort":"xhigh","score":null,"unit":null,"rank":12,"of":59,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-agent"},
+        {"text":"vals-terminal-bench-4, qwen4-max: 48.5% (#15 of 64, 2026-11-11)","benchmark":"vals-terminal-bench-4","model":"qwen4-max","score":48.485,"unit":"%","rank":15,"of":64,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
       ],
       "latest": {"id":"qwen3.8-omni-flash","date":"2026-09-17"}
     },
@@ -288,18 +288,18 @@
       "id": "glm",
       "match": "glm",
       "vendor": "zhipu",
-      "tendencies": ["terminal-bench-4.1, glm-5.3 (max): 41.2% (#16 of 46, with Claude Code, 2026-08-14)", "swe-atlas-qna (analysis), glm-5.3: 70.2% (#12 of 28, 2026-11-11)", "swe-atlas-refactoring (refactor), glm-5.3: 48.6% (#19 of 28, 2026-11-11)", "swe-atlas-testwriting (test-writing), glm-5.3: 55.6% (#20 of 28, 2026-11-11)", "webdev-arena, glm-5.3 (max): 1622.5 elo (#28 of 142, 2026-11-11)", "vals-terminal-bench-4, glm-5.3: 38.9% (#19 of 63, 2026-11-11)"],
-      "updated": "2026-11-11",
+      "tendencies": ["terminal-bench-4.1, glm-5.3 (max): 41.2% (#16 of 46, with Claude Code, 2026-08-14)", "swe-atlas-qna (analysis), glm-5.3: 70.2% (#12 of 28, 2026-11-11)", "swe-atlas-refactoring (refactor), glm-5.3: 48.6% (#19 of 28, 2026-11-11)", "swe-atlas-testwriting (test-writing), glm-5.3: 55.6% (#20 of 28, 2026-11-11)", "webdev-arena, glm-5.3 (max): 1622.3 elo (#29 of 143, 2026-11-15)", "vals-terminal-bench-4, glm-5.3: 38.9% (#20 of 64, 2026-11-11)"],
+      "updated": "2026-11-15",
       "sources": ["tbench", "seal", "lmarena-webdev", "vals"],
       "facts": [
         {"text":"terminal-bench-4.1, glm-5.3 (max): 41.2% (#16 of 46, with Claude Code, 2026-08-14)","benchmark":"terminal-bench-4.1","model":"glm-5.3","effort":"max","score":41.21,"unit":"%","rank":16,"of":46,"harness":"claude","category":null,"date":"2026-08-14","source":"tbench"},
         {"text":"swe-atlas-qna (analysis), glm-5.3: 70.2% (#12 of 28, 2026-11-11)","benchmark":"swe-atlas-qna","model":"glm-5.3","score":70.2,"unit":"%","rank":12,"of":28,"harness":null,"category":"analysis","date":"2026-11-11","source":"seal"},
         {"text":"swe-atlas-refactoring (refactor), glm-5.3: 48.6% (#19 of 28, 2026-11-11)","benchmark":"swe-atlas-refactoring","model":"glm-5.3","score":48.6,"unit":"%","rank":19,"of":28,"harness":null,"category":"refactor","date":"2026-11-11","source":"seal"},
         {"text":"swe-atlas-testwriting (test-writing), glm-5.3: 55.6% (#20 of 28, 2026-11-11)","benchmark":"swe-atlas-testwriting","model":"glm-5.3","score":55.6,"unit":"%","rank":20,"of":28,"harness":null,"category":"test-writing","date":"2026-11-11","source":"seal"},
-        {"text":"webdev-arena, glm-5.3 (max): 1622.5 elo (#28 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"glm-5.3","effort":"max","score":1622.5,"unit":"elo","rank":28,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
-        {"text":"vals-terminal-bench-4, glm-5.3: 38.9% (#19 of 63, 2026-11-11)","benchmark":"vals-terminal-bench-4","model":"glm-5.3","score":38.889,"unit":"%","rank":19,"of":63,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"vibe-code-bench, glm-5.3: 78.1% (#38 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"glm-5.3","score":78.125,"unit":"%","rank":38,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"vals-index, glm-5.3: 59.8% (#15 of 37, 2026-11-11)","benchmark":"vals-index","model":"glm-5.3","score":59.847,"unit":"%","rank":15,"of":37,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
+        {"text":"webdev-arena, glm-5.3 (max): 1622.3 elo (#29 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"glm-5.3","effort":"max","score":1622.3,"unit":"elo","rank":29,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
+        {"text":"vals-terminal-bench-4, glm-5.3: 38.9% (#20 of 64, 2026-11-11)","benchmark":"vals-terminal-bench-4","model":"glm-5.3","score":38.889,"unit":"%","rank":20,"of":64,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"vibe-code-bench, glm-5.3: 78.1% (#39 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"glm-5.3","score":78.125,"unit":"%","rank":39,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"vals-index, glm-5.3: 59.8% (#16 of 38, 2026-11-15)","benchmark":"vals-index","model":"glm-5.3","score":59.847,"unit":"%","rank":16,"of":38,"harness":null,"category":null,"date":"2026-11-15","source":"vals"}
       ],
       "latest": {"id":"glm-5.3-flashx","date":"2026-09-18"}
     },
@@ -307,18 +307,18 @@
       "id": "kimi",
       "match": "kimi",
       "vendor": "moonshot",
-      "tendencies": ["terminal-bench-4.1, kimi-k3.1-pro (max): 59.7% (#7 of 46, with Claude Code, 2026-10-24)", "swe-atlas-testwriting (test-writing), kimi-k3: 63.3% (#11 of 28, 2026-11-06)", "swe-atlas-qna (analysis), kimi-k3.1-pro: 70.2% (#12 of 28, 2026-11-11)", "swe-atlas-refactoring (refactor), kimi-k3.1-pro: 54.3% (#12 of 28, 2026-11-11)", "vals-terminal-bench-4, kimi-k3.1-pro: 63.6% (#4 of 63, 2026-11-11)", "webdev-arena, kimi-k3.1-pro (max): 1687.2 elo (#11 of 142, 2026-11-11)"],
-      "updated": "2026-11-11",
+      "tendencies": ["terminal-bench-4.1, kimi-k3.1-pro (max): 59.7% (#7 of 46, with Claude Code, 2026-10-24)", "swe-atlas-testwriting (test-writing), kimi-k3: 63.3% (#11 of 28, 2026-11-06)", "swe-atlas-qna (analysis), kimi-k3.1-pro: 70.2% (#12 of 28, 2026-11-11)", "swe-atlas-refactoring (refactor), kimi-k3.1-pro: 54.3% (#12 of 28, 2026-11-11)", "vals-terminal-bench-4, kimi-k3.1-pro: 63.6% (#4 of 64, 2026-11-11)", "webdev-arena, kimi-k3.1-pro (max): 1686.2 elo (#12 of 143, 2026-11-15)"],
+      "updated": "2026-11-15",
       "sources": ["tbench", "seal", "vals", "lmarena-webdev", "lmarena-agent"],
       "facts": [
         {"text":"terminal-bench-4.1, kimi-k3.1-pro (max): 59.7% (#7 of 46, with Claude Code, 2026-10-24)","benchmark":"terminal-bench-4.1","model":"kimi-k3.1-pro","effort":"max","score":59.7,"unit":"%","rank":7,"of":46,"harness":"claude","category":null,"date":"2026-10-24","source":"tbench"},
         {"text":"swe-atlas-testwriting (test-writing), kimi-k3: 63.3% (#11 of 28, 2026-11-06)","benchmark":"swe-atlas-testwriting","model":"kimi-k3","score":63.3,"unit":"%","rank":11,"of":28,"harness":null,"category":"test-writing","date":"2026-11-06","source":"seal"},
         {"text":"swe-atlas-qna (analysis), kimi-k3.1-pro: 70.2% (#12 of 28, 2026-11-11)","benchmark":"swe-atlas-qna","model":"kimi-k3.1-pro","score":70.2,"unit":"%","rank":12,"of":28,"harness":null,"category":"analysis","date":"2026-11-11","source":"seal"},
         {"text":"swe-atlas-refactoring (refactor), kimi-k3.1-pro: 54.3% (#12 of 28, 2026-11-11)","benchmark":"swe-atlas-refactoring","model":"kimi-k3.1-pro","score":54.3,"unit":"%","rank":12,"of":28,"harness":null,"category":"refactor","date":"2026-11-11","source":"seal"},
-        {"text":"vals-terminal-bench-4, kimi-k3.1-pro: 63.6% (#4 of 63, 2026-11-11)","benchmark":"vals-terminal-bench-4","model":"kimi-k3.1-pro","score":63.636,"unit":"%","rank":4,"of":63,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"webdev-arena, kimi-k3.1-pro (max): 1687.2 elo (#11 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"kimi-k3.1-pro","effort":"max","score":1687.2,"unit":"elo","rank":11,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
-        {"text":"vibe-code-bench, kimi-k3: 85% (#19 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"kimi-k3","score":84.968,"unit":"%","rank":19,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"agent-arena-rank, kimi-k3.1-pro (max): #15 of 57 (2026-11-11)","benchmark":"agent-arena-rank","model":"kimi-k3.1-pro","effort":"max","score":null,"unit":null,"rank":15,"of":57,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-agent"}
+        {"text":"vals-terminal-bench-4, kimi-k3.1-pro: 63.6% (#4 of 64, 2026-11-11)","benchmark":"vals-terminal-bench-4","model":"kimi-k3.1-pro","score":63.636,"unit":"%","rank":4,"of":64,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"webdev-arena, kimi-k3.1-pro (max): 1686.2 elo (#12 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"kimi-k3.1-pro","effort":"max","score":1686.2,"unit":"elo","rank":12,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
+        {"text":"vibe-code-bench, kimi-k3: 85% (#20 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"kimi-k3","score":84.968,"unit":"%","rank":20,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"agent-arena-rank, kimi-k3.1-pro (max): #17 of 59 (2026-11-15)","benchmark":"agent-arena-rank","model":"kimi-k3.1-pro","effort":"max","score":null,"unit":null,"rank":17,"of":59,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-agent"}
       ],
       "latest": {"id":"kimi-k3.1-pro","date":"2026-10-23"}
     },
@@ -326,18 +326,18 @@
       "id": "deepseek",
       "match": "deepseek",
       "vendor": "deepseek",
-      "tendencies": ["swe-atlas-qna (analysis), deepseek-v4.1-flash: 71% (#10 of 28, 2026-11-06)", "terminal-bench-4.1, deepseek-v4.1-flash-1017 (max): 38.5% (#19 of 46, with Claude Code, 2026-10-17)", "swe-atlas-refactoring (refactor), deepseek-v4.1-flash: 54.3% (#12 of 28, 2026-11-06)", "swe-atlas-testwriting (test-writing), deepseek-v4.1-flash: 61.1% (#14 of 28, 2026-11-06)", "vibe-code-bench, deepseek-v4.1-flash-1017: 87.7% (#14 of 123, 2026-11-11)", "webdev-arena, deepseek-v4.1-flash-20261017 (max): 1663.7 elo (#17 of 142, 2026-11-11)"],
-      "updated": "2026-11-11",
+      "tendencies": ["swe-atlas-qna (analysis), deepseek-v4.1-flash: 71% (#10 of 28, 2026-11-06)", "terminal-bench-4.1, deepseek-v4.1-flash-1017 (max): 38.5% (#19 of 46, with Claude Code, 2026-10-17)", "swe-atlas-refactoring (refactor), deepseek-v4.1-flash: 54.3% (#12 of 28, 2026-11-06)", "swe-atlas-testwriting (test-writing), deepseek-v4.1-flash: 61.1% (#14 of 28, 2026-11-06)", "vibe-code-bench, deepseek-v4.1-flash-1017: 87.7% (#14 of 124, 2026-11-11)", "webdev-arena, deepseek-v4.1-flash-20261017 (max): 1661.4 elo (#18 of 143, 2026-11-15)"],
+      "updated": "2026-11-15",
       "sources": ["seal", "tbench", "vals", "lmarena-webdev", "livebench"],
       "facts": [
         {"text":"swe-atlas-qna (analysis), deepseek-v4.1-flash: 71% (#10 of 28, 2026-11-06)","benchmark":"swe-atlas-qna","model":"deepseek-v4.1-flash","score":71,"unit":"%","rank":10,"of":28,"harness":null,"category":"analysis","date":"2026-11-06","source":"seal"},
         {"text":"terminal-bench-4.1, deepseek-v4.1-flash-1017 (max): 38.5% (#19 of 46, with Claude Code, 2026-10-17)","benchmark":"terminal-bench-4.1","model":"deepseek-v4.1-flash-1017","effort":"max","score":38.48,"unit":"%","rank":19,"of":46,"harness":"claude","category":null,"date":"2026-10-17","source":"tbench"},
         {"text":"swe-atlas-refactoring (refactor), deepseek-v4.1-flash: 54.3% (#12 of 28, 2026-11-06)","benchmark":"swe-atlas-refactoring","model":"deepseek-v4.1-flash","score":54.3,"unit":"%","rank":12,"of":28,"harness":null,"category":"refactor","date":"2026-11-06","source":"seal"},
         {"text":"swe-atlas-testwriting (test-writing), deepseek-v4.1-flash: 61.1% (#14 of 28, 2026-11-06)","benchmark":"swe-atlas-testwriting","model":"deepseek-v4.1-flash","score":61.1,"unit":"%","rank":14,"of":28,"harness":null,"category":"test-writing","date":"2026-11-06","source":"seal"},
-        {"text":"vibe-code-bench, deepseek-v4.1-flash-1017: 87.7% (#14 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"deepseek-v4.1-flash-1017","score":87.73,"unit":"%","rank":14,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"webdev-arena, deepseek-v4.1-flash-20261017 (max): 1663.7 elo (#17 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"deepseek-v4.1-flash-20261017","effort":"max","score":1663.7,"unit":"elo","rank":17,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
+        {"text":"vibe-code-bench, deepseek-v4.1-flash-1017: 87.7% (#14 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"deepseek-v4.1-flash-1017","score":87.73,"unit":"%","rank":14,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"webdev-arena, deepseek-v4.1-flash-20261017 (max): 1661.4 elo (#18 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"deepseek-v4.1-flash-20261017","effort":"max","score":1661.4,"unit":"elo","rank":18,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
         {"text":"livebench-coding, deepseek-v4.1-flash-1017: 80.4% (#10 of 35, 2026-11-06)","benchmark":"livebench-coding","model":"deepseek-v4.1-flash-1017","score":80.4,"unit":"%","rank":10,"of":35,"harness":null,"category":null,"date":"2026-11-06","source":"livebench"},
-        {"text":"vals-index, deepseek-v4.1-flash-1017: 61.3% (#12 of 37, 2026-11-11)","benchmark":"vals-index","model":"deepseek-v4.1-flash-1017","score":61.257,"unit":"%","rank":12,"of":37,"harness":null,"category":null,"date":"2026-11-11","source":"vals"}
+        {"text":"vals-index, deepseek-v4.1-flash-1017: 61.3% (#13 of 38, 2026-11-15)","benchmark":"vals-index","model":"deepseek-v4.1-flash-1017","score":61.257,"unit":"%","rank":13,"of":38,"harness":null,"category":null,"date":"2026-11-15","source":"vals"}
       ],
       "latest": {"id":"deepseek-flash","date":"2026-10-17"}
     },
@@ -345,16 +345,16 @@
       "id": "grok",
       "match": "grok",
       "vendor": "xai",
-      "tendencies": ["swe-atlas-qna (analysis), grok-4.7: 73.4% (#7 of 28, 2026-11-06)", "swe-atlas-testwriting (test-writing), grok-4.7: 64.4% (#10 of 28, 2026-11-06)", "swe-atlas-refactoring (refactor), grok-4.7: 48.6% (#19 of 28, 2026-11-06)", "vibe-code-bench, grok-4.7: 86.2% (#15 of 123, 2026-11-11)", "webdev-arena, grok-4.7 (xhigh): 1640.7 elo (#22 of 142, 2026-11-11)", "agent-arena-rank, grok-4.7 (xhigh): #17 of 57 (2026-11-11)"],
-      "updated": "2026-11-11",
+      "tendencies": ["swe-atlas-qna (analysis), grok-4.7: 73.4% (#7 of 28, 2026-11-06)", "swe-atlas-testwriting (test-writing), grok-4.7: 64.4% (#10 of 28, 2026-11-06)", "swe-atlas-refactoring (refactor), grok-4.7: 48.6% (#19 of 28, 2026-11-06)", "vibe-code-bench, grok-4.7: 86.2% (#16 of 124, 2026-11-11)", "webdev-arena, grok-4.7 (xhigh): 1640.1 elo (#23 of 143, 2026-11-15)", "agent-arena-rank, grok-4.7 (xhigh): #20 of 59 (2026-11-15)"],
+      "updated": "2026-11-15",
       "sources": ["seal", "vals", "lmarena-webdev", "lmarena-agent", "tbench", "livebench"],
       "facts": [
         {"text":"swe-atlas-qna (analysis), grok-4.7: 73.4% (#7 of 28, 2026-11-06)","benchmark":"swe-atlas-qna","model":"grok-4.7","score":73.4,"unit":"%","rank":7,"of":28,"harness":null,"category":"analysis","date":"2026-11-06","source":"seal"},
         {"text":"swe-atlas-testwriting (test-writing), grok-4.7: 64.4% (#10 of 28, 2026-11-06)","benchmark":"swe-atlas-testwriting","model":"grok-4.7","score":64.4,"unit":"%","rank":10,"of":28,"harness":null,"category":"test-writing","date":"2026-11-06","source":"seal"},
         {"text":"swe-atlas-refactoring (refactor), grok-4.7: 48.6% (#19 of 28, 2026-11-06)","benchmark":"swe-atlas-refactoring","model":"grok-4.7","score":48.6,"unit":"%","rank":19,"of":28,"harness":null,"category":"refactor","date":"2026-11-06","source":"seal"},
-        {"text":"vibe-code-bench, grok-4.7: 86.2% (#15 of 123, 2026-11-11)","benchmark":"vibe-code-bench","model":"grok-4.7","score":86.175,"unit":"%","rank":15,"of":123,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
-        {"text":"webdev-arena, grok-4.7 (xhigh): 1640.7 elo (#22 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"grok-4.7","effort":"xhigh","score":1640.7,"unit":"elo","rank":22,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
-        {"text":"agent-arena-rank, grok-4.7 (xhigh): #17 of 57 (2026-11-11)","benchmark":"agent-arena-rank","model":"grok-4.7","effort":"xhigh","score":null,"unit":null,"rank":17,"of":57,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-agent"},
+        {"text":"vibe-code-bench, grok-4.7: 86.2% (#16 of 124, 2026-11-11)","benchmark":"vibe-code-bench","model":"grok-4.7","score":86.175,"unit":"%","rank":16,"of":124,"harness":null,"category":null,"date":"2026-11-11","source":"vals"},
+        {"text":"webdev-arena, grok-4.7 (xhigh): 1640.1 elo (#23 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"grok-4.7","effort":"xhigh","score":1640.1,"unit":"elo","rank":23,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
+        {"text":"agent-arena-rank, grok-4.7 (xhigh): #20 of 59 (2026-11-15)","benchmark":"agent-arena-rank","model":"grok-4.7","effort":"xhigh","score":null,"unit":null,"rank":20,"of":59,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-agent"},
         {"text":"terminal-bench-4.1, grok-4.7 (xhigh): 38.8% (#18 of 46, 2026-09-21)","benchmark":"terminal-bench-4.1","model":"grok-4.7","effort":"xhigh","score":38.79,"unit":"%","rank":18,"of":46,"harness":null,"category":null,"date":"2026-09-21","source":"tbench"},
         {"text":"livebench-long-agentic, grok-4.7: 45.3% (#14 of 35, 2026-11-06)","benchmark":"livebench-long-agentic","model":"grok-4.7","score":45.3,"unit":"%","rank":14,"of":35,"harness":null,"category":null,"date":"2026-11-06","source":"livebench"}
       ],
@@ -364,12 +364,12 @@
       "id": "gemma",
       "vendor": "google",
       "match": "gemma",
-      "updated": "2026-11-11",
-      "tendencies": ["webdev-arena, gemma-4-31b: 1369.9 elo (#105 of 142, 2026-11-11)", "livebench-coding, gemma-4-31b: 20.3% (#35 of 35, 2026-11-06)", "livebench-long-agentic, gemma-4-31b: 8.5% (#35 of 35, 2026-11-06)"],
+      "updated": "2026-11-15",
+      "tendencies": ["webdev-arena, gemma-4-31b: 1370.3 elo (#106 of 143, 2026-11-15)", "livebench-coding, gemma-4-31b: 20.3% (#35 of 35, 2026-11-06)", "livebench-long-agentic, gemma-4-31b: 8.5% (#35 of 35, 2026-11-06)"],
       "sources": ["lmarena-webdev", "livebench"],
       "auto": true,
       "facts": [
-        {"text":"webdev-arena, gemma-4-31b: 1369.9 elo (#105 of 142, 2026-11-11)","benchmark":"webdev-arena","model":"gemma-4-31b","score":1369.9,"unit":"elo","rank":105,"of":142,"harness":null,"category":null,"date":"2026-11-11","source":"lmarena-webdev"},
+        {"text":"webdev-arena, gemma-4-31b: 1370.3 elo (#106 of 143, 2026-11-15)","benchmark":"webdev-arena","model":"gemma-4-31b","score":1370.3,"unit":"elo","rank":106,"of":143,"harness":null,"category":null,"date":"2026-11-15","source":"lmarena-webdev"},
         {"text":"livebench-coding, gemma-4-31b: 20.3% (#35 of 35, 2026-11-06)","benchmark":"livebench-coding","model":"gemma-4-31b","score":20.3,"unit":"%","rank":35,"of":35,"harness":null,"category":null,"date":"2026-11-06","source":"livebench"},
         {"text":"livebench-long-agentic, gemma-4-31b: 8.5% (#35 of 35, 2026-11-06)","benchmark":"livebench-long-agentic","model":"gemma-4-31b","score":8.5,"unit":"%","rank":35,"of":35,"harness":null,"category":null,"date":"2026-11-06","source":"livebench"}
       ],
@@ -377,14 +377,14 @@
     }
   ],
   "sourceMeta": {
-    "lmarena-webdev": {"title":"LMArena WebDev Arena","kind":"data","licence":"CC-BY-4.0","ttlDays":45,"newest":"2026-11-11","checked":"2026-11-15","ok":true},
-    "lmarena-agent": {"title":"LMArena Agent Arena","kind":"data","licence":"CC-BY-4.0","ttlDays":45,"newest":"2026-11-11","checked":"2026-11-15","ok":true},
-    "epoch": {"title":"Epoch AI benchmarking hub","kind":"data","licence":"CC-BY-4.0","ttlDays":45,"newest":"2026-11-15","checked":"2026-11-15","ok":true},
-    "livebench": {"title":"LiveBench 2.0","kind":"data","licence":"none stated (site data)","ttlDays":45,"newest":"2026-11-06","checked":"2026-11-15","ok":true},
-    "tbench": {"title":"Terminal-Bench leaderboard","kind":"html","licence":"Apache-2.0 (repository); site data, no separate terms","ttlDays":45,"newest":"2026-11-14","checked":"2026-11-15","ok":true},
-    "vals": {"title":"Vals AI benchmarks","kind":"html","licence":"none stated (public site; robots.txt allows the benchmark pages)","ttlDays":45,"newest":"2026-11-11","checked":"2026-11-15","ok":true},
-    "seal": {"title":"Scale SEAL leaderboards","kind":"html","licence":"none stated (scale.com terms of use)","ttlDays":45,"newest":"2026-11-11","checked":"2026-11-15","ok":true},
-    "npm": {"title":"npm registry (harness releases)","kind":"data","licence":"public package metadata","ttlDays":30,"newest":"2026-11-13","checked":"2026-11-15","ok":true},
-    "models-dev": {"title":"models.dev model catalog","kind":"data","licence":"MIT","ttlDays":30,"newest":"2026-11-12","checked":"2026-11-15","ok":true}
+    "lmarena-webdev": {"title":"LMArena WebDev Arena","kind":"data","licence":"CC-BY-4.0","ttlDays":45,"newest":"2026-11-15","checked":"2026-11-16","ok":true},
+    "lmarena-agent": {"title":"LMArena Agent Arena","kind":"data","licence":"CC-BY-4.0","ttlDays":45,"newest":"2026-11-15","checked":"2026-11-16","ok":true},
+    "epoch": {"title":"Epoch AI benchmarking hub","kind":"data","licence":"CC-BY-4.0","ttlDays":45,"newest":"2026-11-16","checked":"2026-11-16","ok":true},
+    "livebench": {"title":"LiveBench 2.0","kind":"data","licence":"none stated (site data)","ttlDays":45,"newest":"2026-11-06","checked":"2026-11-16","ok":true},
+    "tbench": {"title":"Terminal-Bench leaderboard","kind":"html","licence":"Apache-2.0 (repository); site data, no separate terms","ttlDays":45,"newest":"2026-11-14","checked":"2026-11-16","ok":true},
+    "vals": {"title":"Vals AI benchmarks","kind":"html","licence":"none stated (public site; robots.txt allows the benchmark pages)","ttlDays":45,"newest":"2026-11-15","checked":"2026-11-16","ok":true},
+    "seal": {"title":"Scale SEAL leaderboards","kind":"html","licence":"none stated (scale.com terms of use)","ttlDays":45,"newest":"2026-11-11","checked":"2026-11-16","ok":false},
+    "npm": {"title":"npm registry (harness releases)","kind":"data","licence":"public package metadata","ttlDays":30,"newest":"2026-11-13","checked":"2026-11-16","ok":true},
+    "models-dev": {"title":"models.dev model catalog","kind":"data","licence":"MIT","ttlDays":30,"newest":"2026-11-12","checked":"2026-11-16","ok":true}
   }
 }
