@@ -119,7 +119,7 @@ Answer everything in the terminal of the leader, with short replies such as `1` 
 
 Workers write their reports to `.foreman/` inside their own worktree; foreman adds `.foreman/` to the repository's `.git/info/exclude`, so reports never show up in `git status` or a commit.
 
-If a worker asks for permission, the leader asks you once whether you answer such questions yourself or let it answer on your behalf. It never approves a push or a pull request. In auto mode claude workers get `--permission-mode auto` (with `git push` and `gh` denied), opencode `--auto`, and agy `--dangerously-skip-permissions`, because agy's own `--mode auto` still asks before every shell command; the workers run in foreman's own worktrees, which have the push guard.
+If a worker asks for permission, the leader asks you once whether you answer such questions yourself or let it answer on your behalf. It never approves a push or a pull request. In auto mode claude workers get `--permission-mode auto` (with `git push` and `gh` denied), codex `--ask-for-approval never` in a `workspace-write` sandbox without network, gemini `--approval-mode yolo`, opencode `--auto`, and agy `--dangerously-skip-permissions`, because agy's own `--mode auto` still asks before every shell command. When you choose auto before the start, the leader starts in its auto mode too, and every worker of that task gets auto mode even if the leader leaves out `--auto`. The workers run in foreman's own worktrees, which have the push guard; for agy, opencode and gemini it is the only thing that blocks a push.
 
 ## Choosing agents
 
