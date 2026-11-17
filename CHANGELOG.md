@@ -4,6 +4,15 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-11-17
+
+### Fixed
+
+- Prompts sent to codex, opencode, agy and pi are submitted on their own: foreman presses enter again when the text or a `[Pasted ...]` placeholder is still in the input, up to 3 times, and never into a question on screen. This covers the leader's first prompt and every `foreman prompt`.
+- `foreman prompt` says when a prompt may not have been submitted and how to press enter with `foreman keys`.
+- Choosing auto before the start now starts the leader in its auto mode too, and every worker of the task gets auto mode even when `--auto` is left out of a later `spawn` or `respawn`.
+- Codex workers in auto mode no longer ask: they get `--ask-for-approval never` in a `workspace-write` sandbox without network, with the repository's `.git` writable for commits. Gemini workers get `--approval-mode yolo`.
+
 ## [0.13.1] - 2026-11-13
 
 ### Fixed
@@ -240,7 +249,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.2...HEAD
+[0.13.2]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.11.0...v0.12.0
