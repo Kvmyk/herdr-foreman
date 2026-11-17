@@ -110,7 +110,8 @@ export function runOps(deps) {
       const res = await respawnWorker({
         run, herdr: createBackend(backend, deps), spec, pane: callerPane(backend, deps.env ?? {}), newTab, effort, full,
         // The user's choice about permission questions holds for the whole task.
-        auto: auto || Boolean(run.workers.find((w) => w.name === name)?.auto),
+        auto: auto || run.auto === true || Boolean(run.workers.find((w) => w.name === name)?.auto),
+        gitDir: await createGit({ run: deps.run }).commonDir(run.repo).catch(() => null),
         config: loadConfig(io), exists: deps.exists, now: deps.now,
       });
       noteRun(task, (r) => ({ workers: r.workers.map((w) => (w.name === res.worker.name ? res.worker : w)) }));

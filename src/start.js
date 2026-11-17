@@ -3,11 +3,11 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { slugify, uniqueSlug } from './runs.js';
-import { HERDR_KINDS, PROBES } from './inventory/kinds.js';
+import { HERDR_KINDS, PROBES, autoArgsOf } from './inventory/kinds.js';
 import { EXAMPLE, resolveMentions } from './task.js';
 import { classifyScreen, describeBlocked } from './blocked.js';
 import { screenTail } from './wait.js';
-import { isInside, taskFile as taskPath } from './history.js';
+import { isInside, taskFile as taskPath, autoFile } from './history.js';
 import { pathKey } from './pathkey.js';
 import { prefsText } from './start-prefs.js';
 import { layoutHint } from './layout.js';
@@ -165,7 +165,19 @@ export async function startForeman({
   }
   const prompt = fixedPrompt ?? buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile, prefs });
   const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];
-  const args = [...lean, ...(config.leaderArgs ?? [])];
+  // The user chose auto-answer: the task keeps that choice (spawn reads it), and the leader itself
+  // starts in its auto mode, so its foreman and git commands do not ask either. A kind without an
+  // auto mode just asks as before. A sandboxed leader (codex) may also write foreman's own folder.
+  let autoArgs = [];
+  if (prefs.autoAnswer) {
+    const dirs = [await git.commonDir?.(repo).catch(() => null), paths.home ?? path.dirname(paths.runs)].filter(Boolean);
+    autoArgs = autoArgsOf(PROBES[config.leader], { dirs }) ?? [];
+    try {
+      mkdir?.(path.dirname(autoFile(paths, slug)), { recursive: true });
+      writeFile?.(autoFile(paths, slug), 'auto\n');
+    } catch { /* the leader is still told to add --auto */ }
+  }
+  const args = [...lean, ...autoArgs, ...(config.leaderArgs ?? [])];
   progress(`Starting ${config.leader}, the lead agent (up to ${Math.round((config.startTimeoutMs ?? 0) / 1000)}s)...`);
   // How wide the terminal the task was typed in is: spawn reads the hint from
   // the leader's labels and gives workers tabs of their own on a narrow screen.
@@ -191,7 +203,7 @@ export async function startForeman({
     ready = answer === 'ready';
   }
   if (ready) {
-    await herdr.agentPrompt(leader, prompt);
+    await herdr.agentPrompt(leader, prompt, { kind: config.leader });
     message = `Leader "${leader}" (${config.leader}) started in pane ${paneId} for task "${slug}".`;
   } else {
     const backendFlag = app && !inside ? ' --backend app' : '';

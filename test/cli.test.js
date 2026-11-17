@@ -316,8 +316,9 @@ test('prompt goes through the backend of the run; read and keys follow the termi
   assert.equal(await main(['prompt', '--task', 'fix-login', 'w1', 'go'], h.deps), 0);
   assert.equal(await main(['read', '--task', 'other', 'w1'], h.deps), 0);
   assert.equal(await main(['keys', '--task', 'other', '--backend', 'app', 'w1', 'esc'], h.deps), 0);
-  // After a message or keys the app backend looks once whether foreman pinned the terminal (hc get).
-  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'send'], ['hc', 'get'], ['hc', 'read'], ['herdr', 'agent'], ['hc', 'keys'], ['hc', 'get']]);
+  // After a message or keys the app backend looks once whether foreman pinned the terminal (hc get);
+  // after a message it also asks hc whether the agent went busy (the second get).
+  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'send'], ['hc', 'get'], ['hc', 'get'], ['hc', 'read'], ['herdr', 'agent'], ['hc', 'keys'], ['hc', 'get']]);
 });
 
 test('close-leader in the Herdr app ends the calling hc terminal', async () => {
@@ -692,4 +693,14 @@ test('foreman shell-hook [on|off]: a command on its own; the answer is printed, 
   assert.equal(await main(['shell-hook', 'off'], h.deps), 1);
   assert.equal(await main(['shell-hook'], h.deps), 0);
   assert.deepEqual(asked, [true, false, undefined]);
+});
+
+test('prompt uses the worker\'s kind from the run and says how to finish a prompt that was not submitted', async () => {
+  const run = fakeRun([[/^hc send/, { stdout: '{"turn":1}' }], [/^hc get/, { stdout: '{"status":"idle"}' }], [/^hc keys/, { stdout: '{}' }], [/^hc read/, { stdout: '› [Pasted Content 900 chars]\n  100% context left' }]]);
+  const files = { [path.join('/s/runs', 'fix-login.json')]: JSON.stringify({ task: 'fix-login', backend: 'app', workers: [{ name: 'w1', kind: 'codex' }] }) };
+  const h = harness({}, { files, deps: { run, which: () => null, exists: () => false, env: {}, sleep: async () => {}, writeFile: () => {}, mkdir: () => {}, now: () => 1 } });
+  assert.equal(await main(['prompt', '--task', 'fix-login', 'w1', 'go'], h.deps), 0);
+  // codex: enter is pressed again until the tries run out.
+  assert.equal(run.calls.filter((c) => c.args[0] === 'keys').length, 3);
+  assert.match(h.out(), /sent to w1, not submitted: .*foreman keys --task fix-login w1 enter/);
 });

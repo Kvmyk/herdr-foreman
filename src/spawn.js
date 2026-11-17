@@ -8,13 +8,14 @@
 // layout "grid") the app lays them out. Workers are started as the leader's
 // children, so every Herdr client lists them under it.
 import path from 'node:path';
-import { HERDR_KINDS, PROBES, EFFORT_LEVELS } from './inventory/kinds.js';
+import { HERDR_KINDS, PROBES, EFFORT_LEVELS, autoArgsOf } from './inventory/kinds.js';
 import { planPanes, chooseLayout, MAX_BESIDE_LEADER } from './layout.js';
 import { checkStartFlags, flagsOf } from './startflags.js';
 import { classifyScreen, describeBlocked } from './blocked.js';
 import { recordStartResults } from './startfail.js';
 import { screenTail } from './wait.js';
 import { worktreeRoot, saveRun, loadRun } from './runs.js';
+import { readAuto } from './history.js';
 import { fail } from './errors.js';
 
 export const SPEC_PATTERN = /^([a-z][a-z0-9_-]{0,31})=([a-z][a-z0-9-]*)(?::(.+))?$/;
@@ -32,7 +33,7 @@ export function parseSpec(s) {
 
 // The command-line arguments a worker's agent starts with (model, effort,
 // auto mode, lean start), and warnings for what its kind cannot take.
-export function agentArgs({ name, kind, model = null, effort = null, auto = false, full = false, config }) {
+export function agentArgs({ name, kind, model = null, effort = null, auto = false, full = false, config, dirs = [] }) {
   const probe = PROBES[kind];
   const args = [];
   const warnings = [];
@@ -44,8 +45,9 @@ export function agentArgs({ name, kind, model = null, effort = null, auto = fals
   else if (effort) warnings.push(`no effort setting known for ${kind}; ${name} uses its default effort`);
   // Lean start: fewer tool definitions re-sent on every turn; the user's skills stay.
   // --full keeps MCP servers and all tools, e.g. for a worker that tests a web app in the browser.
-  if (auto && probe?.autoArgs) {
-    args.push(...probe.autoArgs);
+  const autoArgs = auto ? autoArgsOf(probe, { dirs }) : null;
+  if (autoArgs) {
+    args.push(...autoArgs);
     isAuto = true;
   }
   else if (auto) warnings.push(`no auto-approve mode known for ${kind}; ${name} may still ask for permission`);
@@ -226,6 +228,9 @@ export async function spawnWorkers({
     const where = existing.backend === 'app' ? 'the Herdr app' : 'herdr';
     throw fail('USAGE', `task "${task}" runs its workers in ${where}; run foreman spawn from there`);
   }
+  // The user's choice about permission questions holds for the whole task: foreman start leaves it
+  // behind, and the run keeps it, so a leader that forgets --auto still gets auto workers.
+  auto = auto || existing?.auto === true || readAuto(task, { paths, readFile });
   const warnings = [];
   // A run keeps the layout of its first spawn. That spawn looks at the
   // leader's terminal (the hint start left in its labels, its width now) and
@@ -315,9 +320,11 @@ export async function spawnWorkers({
   const setup = prepare ? await prepare(workers) : { results: [], warnings: [] };
   warnings.push(...setup.warnings);
 
+  // Sandboxed agents (codex) need the repository's .git writable to commit in a worktree.
+  const gitDirs = auto ? [await git.commonDir(repo).catch(() => null)].filter(Boolean) : [];
   const argsOf = new Map();
   const startArgs = workers.map((w) => {
-    const start = agentArgs({ name: w.name, kind: w.kind, model: w.model, effort, auto, full, config });
+    const start = agentArgs({ name: w.name, kind: w.kind, model: w.model, effort, auto, full, config, dirs: gitDirs });
     w.auto = start.auto;
     warnings.push(...start.warnings);
     argsOf.set(w.kind, [...new Set([...(argsOf.get(w.kind) ?? []), ...flagsOf(start.args)])]);
@@ -393,6 +400,7 @@ ${screen}`;
     updatedAt: startedAt,
     phase: existing?.phase ?? 'spawned',
     ownsWorktreeConfig,
+    ...(auto ? { auto: true } : {}),
     workers: [
       ...(existing?.workers ?? []),
       ...workers.map(({ name, kind, model, auto = false, paneId, worktree, branch, reportDir }) => ({ name, kind, model, auto, paneId, worktree, branch, reportDir, startedAt })),

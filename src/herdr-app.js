@@ -6,7 +6,7 @@
 // pane id. Failures become HerdrError with hc's error kind as code.
 import { randomBytes } from 'node:crypto';
 import { HerdrError, realSleep, sendKeys, submitIfStuck } from './herdr.js';
-import { appArgv } from './inventory/kinds.js';
+import { appArgv, submitStrategy } from './inventory/kinds.js';
 import { appStackSteps } from './layout.js';
 
 function parseJson(text) {
@@ -339,12 +339,18 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     // hc refuses to type into a blocked agent: answer its question with keys first.
     // A message that went in means nobody is waited for there any more (the
     // person may have answered in the terminal itself), so foreman's pin comes off.
-    async agentPrompt(target, text) {
+    // kind picks how the prompt is made sure to be submitted (submitStrategy):
+    // after a settle delay enter is pressed again while the text sits in the
+    // input. hc's status only counts when it says working or blocked: kinds
+    // that send no status reports always look idle.
+    async agentPrompt(target, text, { kind = null } = {}) {
       await call('send', [target, '--', text]);
       await this.answered(target);
-      await submitIfStuck({
-        read: () => this.agentRead(target), press: () => call('keys', [target, 'enter']), sleep, text,
+      const submitted = await submitIfStuck({
+        read: () => this.agentRead(target), press: () => call('keys', [target, 'enter']), sleep, text, kind,
+        status: async () => (submitStrategy(kind).wait ? (await call('get', [target]))?.status ?? null : null),
       });
+      return { submitted };
     },
 
     // Keys answer a question, so a pin foreman set on the terminal comes off.
