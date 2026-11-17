@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHerdr, HerdrError } from '../src/herdr.js';
+import { createHerdr, HerdrError, promptStuck, submitIfStuck } from '../src/herdr.js';
+import { submitStrategy } from '../src/inventory/kinds.js';
 import { fakeRun, json, herdrError } from './helpers.js';
 
 test('serverRunning reads status output', async () => {
@@ -96,12 +97,113 @@ test('agentKeys sends keys one at a time with a pause', async () => {
   assert.deepEqual(events, ['agent send-keys w1 down', 'sleep 150', 'agent send-keys w1 enter']);
 });
 
-test('agentPrompt presses enter once when the prompt is still in the input', async () => {
+test('agentPrompt for claude presses enter once when the prompt is still in the input', async () => {
   const mk = (screen) => fakeRun([[/^herdr agent prompt/, json({ type: 'ok' })], [/^herdr agent send-keys/, json({ type: 'ok' })], [/^herdr agent read/, { code: 0, stdout: screen }]]);
   const stuck = mk('some output\n> fix the login bug please\n  ? for shortcuts');
-  await createHerdr({ run: stuck, sleep: async () => {} }).agentPrompt('w1', 'fix the login bug please');
+  await createHerdr({ run: stuck, sleep: async () => {} }).agentPrompt('w1', 'fix the login bug please', { kind: 'claude' });
   assert.deepEqual(stuck.calls.filter((c) => c.args[1] === 'send-keys').map((c) => c.args), [['agent', 'send-keys', 'w1', 'enter']]);
   const sent = mk('working...\n> \n');
-  await createHerdr({ run: sent, sleep: async () => {} }).agentPrompt('w1', 'fix the login bug please');
+  await createHerdr({ run: sent, sleep: async () => {} }).agentPrompt('w1', 'fix the login bug please', { kind: 'claude' });
   assert.equal(sent.calls.filter((c) => c.args[1] === 'send-keys').length, 0);
+});
+
+const LONG = 'You are the foreman leader for task "fix-login". Read /home/u/.foreman/instructions.md and follow it exactly. The user\'s task: fix the login bug on the settings page and add a test.';
+
+test('promptStuck finds a long prompt wrapped in an input box above footer lines', () => {
+  const codex = [
+    '› You are the foreman leader for task "fix-login". Read /home/u/.foreman/instruc',
+    '  tions.md and follow it exactly. The user\'s task: fix the login bug on the setti',
+    '  ngs page and add a test.',
+    '',
+    '  ⏎ send   ⌃J newline   ⌃T transcript   ⌃C quit',
+    '  100% context left',
+  ].join('\n');
+  assert.equal(promptStuck(codex, LONG), true);
+  const box = '╭──────────╮\n│ > You are the foreman leader for task "fix-l │\n│ ogin". Read /home/u/.foreman/instructions.md │\n╰──────────╯\n  ctrl+p commands';
+  assert.equal(promptStuck(box, LONG), true);
+  // hc wraps a message in an <hc> envelope.
+  assert.equal(promptStuck('› <hc from="t70 lead">You are the foreman leader for task "fix-login". Read</hc>\n  footer', LONG), true);
+  assert.equal(promptStuck('• Working (3s • esc to interrupt)\n\n› \n  100% context left', LONG), false);
+});
+
+test('promptStuck sees the paste placeholders agents show instead of the text', () => {
+  for (const shown of ['[Pasted Content 1520 chars]', '[Pasted ~12 lines]', '[paste #1 +12 lines]', '[Pasted Text: 12 lines]', '[Pasted text #1 +20 lines]']) {
+    assert.equal(promptStuck(`output\n> ${shown}\n  footer`, 'line one\nline two'), true, shown);
+  }
+});
+
+test('submitStrategy: claude keeps one checked press, other kinds press enter and retry', () => {
+  const claude = submitStrategy('claude');
+  assert.deepEqual({ ...claude, delays: [...claude.delays] }, { mode: 'check', delays: [500], lines: 3, verify: false, wait: false });
+  for (const kind of ['codex', 'opencode', 'pi', 'agy', 'gemini']) {
+    assert.equal(submitStrategy(kind).mode, 'enter', kind);
+    assert.equal(submitStrategy(kind).delays.length, 3);
+    assert.equal(submitStrategy(kind).verify, true);
+  }
+  assert.equal(submitStrategy(null).mode, 'check');
+});
+
+// A screen that changes with each read; the last one stays.
+function screens(...list) {
+  let i = 0;
+  return async () => list[Math.min(i++, list.length - 1)];
+}
+
+test('submitIfStuck presses enter while the prompt sits in the input, with growing pauses', async () => {
+  const pauses = [];
+  let presses = 0;
+  const ok = await submitIfStuck({ read: screens('> [Pasted ~3 lines]\n  footer'), press: async () => { presses++; }, sleep: async (ms) => { pauses.push(ms); }, text: 'a\nb\nc', kind: 'codex' });
+  assert.equal(ok, false);
+  assert.equal(presses, 3);
+  assert.deepEqual(pauses, [500, 1000, 2000, 2000]);
+});
+
+test('submitIfStuck for a kind that loses the enter presses once even when the text is not seen, then stops', async () => {
+  let presses = 0;
+  const ok = await submitIfStuck({ read: screens('> \n  footer'), press: async () => { presses++; }, sleep: async () => {}, text: LONG, kind: 'pi' });
+  assert.equal(ok, true);
+  assert.equal(presses, 1);
+  let checked = 0;
+  await submitIfStuck({ read: screens('> \n  footer'), press: async () => { checked++; }, sleep: async () => {}, text: LONG, kind: null });
+  assert.equal(checked, 0);
+});
+
+test('submitIfStuck stops once the text is gone after a press', async () => {
+  let presses = 0;
+  const ok = await submitIfStuck({ read: screens(`> ${LONG}`, `> ${LONG}`, '> \n  footer'), press: async () => { presses++; }, sleep: async () => {}, text: LONG, kind: 'opencode' });
+  assert.equal(ok, true);
+  assert.equal(presses, 2);
+});
+
+test('submitIfStuck does not press while the agent works, or into a dialog', async () => {
+  let presses = 0;
+  const press = async () => { presses++; };
+  assert.equal(await submitIfStuck({ read: screens(`> ${LONG}\n• Working (1s • esc to interrupt)`), press, sleep: async () => {}, text: LONG, kind: 'codex' }), true);
+  assert.equal(await submitIfStuck({ read: screens(`> ${LONG}`), status: async () => 'working', press, sleep: async () => {}, text: LONG, kind: 'codex' }), true);
+  assert.equal(await submitIfStuck({ read: screens(`> ${LONG}\nAllow command git status? (y/n)`), press, sleep: async () => {}, text: LONG, kind: 'codex' }), false);
+  assert.equal(presses, 0);
+  // Dialog words in the prompt itself are not a dialog.
+  const text = 'Do not ask for permission; approve nothing. Then log in.';
+  assert.equal(await submitIfStuck({ read: screens(`> ${text}\n  footer`, '> \n  footer'), press, sleep: async () => {}, text, kind: 'codex' }), true);
+  assert.equal(presses, 1);
+});
+
+test('agentPrompt for codex lets herdr wait until the agent works', async () => {
+  const run = fakeRun([[/^herdr agent prompt/, json({ type: 'ok', agent_status: 'working' })]]);
+  const res = await createHerdr({ run, sleep: async () => {} }).agentPrompt('w1', 'go', { kind: 'codex' });
+  assert.deepEqual(res, { submitted: true });
+  assert.deepEqual(run.calls.map((c) => c.args), [['agent', 'prompt', 'w1', 'go', '--wait', '--until', 'working', '--until', 'blocked', '--timeout', '4000']]);
+});
+
+test('agentPrompt for codex presses enter when herdr says the prompt stalled', async () => {
+  const run = fakeRun([
+    [/^herdr agent prompt/, herdrError('agent_prompt_stalled', 'no working state')],
+    [/^herdr agent read/, { stdout: `> ${LONG}\n  footer` }],
+    [/^herdr agent send-keys/, json({ type: 'ok' })],
+  ]);
+  const res = await createHerdr({ run, sleep: async () => {} }).agentPrompt('w1', LONG, { kind: 'codex' });
+  assert.deepEqual(res, { submitted: false });
+  assert.equal(run.calls.filter((c) => c.args[1] === 'send-keys').length, 3);
+  const refused = fakeRun([[/^herdr agent prompt/, herdrError('agent_blocked', 'blocked')]]);
+  await assert.rejects(createHerdr({ run: refused, sleep: async () => {} }).agentPrompt('w1', 'go', { kind: 'codex' }), (err) => err.code === 'agent_blocked');
 });

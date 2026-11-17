@@ -501,3 +501,12 @@ test('waitForTrust: ready, gone and timeout', async () => {
   const broken = { agentRead: async () => { throw new Error('x'); }, agentList: async () => [] };
   assert.equal(await waitForTrust({ herdr: broken, name: 'l', kind: 'claude', sleep, waitMs: 4000 }), 'timeout');
 });
+
+test('the leader\'s prompt carries its kind, so it is submitted the way that kind needs', async () => {
+  const { deps } = fakes();
+  const seen = [];
+  deps.herdr.agentPrompt = async (name, text, opts) => { seen.push(opts); };
+  const r = await startForeman({ ...deps, config: { ...DEFAULT_CONFIG, leader: 'codex' }, which: () => '/bin/x', task: 'fix it' });
+  assert.equal(r.ok, true, r.message);
+  assert.deepEqual(seen, [{ kind: 'codex' }]);
+});

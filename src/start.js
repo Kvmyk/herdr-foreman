@@ -191,7 +191,7 @@ export async function startForeman({
     ready = answer === 'ready';
   }
   if (ready) {
-    await herdr.agentPrompt(leader, prompt);
+    await herdr.agentPrompt(leader, prompt, { kind: config.leader });
     message = `Leader "${leader}" (${config.leader}) started in pane ${paneId} for task "${slug}".`;
   } else {
     const backendFlag = app && !inside ? ' --backend app' : '';

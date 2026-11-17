@@ -143,6 +143,31 @@ export const PROBES = Object.freeze({
   codex: { probe: probeCodex, modelArgs: flag('-m'), verified: false },
 });
 
+// How a prompt foreman pastes into an agent gets submitted (see submitIfStuck).
+// The paste comes with an enter, but codex, opencode, pi and agy often lose it
+// (a paste burst turns it into a newline, or the paste swallows it), so for
+// them enter is pressed once more after a settle delay, then again while the
+// text or a paste placeholder still sits in the input. Claude takes the enter:
+// it only gets one press when the text is still on its last lines.
+//   mode: "check" presses only when the text is seen; "enter" presses once anyway
+//   delays: ms to wait before each look, one press at most per look
+//   lines: how many screen lines are searched for the text
+//   verify: look once more after the last press
+//   wait: ask herdr (agent prompt --wait) or hc (get) whether the agent reports working
+const SUBMIT = Object.freeze({
+  claude: Object.freeze({ mode: 'check', delays: Object.freeze([500]), lines: 3, verify: false, wait: false }),
+});
+// A kind not known here: the same as codex and the others, which do not submit reliably.
+const SUBMIT_OTHER = Object.freeze({ mode: 'enter', delays: Object.freeze([500, 1000, 2000]), lines: 15, verify: true, wait: true });
+// No kind known (a leader prompted from a run that does not record its kind):
+// only press when the text is seen.
+const SUBMIT_UNKNOWN = Object.freeze({ ...SUBMIT_OTHER, mode: 'check' });
+
+export function submitStrategy(kind) {
+  if (!kind) return SUBMIT_UNKNOWN;
+  return SUBMIT[kind] ?? SUBMIT_OTHER;
+}
+
 // In the Herdr app, hc runs the agent's own program (named like its kind) in a
 // terminal; a kind that needs a flag to keep its work inside that terminal goes
 // here. Status there comes from the agent's OSC 7501 reports; kinds that send
