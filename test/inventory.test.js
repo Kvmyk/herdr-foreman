@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { PROBES, HERDR_KINDS } from '../src/inventory/kinds.js';
+import { PROBES, HERDR_KINDS, autoArgsOf } from '../src/inventory/kinds.js';
 import { inventory, saveAgents } from '../src/inventory/index.js';
 import { fakeRun } from './helpers.js';
 
@@ -110,6 +110,15 @@ test('gemini with api key is ready', async () => {
 test('model args per kind', () => {
   assert.deepEqual(PROBES.opencode.modelArgs('a/b'), ['--model', 'a/b']);
   assert.deepEqual(PROBES.codex.modelArgs('gpt-5.5'), ['-m', 'gpt-5.5']);
+});
+
+test('auto args: lists, or a function of the folders the agent must write', () => {
+  assert.deepEqual(autoArgsOf(PROBES.opencode), ['--auto']);
+  assert.deepEqual(autoArgsOf(PROBES.gemini), ['--approval-mode', 'yolo']);
+  assert.deepEqual(autoArgsOf(PROBES.codex, { dirs: ['/r/.git', '/h'] }), ['--ask-for-approval', 'never', '--sandbox', 'workspace-write', '--add-dir', '/r/.git', '--add-dir', '/h']);
+  assert.equal(autoArgsOf(PROBES.codex).includes('danger-full-access'), false);
+  assert.equal(autoArgsOf({}), null);
+  assert.equal(PROBES.codex.verified, false);
 });
 
 test('inventory skips kinds not on PATH and marks unknown kinds', async () => {

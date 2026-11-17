@@ -4,6 +4,7 @@ import path from 'node:path';
 import { parseSpec, spawnWorkers } from '../src/spawn.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
+import { autoFile } from '../src/history.js';
 const paths = { runs: path.resolve('/s/runs'), worktrees: path.resolve('/s/worktrees') };
 const repo = path.resolve('/code/shop');
 
@@ -305,10 +306,29 @@ test('--auto passes each kind its auto-approve args and records auto', async () 
   assert.deepEqual(args.a, ['--dangerously-skip-permissions']);
   assert.deepEqual(args.o, ['--auto']);
   assert.deepEqual(args.p, []);
-  assert.deepEqual(args.x, []);
-  assert.ok(warnings.some((w) => /codex/.test(w) && /auto/.test(w)));
+  assert.deepEqual(args.x, ['--ask-for-approval', 'never', '--sandbox', 'workspace-write', '--add-dir', path.join(repo, '.git')]);
+  assert.ok(!warnings.some((w) => /codex/.test(w) && /auto/.test(w)));
   assert.ok(!warnings.some((w) => /\bpi\b/.test(w)));
-  assert.deepEqual(JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]).workers.map((w) => w.auto), [true, true, true, true, false]);
+  assert.deepEqual(JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]).workers.map((w) => w.auto), [true, true, true, true, true]);
+});
+
+test('gemini --auto uses --approval-mode yolo', async () => {
+  const f = fakes();
+  await call(f, { specs: ['g=gemini'], auto: true });
+  assert.deepEqual(f.log.find(([k]) => k === 'start')[1].args, ['--approval-mode', 'yolo']);
+});
+
+test('the auto choice of the task is kept: marker from foreman start, or an earlier spawn', async () => {
+  const f = fakes();
+  f.files[autoFile(paths, 'fix-login')] = 'auto\n';
+  await call(f, { specs: ['a=agy'] });
+  assert.deepEqual(f.log.find(([k]) => k === 'start')[1].args, ['--dangerously-skip-permissions']);
+  assert.equal(JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]).auto, true);
+  const g = fakes();
+  await call(g, { specs: ['a=agy'], auto: true });
+  Object.assign(g.files, {});
+  await call(g, { specs: ['b=agy'] });
+  assert.deepEqual(g.log.filter(([k]) => k === 'start').map(([, o]) => o.args), [['--dangerously-skip-permissions'], ['--dangerously-skip-permissions']]);
 });
 
 test('without --auto no auto args are passed', async () => {

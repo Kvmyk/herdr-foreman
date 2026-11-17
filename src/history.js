@@ -14,6 +14,17 @@ export const PHASES = Object.freeze(['spawned', 'investigate', 'implement', 'mer
 // Where `foreman "<task>"` keeps the task text of a run.
 export const taskFile = (paths, slug) => path.join(paths.home ?? path.dirname(paths.runs), 'tasks', `${slug}.md`);
 
+// Marker left by `foreman --auto-answer`: the user chose that permission questions are answered for this task.
+export const autoFile = (paths, slug) => path.join(paths.home ?? path.dirname(paths.runs), 'tasks', `${slug}.auto`);
+
+export function readAuto(slug, { paths, readFile }) {
+  try {
+    return readFile(autoFile(paths, slug)).trim() === 'auto';
+  } catch {
+    return false;
+  }
+}
+
 const iso = (now) => new Date(now()).toISOString();
 
 const norm = (p) => pathKey(p);

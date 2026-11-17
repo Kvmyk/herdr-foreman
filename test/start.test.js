@@ -138,6 +138,28 @@ test('claude leader starts lean with AskUserQuestion; extra leader args are appe
   assert.deepEqual(args.slice(-2), ['--effort', 'high']);
 });
 
+test('--auto-answer starts the leader in its auto mode and leaves a marker for spawn', async () => {
+  const files = {};
+  const { deps, log } = fakes();
+  await startForeman({ ...deps, writeFile: (f, d) => { files[f] = d; }, mkdir: () => {}, prefs: { autoAnswer: true }, task: 'fix it' });
+  const args = log.find(([k]) => k === 'start')[1].args;
+  assert.ok(args.join(' ').includes('--permission-mode auto'));
+  assert.ok(Object.keys(files).some((f) => f.endsWith('fix-it.auto')));
+  const plain = fakes();
+  await startForeman({ ...plain.deps, task: 'fix it' });
+  assert.ok(!plain.log.find(([k]) => k === 'start')[1].args.includes('--permission-mode'));
+});
+
+test('a codex leader may also write foreman\'s folder and the repository .git', async () => {
+  const { deps, log } = fakes();
+  deps.which = () => '/bin/codex';
+  deps.git.commonDir = async () => path.join(repo, '.git');
+  await startForeman({ ...deps, config: { ...DEFAULT_CONFIG, leader: 'codex' }, prefs: { autoAnswer: true }, task: 'fix it' });
+  const args = log.find(([k]) => k === 'start')[1].args;
+  assert.deepEqual(args.slice(0, 4), ['--ask-for-approval', 'never', '--sandbox', 'workspace-write']);
+  assert.ok(args.includes(path.join(repo, '.git')) && args.includes(path.resolve('/s')));
+});
+
 test('lean can be switched off', async () => {
   const { deps, log } = fakes();
   await startForeman({ ...deps, config: { ...DEFAULT_CONFIG, lean: false }, task: 'fix it' });
