@@ -58,7 +58,9 @@ Subcommands (used by the leader; add --json for machine-readable output):
   spawn --task <slug> [--new-tab] [--effort low|medium|high|xhigh|max] [--full] [--auto] [--branch <type>/<name>] [--base <branch>] [--include-uncommitted] <name>=<kind>[:<model>]...
                                        open workers in their own worktrees and panes
                                        (claude workers start lean unless --full;
-                                       --auto starts workers in their auto-approve mode;
+                                       --auto starts workers in their auto-approve mode
+                                       (kept for the task; claude and codex keep pushes blocked, agy,
+                                       opencode and gemini rely on the push guard of the worktree);
                                        --include-uncommitted starts workers from a copy
                                        that also holds the changes not committed yet;
                                        --base starts the run from that branch and land merges into it)

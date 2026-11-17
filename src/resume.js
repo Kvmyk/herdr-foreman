@@ -85,7 +85,7 @@ export function buildResumePrompt({ slug, instructionsPath, notesPath, foremanCm
 
 // Restarts one worker's agent in its worktree: in its old pane if that pane
 // is still open in the worktree, else next to the caller (or in a new tab).
-export async function respawnWorker({ run, herdr, spec, pane = null, newTab = false, effort = null, auto = false, full = false, config, exists, now = Date.now }) {
+export async function respawnWorker({ run, herdr, spec, pane = null, newTab = false, effort = null, auto = false, full = false, config, exists, now = Date.now, gitDir = null }) {
   const m = RESPAWN_SPEC.exec(spec);
   if (!m) throw fail('BAD_SPEC', `bad worker "${spec}"; expected name, name=kind or name=kind:model`);
   const [, name, newKind, newModel] = m;
@@ -125,7 +125,7 @@ export async function respawnWorker({ run, herdr, spec, pane = null, newTab = fa
     else paneId = await herdr.paneSplit({ pane, direction: 'right', ratio: 0.5, cwd: w.worktree });
   }
 
-  const start = agentArgs({ name, kind, model, effort, auto, full, config });
+  const start = agentArgs({ name, kind, model, effort, auto, full, config, dirs: auto && gitDir ? [gitDir] : [] });
   const res = await herdr.agentStart({
     name, kind, pane: paneId, cwd: w.worktree, space: place.space, tab: place.tab, label: place.label,
     timeoutMs: config.startTimeoutMs, args: start.args,
