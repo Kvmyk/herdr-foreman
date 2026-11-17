@@ -388,10 +388,17 @@ function defaultOps(deps) {
     },
     // How the leader talks to agents, wherever they run: --backend, else the
     // run's backend, else where foreman runs now.
+    // The worker's kind (from the run) picks how the prompt is made sure to be
+    // submitted; submitted is false when it still sits in the agent's input.
     async prompt({ task, backend: flag, name, text }) {
-      await agentBackend(task, flag).agentPrompt(name, text);
+      const kind = loadRun(task, { paths: deps.paths, readFile: deps.readFile })?.workers?.find((w) => w.name === name)?.kind ?? null;
+      const res = await agentBackend(task, flag).agentPrompt(name, text, { kind });
       // Remember when this worker was briefed: wait ignores reports older than that.
       note(task, (r) => ({ briefedAt: { ...r.briefedAt, [name]: deps.now() } }));
+      if (res?.submitted === false) {
+        const cmd = deps.foremanCmd ?? 'foreman';
+        return { sent: name, submitted: false, hint: `the prompt may still sit in ${name}'s input; check with: ${cmd} read --task ${task} ${name}, and if it is there, press enter with: ${cmd} keys --task ${task} ${name} enter` };
+      }
       return { sent: name };
     },
     read: async ({ task, backend: flag, name, lines }) => agentBackend(task, flag).agentRead(name, { lines }),
@@ -622,7 +629,7 @@ export async function main(argv, deps) {
       }
       case 'prompt': {
         const [name, text] = r.positionals;
-        print(await ops.prompt({ task, backend: r.flags['--backend'] ?? null, name, text }), (v) => stdout.write(`sent to ${v.sent}\n`));
+        print(await ops.prompt({ task, backend: r.flags['--backend'] ?? null, name, text }), (v) => stdout.write(`sent to ${v.sent}${v.hint ? `, not submitted: ${v.hint}` : ''}\n`));
         return 0;
       }
       case 'read': {

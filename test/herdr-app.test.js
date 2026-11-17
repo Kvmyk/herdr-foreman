@@ -80,7 +80,7 @@ test('read, prompt and keys use hc read, send and keys', async () => {
   const herdr = createHerdrApp({ run, sleep: async (ms) => { pauses.push(ms); } });
   assert.equal(await herdr.agentRead('w1'), 'screen\n');
   await herdr.agentRead('w1', { lines: 50 });
-  await herdr.agentPrompt('w1', '-starts with a dash');
+  await herdr.agentPrompt('w1', '-starts with a dash', { kind: 'claude' });
   await herdr.agentKeys('w1', ['down', 'enter']);
   assert.deepEqual(run.calls.map((c) => c.args), [
     ['read', '--lines', '0', 'w1'],
@@ -153,9 +153,9 @@ test('agentStart keeps the warning in the tab when a later worker of that tab is
   assert.equal(run.calls.slice(before).filter((c) => c.cmd === 'herdr-app').length, 0);
 });
 
-test('agentPrompt presses enter once when the prompt is still in the input', async () => {
+test('agentPrompt for claude presses enter once when the prompt is still in the input', async () => {
   const run = fakeRun([[/^hc send/, out({ turn: 1 })], [/^hc read/, { stdout: 'x\n> hello there\n' }], [/^hc keys/, out({})]]);
-  await createHerdrApp({ run, sleep: async () => {} }).agentPrompt('w1', 'hello there');
+  await createHerdrApp({ run, sleep: async () => {} }).agentPrompt('w1', 'hello there', { kind: 'claude' });
   assert.deepEqual(run.calls.map((c) => c.args[0]), ['send', 'get', 'read', 'keys']);
 });
 
@@ -428,4 +428,24 @@ test('needsPerson pins a worker foreman wait found waiting, and leaves a termina
   assert.deepEqual(labelCalls(run), [['t3', 'herdr.pinned=1', 'foreman.pinned=1']]);
   // The pin is foreman's, so an answer takes it off again.
   assert.equal(typeof herdr.answered, 'function');
+});
+
+test('agentPrompt for codex presses enter after a settle pause until the prompt leaves the input', async () => {
+  let reads = 0;
+  const run = fakeRun([
+    [/^hc send/, out({ turn: 1 })],
+    [/^hc get/, out({ address: 't1', status: 'idle', labels: {} })],
+    [/^hc read/, () => ({ stdout: ++reads < 2 ? '› [Pasted Content 1520 chars]\n  100% context left' : '› \n  100% context left' })],
+    [/^hc keys/, out({})],
+  ]);
+  const res = await createHerdrApp({ run, sleep: async () => {} }).agentPrompt('w1', 'x'.repeat(1520), { kind: 'codex' });
+  assert.deepEqual(res, { submitted: true });
+  assert.equal(run.calls.filter((c) => c.args[0] === 'keys').length, 1);
+});
+
+test('agentPrompt for codex leaves an agent hc reports working alone', async () => {
+  const run = fakeRun([[/^hc send/, out({ turn: 1 })], [/^hc get/, out({ address: 't1', status: 'working', labels: {} })], [/^hc read/, { stdout: '› go' }], [/^hc keys/, out({})]]);
+  const res = await createHerdrApp({ run, sleep: async () => {} }).agentPrompt('w1', 'go', { kind: 'codex' });
+  assert.deepEqual(res, { submitted: true });
+  assert.equal(run.calls.filter((c) => c.args[0] === 'keys').length, 0);
 });

@@ -1,6 +1,8 @@
 // Thin client over the herdr CLI. Every call parses herdr's JSON reply;
 // failures become HerdrError with herdr's own error code.
 import { screenTail } from './wait.js';
+import { classifyScreen } from './blocked.js';
+import { submitStrategy } from './inventory/kinds.js';
 
 export class HerdrError extends Error {
   constructor(code, message) {
@@ -27,6 +29,8 @@ function errorOf(res) {
 }
 
 export const KEY_PAUSE_MS = 150;
+// How long herdr waits for an agent to report working after a prompt.
+export const PROMPT_WAIT_MS = 4000;
 export const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Keys go one at a time: sent together, enter can land before the selection moved.
@@ -37,20 +41,81 @@ export async function sendKeys(send, keys, sleep) {
   }
 }
 
-// A prompt typed right after a dialog can stay in the input line unsent. True
-// when its text is still on the last lines of the screen.
-export function promptStuck(screen, text) {
-  const snippet = String(text).trim().split(/\r?\n/)[0].slice(0, 40).trim();
-  if (!snippet) return false;
-  return screenTail(screen, 3).includes(snippet);
+// How agents show a long or multi-line paste in their input instead of the
+// text: codex "[Pasted Content 1520 chars]", opencode "[Pasted ~12 lines]",
+// pi "[paste #1 +12 lines]", agy "[Pasted Text: 12 lines]".
+export const PASTE_PLACEHOLDER = /\[(?:pasted|paste)\b[^\]\n]*\]/i;
+// What an agent shows while it works on a turn ("esc to interrupt" and the like).
+const BUSY = /esc to (?:interrupt|cancel)|esc interrupt|ctrl\+c to (?:interrupt|stop)/i;
+const SNIPPET = 30;
+// Dialogs and the busy line sit at the bottom: older output above them is not read.
+const BOTTOM = 6;
+
+// Text without whitespace and box borders: a prompt wrapped over several rows
+// of an input box still reads as one string.
+const squash = (s) => String(s).replace(/[\s\u2500-\u259f]+/g, '');
+// hc wraps a message in <hc from="..."> ... </hc>.
+const unwrap = (s) => String(s).replace(/<\/?hc\b[^>]*>/g, '');
+
+// A prompt can stay in the input unsent. True when its first or last words are
+// still on the last lines of the screen (wrapped, above footer lines), or the
+// input shows a paste placeholder.
+export function promptStuck(screen, text, lines = 15) {
+  const t = squash(unwrap(text));
+  if (!t) return false;
+  const tail = screenTail(screen, lines, 4000);
+  if (PASTE_PLACEHOLDER.test(tail)) return true;
+  const flat = squash(unwrap(tail));
+  return flat.includes(t.slice(0, SNIPPET)) || flat.includes(t.slice(-SNIPPET));
 }
 
-// After a prompt: press enter once if its text still sits in the input.
-export async function submitIfStuck({ read, press, sleep, text }) {
-  await sleep(500);
-  try {
-    if (promptStuck(await read(), text)) await press();
-  } catch { /* the screen is only a safety check */ }
+// The last lines of the screen that are not the prompt itself, so words in
+// the prompt are not taken for a dialog or for the agent working.
+export function otherLines(screen, text, lines = 15) {
+  const t = squash(unwrap(text));
+  return screenTail(screen, lines, 4000).split('\n').filter((line) => {
+    const s = squash(unwrap(line)).replace(/^[>›❯]+/, '');
+    return !(s && t.includes(s)) && !PASTE_PLACEHOLDER.test(line);
+  }).join('\n');
+}
+
+// After a prompt: press enter while its text still sits in the input, up to
+// as many times as the kind's strategy has delays (see submitStrategy). Mode
+// "enter" presses once after the first delay even when the text is not seen.
+// Stops when the agent reports or shows work, and never presses into a dialog.
+// True when the prompt went in (or the screen cannot tell), false when it
+// still sits in the input or a dialog stopped it.
+export async function submitIfStuck({ read, press, sleep, text, kind = null, strategy = submitStrategy(kind), status = async () => null }) {
+  const { mode, delays, lines, verify } = strategy;
+  const look = async () => {
+    if (['working', 'blocked'].includes(await status().catch(() => null))) return 'busy';
+    let screen;
+    try {
+      screen = await read();
+    } catch {
+      return 'unknown'; // the screen is only a safety check
+    }
+    const rest = otherLines(screen, text, lines).split('\n').slice(-BOTTOM).join('\n');
+    if (BUSY.test(rest)) return 'busy';
+    if (classifyScreen(kind ?? 'agent', rest)) return 'dialog';
+    return promptStuck(screen, text, lines) ? 'stuck' : 'sent';
+  };
+  for (const [i, ms] of delays.entries()) {
+    await sleep(ms);
+    const seen = await look();
+    if (seen === 'busy' || seen === 'unknown') return true;
+    if (seen === 'dialog') return false;
+    if (seen === 'sent' && !(mode === 'enter' && i === 0)) return true;
+    try {
+      await press();
+    } catch {
+      return true;
+    }
+  }
+  if (!verify) return true;
+  await sleep(delays.at(-1));
+  const seen = await look();
+  return seen !== 'stuck' && seen !== 'dialog';
 }
 
 export function formatRatio(ratio) {
@@ -136,11 +201,27 @@ export function createHerdr({ run, bin = 'herdr', sleep = realSleep }) {
       return res.stdout;
     },
 
-    async agentPrompt(target, text) {
-      await call(['agent', 'prompt', target, text]);
-      await submitIfStuck({
-        read: () => this.agentRead(target), press: () => call(['agent', 'send-keys', target, 'enter']), sleep, text,
+    // kind picks how the prompt is made sure to be submitted (submitStrategy).
+    // Where the strategy allows, herdr waits until the agent reports working;
+    // when it does not (agent_prompt_stalled, or no answer in time) the screen
+    // decides whether enter is pressed. { submitted: false } when the prompt
+    // still sits in the input, or a dialog came up.
+    async agentPrompt(target, text, { kind = null } = {}) {
+      const strategy = submitStrategy(kind);
+      if (strategy.wait) {
+        try {
+          await call(['agent', 'prompt', target, text, '--wait', '--until', 'working', '--until', 'blocked', '--timeout', String(PROMPT_WAIT_MS)], PROMPT_WAIT_MS + 15000);
+          return { submitted: true };
+        } catch (err) {
+          if (!['agent_prompt_stalled', 'timeout'].includes(err.code)) throw err;
+        }
+      } else {
+        await call(['agent', 'prompt', target, text]);
+      }
+      const submitted = await submitIfStuck({
+        read: () => this.agentRead(target), press: () => call(['agent', 'send-keys', target, 'enter']), sleep, text, kind, strategy,
       });
+      return { submitted };
     },
 
     async agentKeys(target, keys) {
