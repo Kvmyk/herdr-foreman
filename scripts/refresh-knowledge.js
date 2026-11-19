@@ -7,11 +7,12 @@
 // harnesses[].facts and the tendencies generated from them), harness releases from
 // the npm registry, the newest model per family from models.dev. A source that stops
 // updating or keeps failing is frozen and its facts are dropped. New first-party
-// models from models.dev get a stub family and every source URL is link-checked.
+// models from models.dev get a stub family and automated source URLs are link-checked.
 // Network access is injected (fetchImpl) so the functions are testable.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { familyFor, MODELS_DEV_URL } from '../src/knowledge.js';
+import { RobotsError, createKnowledgeFetch, getJson } from './knowledge-sources/normalise.js';
 
 const DAY = 24 * 3600 * 1000;
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -146,27 +147,27 @@ export const detectNewModels = (knowledge, api, options) => analyzeNewModels(kno
 export const sourceUrl = (s) => (typeof s === 'string' ? s : s?.url);
 
 export async function checkSources(sources, fetchImpl, { timeoutMs = 10000, concurrency = 4 } = {}) {
-  const headers = { 'user-agent': 'herdr-foreman-knowledge-refresh' };
-  const attempt = async (url, method, extra = {}) => {
-    const res = await fetchImpl(url, {
-      method, headers: { ...headers, ...extra }, redirect: 'follow', signal: AbortSignal.timeout(timeoutMs),
-    });
-    return res;
-  };
-  const entries = Object.entries(sources ?? {});
+  const request = createKnowledgeFetch(fetchImpl);
+  const attempt = (url, method, headers) => request(url, { method, headers, timeoutMs });
+  // Keep the SEAL link for readers under the supported-browser and internal-use
+  // limits in Scale Website Terms §1 (https://scale.com/legal/terms).
+  const entries = Object.entries(sources ?? {}).filter(([id]) => id !== 'seal');
   return mapLimit(entries, concurrency, async ([id, source]) => {
     const url = sourceUrl(source);
     let res;
     let error = null;
     try {
-      res = await attempt(url, 'HEAD');
-      if ([403, 405, 501].includes(res.status)) res = await attempt(url, 'GET', { range: 'bytes=0-0' });
-    } catch {
       try {
-        res = await attempt(url, 'GET', { range: 'bytes=0-0' });
+        res = await attempt(url, 'HEAD');
       } catch (err) {
-        error = err.message;
+        if (err instanceof RobotsError) throw err;
       }
+      if (!res || [405, 501].includes(res.status)) {
+        res = await attempt(url, 'GET', { range: 'bytes=0-0' });
+      }
+    } catch (err) {
+      if (err instanceof RobotsError) return { id, url, status: null, verdict: 'skipped', error: err.message };
+      error = err.message;
     }
     const status = res?.status ?? null;
     const ok = status !== null && status >= 200 && status < 400;
@@ -312,11 +313,12 @@ const npmUrl = (pkg) => `https://registry.npmjs.org/${pkg.replace('/', '%2F')}`;
 // harnesses.<kind>.release from the npm registry: dist-tags.latest and its publish time.
 // A package that cannot be read keeps its old release and adds a warning.
 export async function fetchReleases(fetchImpl, packages = NPM_PACKAGES) {
+  const request = createKnowledgeFetch(fetchImpl);
   const releases = {};
   const warnings = [];
   await mapLimit(Object.entries(packages), 4, async ([kind, pkg]) => {
     try {
-      const res = await fetchImpl(npmUrl(pkg), { headers: { 'user-agent': 'herdr-foreman-knowledge-refresh' }, signal: AbortSignal.timeout(20000) });
+      const res = await request(npmUrl(pkg), { timeoutMs: 20000 });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const doc = await res.json();
       const version = doc?.['dist-tags']?.latest;
@@ -355,10 +357,12 @@ const comparable = (k) => JSON.stringify({ ...k, updated: null }, (key, v) => (k
 
 // collectFacts and sourceList come from scripts/knowledge-sources/ (injected, so tests need no network).
 export async function refresh({ knowledge, api, fetchImpl, collectFacts = null, sourceList = [], packages = NPM_PACKAGES, now = Date.now() }) {
+  fetchImpl = createKnowledgeFetch(fetchImpl);
   const warnings = [];
   const next = structuredClone(knowledge);
   const today = isoDay(now);
   next.sources ??= {};
+  if (next.sourceMeta) delete next.sourceMeta.seal;
   next.sources.npm ??= 'https://registry.npmjs.org/';
   next.sources['models-dev'] ??= MODELS_DEV_URL;
 
@@ -369,6 +373,9 @@ export async function refresh({ knowledge, api, fetchImpl, collectFacts = null, 
   let unmatched = [];
   if (collectFacts) {
     const collected = await collectFacts({ fetchImpl, now });
+    for (const [id, status] of Object.entries(collected.status ?? {})) {
+      if (status.skipped) warnings.push(`source ${id}: ${status.error}`);
+    }
     ({ frozen, unmatched } = applyFacts(next, collected, sourceList, today));
   }
 
@@ -453,8 +460,8 @@ export function serializeKnowledge(value) {
 
 async function main() {
   const knowledge = JSON.parse(readFileSync(KNOWLEDGE_FILE, 'utf8'));
-  const res = await fetch(MODELS_DEV_URL, { signal: AbortSignal.timeout(30000) });
-  if (!res.ok) throw new Error(`models.dev returned HTTP ${res.status}`);
+  const fetchImpl = createKnowledgeFetch(fetch);
+  const api = await getJson(fetchImpl, MODELS_DEV_URL);
   let collectFacts = null;
   let sourceList = [];
   try {
@@ -462,11 +469,13 @@ async function main() {
   } catch (err) {
     console.log(`warning: benchmark sources not loaded, facts are left as they are: ${err.message}`);
   }
-  const result = await refresh({ knowledge, api: await res.json(), fetchImpl: fetch, collectFacts, sourceList });
+  const result = await refresh({ knowledge, api, fetchImpl, collectFacts, sourceList });
 
   const annotate = process.env.GITHUB_ACTIONS ? '::warning::' : 'warning: ';
   const notice = process.env.GITHUB_ACTIONS ? '::notice::' : 'note: ';
-  for (const l of result.links.filter((x) => !['ok', 'moved'].includes(x.verdict))) console.log(`${annotate}source ${l.id} ${l.verdict} ${l.status ?? ''} ${l.url}`);
+  for (const l of result.links.filter((x) => !['ok', 'moved'].includes(x.verdict))) {
+    console.log(`${annotate}source ${l.id} ${l.verdict} ${l.error ?? l.status ?? ''} ${l.url}`);
+  }
   for (const l of result.links.filter((x) => x.verdict === 'moved')) console.log(`${notice}source ${l.id} moved to ${l.finalUrl}`);
   for (const r of result.review) console.log(`${notice}no stub for ${r.models.join(', ')}: ${r.reason}`);
   for (const f of result.frozen) console.log(`${annotate}source ${f.id} is frozen: ${f.reason}`);

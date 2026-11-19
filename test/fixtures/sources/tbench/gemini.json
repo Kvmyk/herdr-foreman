@@ -1,0 +1,19 @@
+{
+  "leaderboard": "4-1-0",
+  "metadata": {
+    "model_display": {
+      "label": "Gemini 3.8 Flash"
+    },
+    "model_org": {
+      "label": "Google"
+    },
+    "agent_display": {
+      "label": "Terminus 2"
+    },
+    "reasoning_effort": "high",
+    "date": "2026-09-29"
+  },
+  "metrics": {
+    "accuracy": 18.18
+  }
+}

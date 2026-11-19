@@ -1,0 +1,19 @@
+{
+  "leaderboard": "4-1-0",
+  "metadata": {
+    "model_display": {
+      "label": "Claude Fable 5.1"
+    },
+    "model_org": {
+      "label": "Anthropic"
+    },
+    "agent_display": {
+      "label": "Claude Code"
+    },
+    "reasoning_effort": "xhigh",
+    "date": "2026-09-29"
+  },
+  "metrics": {
+    "accuracy": 57.58
+  }
+}

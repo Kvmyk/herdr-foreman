@@ -18,18 +18,18 @@
 // payload has its own updated or publish date returns it as records.updated
 // (an array property, so read() still returns records[]); newest is the later
 // of that date and the newest record date.
-import { CATEGORIES, HARNESS_KINDS, isoDay } from './normalise.js';
+import { CATEGORIES, HARNESS_KINDS, RobotsError, createKnowledgeFetch, isoDay } from './normalise.js';
 import lmarenaWebdev from './lmarena-webdev.js';
 import lmarenaAgent from './lmarena-agent.js';
 import epoch from './epoch.js';
 import livebench from './livebench.js';
 import tbench from './tbench.js';
 import vals from './vals.js';
-import seal from './seal.js';
 
 export const DEFAULT_TTL_DAYS = 45;
 
-export const SOURCES = [lmarenaWebdev, lmarenaAgent, epoch, livebench, tbench, vals, seal]
+// Scale Website Terms §1 limit use to supported browsers for internal purposes.
+export const SOURCES = [lmarenaWebdev, lmarenaAgent, epoch, livebench, tbench, vals]
   .map((s) => ({ ttlDays: DEFAULT_TTL_DAYS, ...s }));
 
 const MODEL_ID = /^[a-z0-9][a-z0-9.+-]*$/;
@@ -87,7 +87,7 @@ export function finalise(records) {
 
 export async function readSource(source, { fetchImpl, now }) {
   try {
-    const raw = await source.read({ fetchImpl, now, ttlDays: source.ttlDays });
+    const raw = await source.read({ fetchImpl: fetchImpl && createKnowledgeFetch(fetchImpl), now, ttlDays: source.ttlDays });
     if (!Array.isArray(raw) || !raw.length) throw new Error(`${source.id}: no records`);
     for (const r of raw) checkRecord(r, source.id);
     if (raw.updated !== undefined && isoDay(raw.updated) !== raw.updated) throw new Error(`${source.id}: bad updated date ${raw.updated}`);
@@ -96,11 +96,13 @@ export async function readSource(source, { fetchImpl, now }) {
     const newest = [raw.updated, ...records.map((r) => r.date)].filter(Boolean).sort().pop();
     return { records, status: { ok: true, newest, count: records.length } };
   } catch (err) {
-    return { records: [], status: { ok: false, newest: null, count: 0, error: String(err?.message ?? err) } };
+    const skipped = err instanceof RobotsError ? { skipped: true } : {};
+    return { records: [], status: { ok: false, newest: null, count: 0, error: String(err?.message ?? err), ...skipped } };
   }
 }
 
 export async function collectFacts({ fetchImpl = globalThis.fetch, now = Date.now(), sources = SOURCES } = {}) {
+  fetchImpl = createKnowledgeFetch(fetchImpl);
   const results = await Promise.all(sources.map((s) => readSource(s, { fetchImpl, now })));
   const records = [];
   const status = {};
