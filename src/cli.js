@@ -400,6 +400,13 @@ function defaultOps(deps) {
       // null: the screen could not tell whether it went in.
       if (res?.submitted === false || res?.submitted === null) {
         const cmd = deps.foremanCmd ?? 'foreman';
+        // The text never reached the input, or a dialog holds the agent: enter would not help.
+        if (res.reason === 'lost') {
+          return { sent: name, submitted: false, hint: `the prompt never showed in ${name}'s input (the agent may not be ready, or a dialog took the keys); check with: ${cmd} read --task ${task} ${name}, then send it again` };
+        }
+        if (res.reason === 'dialog') {
+          return { sent: name, submitted: false, hint: `${res.label ?? `${name} shows a dialog`}; check with: ${cmd} read --task ${task} ${name}` };
+        }
         const where = res.submitted === false ? 'may still sit' : 'may sit';
         return { sent: name, submitted: res.submitted, hint: `the prompt ${where} in ${name}'s input; check with: ${cmd} read --task ${task} ${name}, and if it is there, press enter with: ${cmd} keys --task ${task} ${name} enter` };
       }

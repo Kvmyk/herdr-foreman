@@ -113,6 +113,21 @@ export function otherLines(screen, text, lines = 15) {
 // A status as the backends give it: a word, or { state, turn }.
 const stateOf = (s) => (typeof s === 'string' ? s : s?.state ?? null);
 
+// A screen that tells, from anywhere on it, that the agent cannot take a
+// prompt now: opencode's modal after it updated itself (in the middle of the
+// screen, above an input that looks empty), or a notice to close first.
+const MODAL_TYPES = ['restart', 'notice'];
+export function modalShown(screen, kind = null, text = '') {
+  const c = classifyScreen(kind ?? 'agent', otherLines(screen, text, 40));
+  return MODAL_TYPES.includes(c?.type) ? c : null;
+}
+
+// True when one of the last lines is an empty input (the prompt sign alone,
+// or the placeholder an agent shows there).
+export function inputEmpty(screen, lines = BOTTOM) {
+  return screenTail(screen, lines, 4000).split('\n').some((line) => EMPTY_INPUT.some((re) => re.test(line)));
+}
+
 // After a prompt: press enter while its text still sits in the input, up to
 // as many times as the kind's strategy has delays (see submitStrategy in
 // inventory/kinds.js; mode no longer presses blindly: an enter pressed while
@@ -120,15 +135,19 @@ const stateOf = (s) => (typeof s === 'string' ? s : s?.state ?? null);
 // when the text is seen, and on Windows only once two reads STABLE_MS apart
 // show the same input with the prompt's end in it (no bracketed paste there:
 // the agent gets the text as keys and is still reading them).
-// Submitted only on positive evidence: the agent reports or shows work, its
-// turn moved past turn, or its input is empty. Never presses into a dialog.
-// true: the prompt went in; false: it still sits in the input, or a dialog
-// stopped it; null: the screen cannot tell (or a press failed).
-export async function submitIfStuck({
+// Submitted only on evidence: the agent reports or shows work, its turn moved
+// past turn, or its input is empty after the text was seen in it. An input
+// that stays empty without the text ever showing means the paste was lost
+// (opencode drops it while a modal is open). Never presses into a dialog.
+// { submitted: true }: it went in; false: it still sits in the input, it was
+// lost (reason 'lost') or a dialog stopped it (reason 'dialog', label);
+// null: the screen cannot tell (or a press failed).
+export async function checkSubmit({
   read, press, sleep, text, kind = null, strategy = submitStrategy(kind),
   status = async () => null, turn = null, platform = process.platform,
 }) {
   const { delays, lines, verify } = strategy;
+  let textSeen = false;
   const look = async () => {
     const s = await Promise.resolve().then(status).catch(() => null);
     if (['working', 'blocked'].includes(stateOf(s))) return { seen: 'busy' };
@@ -141,9 +160,19 @@ export async function submitIfStuck({
     }
     const rest = otherLines(screen, text, lines).split('\n').slice(-BOTTOM);
     if (BUSY.test(rest.join('\n'))) return { seen: 'busy' };
-    if (classifyScreen(kind ?? 'agent', rest.join('\n'))) return { seen: 'dialog' };
-    if (rest.some((line) => EMPTY_INPUT.some((re) => re.test(line)))) return { seen: 'sent' };
-    return { seen: promptStuck(screen, text, lines) ? 'stuck' : 'unknown', screen };
+    const dialog = modalShown(screen, kind, text) ?? classifyScreen(kind ?? 'agent', rest.join('\n'));
+    if (dialog) return { seen: 'dialog', label: dialog.label };
+    if (rest.some((line) => EMPTY_INPUT.some((re) => re.test(line)))) return { seen: textSeen ? 'sent' : 'empty' };
+    if (promptStuck(screen, text, lines)) {
+      textSeen = true;
+      return { seen: 'stuck', screen };
+    }
+    return { seen: 'unknown' };
+  };
+  const done = ({ seen, label }) => {
+    if (seen === 'busy' || seen === 'sent') return { submitted: true };
+    if (seen === 'dialog') return { submitted: false, reason: 'dialog', label };
+    return null;
   };
   // The input has settled: the same screen twice, with the prompt's end in it.
   const settled = async (screen) => {
@@ -160,26 +189,56 @@ export async function submitIfStuck({
   let last = 'unknown';
   for (const ms of delays) {
     await sleep(ms);
-    const { seen, screen } = await look();
-    if (seen === 'busy' || seen === 'sent') return true;
-    if (seen === 'dialog') return false;
-    if (seen === 'unknown' || !(await settled(screen))) {
-      last = seen;
+    const seen = await look();
+    const end = done(seen);
+    if (end) return end;
+    if (seen.seen !== 'stuck' || !(await settled(seen.screen))) {
+      last = seen.seen;
       continue;
     }
     try {
       await press();
     } catch {
-      return null;
+      return { submitted: null };
     }
     last = 'pressed';
   }
-  if (!verify) return last === 'pressed' ? true : last === 'stuck' ? false : null;
+  if (!verify) {
+    if (last === 'pressed') return { submitted: true };
+    if (last === 'stuck') return { submitted: false };
+    return last === 'empty' ? { submitted: false, reason: 'lost' } : { submitted: null };
+  }
   await sleep(delays.at(-1));
-  const { seen } = await look();
-  if (seen === 'busy' || seen === 'sent') return true;
-  if (seen === 'stuck' || seen === 'dialog') return false;
+  const seen = await look();
+  const end = done(seen);
+  if (end) return end;
+  if (seen.seen === 'stuck') return { submitted: false };
+  if (seen.seen === 'empty') return { submitted: false, reason: 'lost' };
+  return { submitted: null };
+}
+
+// Before a prompt: a screen that cannot take one now. A notice is closed
+// (esc) and the prompt goes ahead; opencode's restart modal would take the
+// paste and lose it, so the prompt is not sent: the result to return then.
+export const NOTICE_PAUSE_MS = 500;
+export async function clearForPrompt({ read, keys, sleep, kind = null }) {
+  let screen;
+  try {
+    screen = await read();
+  } catch {
+    return null;
+  }
+  const c = modalShown(screen, kind);
+  if (!c) return null;
+  if (c.type !== 'notice') return { submitted: false, reason: 'dialog', label: c.label };
+  await keys(['esc']);
+  await sleep(NOTICE_PAUSE_MS);
   return null;
+}
+
+// checkSubmit's answer alone: true, false or null.
+export async function submitIfStuck(opts) {
+  return (await checkSubmit(opts)).submitted;
 }
 
 export function formatRatio(ratio) {
@@ -273,6 +332,8 @@ export function createHerdr({ run, bin = 'herdr', sleep = realSleep, platform = 
     // input, or a dialog came up; null when it cannot be told.
     async agentPrompt(target, text, { kind = null } = {}) {
       const strategy = submitStrategy(kind);
+      const held = await clearForPrompt({ read: () => this.agentRead(target), keys: (k) => this.agentKeys(target, k), sleep, kind });
+      if (held) return held;
       if (strategy.wait) {
         try {
           await call(['agent', 'prompt', target, text, '--wait', '--until', 'working', '--until', 'blocked', '--timeout', String(PROMPT_WAIT_MS)], PROMPT_WAIT_MS + 15000);
@@ -283,11 +344,10 @@ export function createHerdr({ run, bin = 'herdr', sleep = realSleep, platform = 
       } else {
         await call(['agent', 'prompt', target, text]);
       }
-      const submitted = await submitIfStuck({
+      return checkSubmit({
         read: () => this.agentRead(target), press: () => call(['agent', 'send-keys', target, 'enter']), sleep, text, kind, strategy, platform,
         status: async () => (await this.agentList()).find((a) => a.name === target || a.pane_id === target)?.agent_status ?? null,
       });
-      return { submitted };
     },
 
     async agentKeys(target, keys) {

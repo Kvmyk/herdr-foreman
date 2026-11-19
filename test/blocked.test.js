@@ -98,3 +98,20 @@ test('the kind hc reports with a blocked status decides what is asked', () => {
   assert.equal(classifyScreen('codex', 'working on it', { blockedKind: null }), null);
   assert.match(describeBlocked({ kind: 'codex', screen: '', task: 't', name: 'w1', blockedKind: 'permission' }), /codex asks for permission/);
 });
+
+test('a notice that says esc dismisses it is no question: esc closes it, even when hc calls it a permission', async () => {
+  const { AGY_AUTO_NOTICE } = await import('./fixtures/screens.js');
+  const c = classifyScreen('agy', AGY_AUTO_NOTICE, { blockedKind: 'permission' });
+  assert.deepEqual(c, { type: 'notice', label: 'agy shows a notice', keys: ['esc'], safeToAnswer: true });
+  assert.match(describeBlocked({ kind: 'agy', screen: AGY_AUTO_NOTICE, task: 't', name: 'w1' }), /agy shows a notice; answer it with: foreman keys --task t w1 esc$/);
+  // With options under it, it asks something after all.
+  assert.equal(classifyScreen('agy', 'Allow this command?\n ❯ 1. Yes\n   2. No\n esc to dismiss').type, 'permission');
+});
+
+test('opencode that updated itself must be restarted: no keys, closing its modal ends it', async () => {
+  const { OPENCODE_UPDATE_MODAL, OPENCODE_READY } = await import('./fixtures/screens.js');
+  const c = classifyScreen('opencode', OPENCODE_UPDATE_MODAL);
+  assert.deepEqual(c, { type: 'restart', label: 'opencode updated itself and must be restarted', keys: null, safeToAnswer: false });
+  assert.match(describeBlocked({ kind: 'opencode', screen: OPENCODE_UPDATE_MODAL, task: 't', name: 'w1' }), /must be restarted; close it and run foreman spawn again$/);
+  assert.equal(classifyScreen('opencode', OPENCODE_READY), null);
+});
