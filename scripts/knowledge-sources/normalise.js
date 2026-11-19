@@ -1,30 +1,162 @@
 // Shared helpers for the knowledge-source adapters: fetching through the
 // injected fetchImpl, model-name normalisation, harness and vendor mapping,
-// and small parsers (CSV, Next.js RSC payloads, JSON embedded in text).
+// and small parsers for CSV and HTML entities.
 // Adapters throw on anything unexpected; index.js turns that into ok: false.
 
 export const CATEGORIES = ['analysis', 'security-audit', 'testing', 'bugfix', 'feature', 'refactor', 'test-writing', 'docs'];
 export const HARNESS_KINDS = ['claude', 'codex', 'opencode', 'agy', 'gemini', 'pi'];
 export const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'thinking'];
 
-const USER_AGENT = 'Mozilla/5.0 (compatible; herdr-foreman-knowledge/1.0; +https://github.com/Kvmyk/herdr-foreman)';
+const PRODUCT = 'herdr-foreman-knowledge';
+const USER_AGENT = `${PRODUCT}/1.0 (+https://github.com/Kvmyk/herdr-foreman)`;
 const TIMEOUT_MS = 30000;
 
-// Rate limits and gateway errors (Hugging Face answers 429/502 now and then) get two more tries.
 const RETRY_DELAYS_MS = [1000, 4000];
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 5;
+const guardedFetches = new WeakSet();
 
-async function get(fetchImpl, url) {
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetchImpl(url, { headers: { 'user-agent': USER_AGENT }, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    if (res.ok) return res;
-    if (!TRANSIENT.has(res.status) || attempt >= RETRY_DELAYS_MS.length) throw new Error(`${url}: HTTP ${res.status}`);
-    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
-  }
+export class RobotsError extends Error {}
+
+// Compare rule and URL octets after decoding percent-encoded unreserved characters.
+function robotsPath(text) {
+  return text.replace(/[^\x00-\x7f]+/g, encodeURIComponent).replace(/%[a-f0-9]{2}/gi, (escape) => {
+    const char = String.fromCharCode(parseInt(escape.slice(1), 16));
+    return /^[A-Za-z0-9._~-]$/.test(char) ? char : escape.toUpperCase();
+  });
 }
-export const getText = async (fetchImpl, url) => (await get(fetchImpl, url)).text();
-export const getJson = async (fetchImpl, url) => (await get(fetchImpl, url)).json();
-export const getBuffer = async (fetchImpl, url) => Buffer.from(await (await get(fetchImpl, url)).arrayBuffer());
+
+function robotsRules(text) {
+  const groups = [];
+  let group;
+  for (const line of text.split(/\r\n|[\r\n]/)) {
+    const field = line.split('#', 1)[0].match(/^\s*([\w-]+)\s*:\s*(.*?)\s*$/);
+    if (!field) continue;
+    const [, key, value] = field;
+    const directive = key.toLowerCase();
+    if (directive === 'user-agent') {
+      if (!group || group.hasRules) {
+        group = { agents: [], rules: [], hasRules: false };
+        groups.push(group);
+      }
+      group.agents.push(value.toLowerCase());
+    } else if (group && (directive === 'allow' || directive === 'disallow')) {
+      group.hasRules = true;
+      if (!value.startsWith('/')) continue;
+      const path = robotsPath(value);
+      const anchored = path.endsWith('$');
+      const pattern = (anchored ? path.slice(0, -1) : path)
+        .split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+      group.rules.push({ pattern: new RegExp(`^${pattern}${anchored ? '$' : ''}`), length: path.length, allow: directive === 'allow' });
+    }
+  }
+  const specific = groups.filter(({ agents }) => agents.includes(PRODUCT));
+  return (specific.length ? specific : groups.filter(({ agents }) => agents.includes('*'))).flatMap(({ rules }) => rules);
+}
+
+function robotsAllow(rules, url) {
+  const path = robotsPath(url.pathname + url.search);
+  let best;
+  for (const rule of rules) {
+    if (!rule.pattern.test(path)) continue;
+    if (!best || rule.length > best.length || (rule.length === best.length && rule.allow)) best = rule;
+  }
+  return best?.allow ?? true;
+}
+
+function retryDelay(res, attempt, now) {
+  const after = [429, 503].includes(res.status) ? res.headers?.get('retry-after')?.trim() : null;
+  if (after) {
+    const delay = /^\d+$/.test(after) ? Number(after) * 1000 : Date.parse(after) - now();
+    if (!Number.isNaN(delay)) return Math.max(0, delay);
+  }
+  return RETRY_DELAYS_MS[attempt];
+}
+
+// Share robots checks for concurrent requests within one refresh. Follow redirects
+// manually so a new origin's policy is applied before any resource request there.
+export function createKnowledgeFetch(fetchImpl, { wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now } = {}) {
+  if (guardedFetches.has(fetchImpl)) return fetchImpl;
+  const policies = new Map();
+
+  async function request(url, options, timeoutMs) {
+    const headers = new Headers(options.headers);
+    headers.set('user-agent', USER_AGENT);
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetchImpl(url.href, { ...options, headers, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
+      if (attempt >= RETRY_DELAYS_MS.length || !TRANSIENT.has(res.status)) return res;
+      const delay = retryDelay(res, attempt, now);
+      // Leave a longer server-requested pause to the next refresh.
+      if (delay >= timeoutMs) return res;
+      await res.body?.cancel();
+      await wait(delay);
+    }
+  }
+
+  async function follow(input, options, timeoutMs, checkPolicy) {
+    let url = new URL(input);
+    for (let redirects = 0; ; redirects++) {
+      if (!['http:', 'https:'].includes(url.protocol)) fail(`Unsupported URL: ${url.href}`);
+      if (checkPolicy) await checkPolicy(url, timeoutMs);
+      const res = await request(url, options, timeoutMs);
+      const location = REDIRECTS.has(res.status) && res.headers?.get('location');
+      if (!location) return res;
+      await res.body?.cancel();
+      if (redirects >= MAX_REDIRECTS) fail(`Too many redirects: ${input}`);
+      // Match Fetch semantics when redirecting a POST to a different method.
+      if (options.method === 'POST' && [301, 302, 303].includes(res.status)) {
+        const headers = new Headers(options.headers);
+        headers.delete('content-type');
+        options = { ...options, method: 'GET', body: undefined, headers };
+      }
+      url = new URL(location, url);
+    }
+  }
+
+  async function loadPolicy(origin, timeoutMs) {
+    const url = `${origin}/robots.txt`;
+    try {
+      // The site of the original robots URL owns these rules, even after redirects.
+      const res = await follow(url, { method: 'GET' }, timeoutMs);
+      if (res.ok) return robotsRules(await res.text());
+      if (res.status >= 400 && res.status < 500 && ![401, 403, 429].includes(res.status)) return [];
+      throw new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      throw new RobotsError(`Skipped ${origin}: unable to read ${url} (${err.message})`);
+    }
+  }
+
+  async function checkPolicy(url, timeoutMs) {
+    if (!policies.has(url.origin)) policies.set(url.origin, loadPolicy(url.origin, timeoutMs));
+    if (!robotsAllow(await policies.get(url.origin), url)) {
+      throw new RobotsError(`Skipped ${url.href}: disallowed by ${url.origin}/robots.txt`);
+    }
+  }
+
+  function guardedFetch(url, { timeoutMs = TIMEOUT_MS, ...options } = {}) {
+    return follow(url, options, timeoutMs, checkPolicy);
+  }
+  guardedFetches.add(guardedFetch);
+  return guardedFetch;
+}
+
+async function requestData(fetchImpl, url, options) {
+  const res = await createKnowledgeFetch(fetchImpl)(url, options);
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+  return res;
+}
+export const getText = async (fetchImpl, url) => (await requestData(fetchImpl, url)).text();
+export const getJson = async (fetchImpl, url, options) => (await requestData(fetchImpl, url, options)).json();
+export const getBuffer = async (fetchImpl, url) => Buffer.from(await (await requestData(fetchImpl, url)).arrayBuffer());
+export async function postJson(fetchImpl, url, payload) {
+  const response = await requestData(fetchImpl, url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+}
 
 // All rows of one split from the Hugging Face datasets-server (100 per page).
 export async function hfRows(fetchImpl, { dataset, config, split, maxPages = 30 }) {
@@ -177,38 +309,6 @@ export function parseCsv(text) {
   if (!rows.length) return [];
   const [header, ...body] = rows;
   return body.map((cells) => Object.fromEntries(header.map((h, i) => [h.trim(), cells[i] ?? ''])));
-}
-
-// The JSON value ({...} or [...]) that starts at text[start].
-export function grabJson(text, start) {
-  const open = text[start];
-  if (open !== '{' && open !== '[') fail('no JSON value at the given position');
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text.length; i++) {
-    const c = text[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (c === '\\') escaped = true;
-      else if (c === '"') inString = false;
-    } else if (c === '"') inString = true;
-    else if (c === '{' || c === '[') depth++;
-    else if (c === '}' || c === ']') {
-      depth--;
-      if (depth === 0) return JSON.parse(text.slice(start, i + 1));
-    }
-  }
-  fail('unterminated JSON value');
-}
-
-// Text of the React Server Components payload a Next.js page streams in
-// self.__next_f.push([1, "..."]) script chunks.
-export function nextFlight(html) {
-  let text = '';
-  for (const m of html.matchAll(/self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)/g)) text += JSON.parse(m[1]);
-  if (!text) fail('no Next.js payload in the page');
-  return text;
 }
 
 export function decodeEntities(s) {

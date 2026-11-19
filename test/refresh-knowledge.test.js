@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import tbench from '../scripts/knowledge-sources/tbench.js';
 import {
   detectNewModels, analyzeNewModels, checkSources, refresh, serializeKnowledge, renderLogEntry,
   applyFacts, factText, selectFamilyFacts, selectHarnessFacts, fetchReleases, latestModels,
@@ -101,7 +102,8 @@ test('renderLogEntry reports review items and notes redirects separately from wa
 });
 
 test('refresh adds stubs, bumps updated, and leaves existing entries untouched', async () => {
-  const fetchImpl = async () => ({ ok: true, status: 200, url: 'https://example.test/a' });
+  const fetchImpl = async (url) => (url.endsWith('/robots.txt')
+    ? new Response(null, { status: 404 }) : { ok: true, status: 200, url: 'https://example.test/a' });
   const result = await refresh({ knowledge, api, fetchImpl, now: NOW });
   assert.equal(result.changed, true);
   assert.equal(result.knowledge.updated, '2026-11-11');
@@ -112,7 +114,7 @@ test('refresh adds stubs, bumps updated, and leaves existing entries untouched',
 });
 
 test('refresh keeps updated when nothing changed', async () => {
-  const fetchImpl = async () => ({ ok: true, status: 200 });
+  const fetchImpl = async (url) => new Response(null, { status: url.endsWith('/robots.txt') ? 404 : 200 });
   const first = await refresh({ knowledge, api: {}, fetchImpl, now: NOW });
   const again = await refresh({ knowledge: first.knowledge, api: {}, fetchImpl, now: NOW + 7 * DAY });
   assert.equal(again.changed, false);
@@ -123,10 +125,12 @@ test('checkSources: HEAD, GET fallback, dead, unreachable and redirect', async (
   const calls = [];
   const fetchImpl = async (url, opts) => {
     calls.push(`${opts.method} ${url}`);
+    if (url.endsWith('/robots.txt')) return new Response(null, { status: 404 });
     if (url.endsWith('/ok')) return { ok: true, status: 200, url };
     if (url.endsWith('/nohead')) return opts.method === 'HEAD' ? { ok: false, status: 405 } : { ok: true, status: 206, url };
     if (url.endsWith('/gone')) return { ok: false, status: 410, url };
-    if (url.endsWith('/moved')) return { ok: true, status: 200, url: 'https://example.test/new' };
+    if (url.endsWith('/moved')) return new Response(null, { status: 302, headers: { location: '/new' } });
+    if (url.endsWith('/new')) return { ok: true, status: 200, url };
     throw new Error('timeout');
   };
   const sources = {
@@ -141,6 +145,30 @@ test('checkSources: HEAD, GET fallback, dead, unreachable and redirect', async (
   assert.ok(calls.includes('GET https://example.test/down'));
 });
 
+test('checkSources skips SEAL and robots exclusions and never falls back after authorization errors', async () => {
+  const calls = [];
+  const sources = {
+    seal: 'https://scale.com/leaderboard/',
+    private: 'https://example.test/private',
+    unauthenticated: 'https://example.test/unauthenticated',
+    forbidden: 'https://example.test/forbidden',
+  };
+  const links = await checkSources(sources, async (url, options) => {
+    calls.push([url, options.method]);
+    if (url.endsWith('/robots.txt')) return new Response('User-agent: *\nDisallow: /private');
+    return new Response(null, { status: url === sources.forbidden ? 403 : 401 });
+  });
+  assert.deepEqual(calls, [
+    ['https://example.test/robots.txt', 'GET'],
+    [sources.unauthenticated, 'HEAD'],
+    [sources.forbidden, 'HEAD'],
+  ]);
+  assert.deepEqual(links.map(({ id, status, verdict }) => [id, status, verdict]), [
+    ['private', null, 'skipped'], ['unauthenticated', 401, 'error'], ['forbidden', 403, 'error'],
+  ]);
+  assert.match(renderLogEntry({ today: '2026-11-11', stubs: [], links, warnings: [] }), /private.*skipped.*disallowed by/);
+});
+
 test('checkSources never runs more than 4 requests at once', async () => {
   let active = 0;
   let peak = 0;
@@ -149,7 +177,7 @@ test('checkSources never runs more than 4 requests at once', async () => {
     peak = Math.max(peak, active);
     await new Promise((r) => setTimeout(r, 5));
     active--;
-    return { ok: true, status: 200, url };
+    return { ok: true, status: 200, url, text: async () => '' };
   };
   const sources = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`s${i}`, `https://example.test/${i}`]));
   await checkSources(sources, fetchImpl);
@@ -160,6 +188,20 @@ test('serializeKnowledge reproduces the committed file byte for byte', () => {
   const file = new URL('../knowledge/agents.json', import.meta.url);
   const text = readFileSync(file, 'utf8');
   assert.equal(serializeKnowledge(JSON.parse(text)), text);
+});
+
+test('Terminal-Bench attribution matches the committed metadata and survives refresh', () => {
+  const file = new URL('../knowledge/agents.json', import.meta.url);
+  const committed = JSON.parse(readFileSync(file, 'utf8'));
+  const { url, title, kind, licence, attribution } = tbench;
+  const { ttlDays, newest, checked, ok } = committed.sourceMeta.tbench;
+  assert.equal(committed.sources.tbench, url);
+  assert.deepEqual(committed.sourceMeta.tbench, { title, kind, licence, attribution, ttlDays, newest, checked, ok });
+
+  const next = base();
+  applyFacts(next, { status: { tbench: { ok: true, newest: '2026-11-11' } } }, [{ ttlDays, ...tbench }], '2026-11-11');
+  assert.equal(next.sources.tbench, url);
+  assert.deepEqual(next.sourceMeta.tbench.attribution, attribution);
 });
 
 // ---- Facts, releases, latest models, compatibility ----------------------
@@ -214,6 +256,16 @@ test('applyFacts writes facts, tendencies and updated from the newest fact, and 
   assert.deepEqual(k.families[1].tendencies, []);
   assert.equal(k.families[1].updated, '2026-08-01');
   assert.deepEqual(k.sourceMeta.tbench, { title: 'tbench', kind: 'data', licence: 'CC-BY-4.0', ttlDays: 45, newest: '2026-11-11', checked: '2026-11-11', ok: true });
+});
+
+test('applyFacts carries the attribution of a source into sourceMeta', () => {
+  const k = base();
+  const attribution = { creator: 'Someone', licenceUrl: 'https://creativecommons.org/licenses/by/4.0/', modified: 'rounded' };
+  applyFacts(k, { records: [rec()], status: { tbench: { ok: true, newest: '2026-11-11', count: 1 } } }, [src('tbench', { attribution })], '2026-11-11');
+  assert.deepEqual(k.sourceMeta.tbench.attribution, attribution);
+  const plain = base();
+  applyFacts(plain, { records: [rec()], status: { tbench: { ok: true, newest: '2026-11-11', count: 1 } } }, [src('tbench')], '2026-11-11');
+  assert.equal('attribution' in plain.sourceMeta.tbench, false);
 });
 
 const F = (over) => ({ ...rec(over), text: `${over.model ?? 'm'} ${over.benchmark ?? 'B'}` });
@@ -272,8 +324,9 @@ test('one failure keeps the facts, two failures in a row freeze the source', () 
 
 test('fetchReleases reads dist-tags.latest and its publish time; a failing package is a warning', async () => {
   const fetchImpl = async (url) => {
+    if (url.endsWith('/robots.txt')) return new Response(null, { status: 404 });
     if (url.includes('claude-code')) return { ok: true, json: async () => ({ 'dist-tags': { latest: '2.1.322' }, time: { '2.1.322': '2026-11-10T01:58:41.811Z' } }) };
-    return { ok: false, status: 503 };
+    return new Response(null, { status: 503, headers: { 'Retry-After': '60' } });
   };
   const r = await fetchReleases(fetchImpl, { claude: '@anthropic-ai/claude-code', pi: '@earendil-works/pi-coding-agent' });
   assert.deepEqual(r.releases, { claude: { version: '2.1.322', date: '2026-11-10', source: 'npm' } });
@@ -288,9 +341,9 @@ test('latestModels picks the newest first-party model that can call tools and wr
 
 test('refresh with a fake collectFacts stores facts, releases and the log lines; a second run changes nothing', async () => {
   const registry = { 'dist-tags': { latest: '2.1.322' }, time: { '2.1.322': '2026-11-10T01:58:41.811Z' } };
-  const fetchImpl = async (url) => (url.startsWith('https://registry.npmjs.org/') && url.length > 30
+  const fetchImpl = async (url) => (url.startsWith('https://registry.npmjs.org/') && !url.endsWith('/robots.txt') && url.length > 30
     ? { ok: true, status: 200, url, json: async () => registry }
-    : { ok: true, status: 200, url });
+    : { ok: true, status: 200, url, text: async () => '' });
   const collectFacts = async () => ({
     records: [rec(), rec({ source: 'dead', model: 'gpt-6.1-sol', harness: null })],
     status: { tbench: { ok: true, newest: '2026-11-11', count: 1 }, dead: { ok: true, newest: '2026-01-01', count: 1 } },
@@ -316,12 +369,15 @@ test('the regenerated shape is valid for the current validator and for foreman v
   const { validateKnowledge: validateOld } = await import('./fixtures/validate-knowledge-v0.9.1.js');
   const { validateKnowledge } = await import('../src/knowledge.js');
   const committed = JSON.parse(readFileSync(new URL('../knowledge/agents.json', import.meta.url), 'utf8'));
-  const fetchImpl = async (url) => ({ ok: true, status: 200, url, json: async () => ({ 'dist-tags': { latest: '1.0.0' }, time: { '1.0.0': '2026-11-10T00:00:00Z' } }) });
+  const fetchImpl = async (url) => ({ ok: true, status: 200, url, text: async () => '', json: async () => ({ 'dist-tags': { latest: '1.0.0' }, time: { '1.0.0': '2026-11-10T00:00:00Z' } }) });
   const collectFacts = async () => ({
     records: [rec(), rec({ model: 'gpt-6.1-sol', harness: 'codex', rank: 3 }), rec({ model: 'gemini-4-argon', harness: null, unit: 'elo', score: 1530.1 })],
     status: { tbench: { ok: true, newest: '2026-11-11', count: 3 } },
   });
   const r = await refresh({ knowledge: committed, api, fetchImpl, collectFacts, sourceList: [src('tbench')], now: NOW });
+  assert.equal(r.knowledge.sources.seal, committed.sources.seal);
+  assert.equal(r.knowledge.sourceMeta.seal, undefined);
+  assert.ok(!r.links.some(({ id }) => id === 'seal'));
   assert.ok(r.knowledge.families.some((f) => f.facts?.length));
   for (const k of [committed, r.knowledge]) {
     assert.deepEqual(validateOld(k), []);
@@ -332,7 +388,7 @@ test('the regenerated shape is valid for the current validator and for foreman v
 
 test('serializeKnowledge keeps facts, release and sourceMeta on one line each and round-trips', async () => {
   const collectFacts = async () => ({ records: [rec()], status: { tbench: { ok: true, newest: '2026-11-11', count: 1 } } });
-  const r = await refresh({ knowledge: base(), api: {}, fetchImpl: async () => ({ ok: false, status: 500 }), collectFacts, sourceList: [src('tbench')], now: NOW });
+  const r = await refresh({ knowledge: base(), api: {}, fetchImpl: async () => ({ ok: false, status: 404 }), collectFacts, sourceList: [src('tbench')], now: NOW });
   const text = serializeKnowledge(r.knowledge);
   assert.deepEqual(JSON.parse(text), r.knowledge);
   assert.equal(serializeKnowledge(JSON.parse(text)), text);

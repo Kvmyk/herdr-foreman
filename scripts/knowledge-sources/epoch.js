@@ -1,5 +1,8 @@
-// Epoch AI benchmarking hub: one ZIP of CSV files (CC-BY-4.0), rebuilt daily.
-// Only the coding files that still get new models are read; a file whose
+// Epoch AI benchmarking hub: one ZIP of CSV files, rebuilt daily. Epoch's own
+// data is CC-BY-4.0, but the files read here are "_external": results Epoch
+// copies from other leaderboards, which keep their own (unstated) licences, so
+// the upstream boards are credited too (https://epoch.ai/benchmarks, FAQ
+// "How is the data licensed?"). Only the coding files that still get new models are read; a file whose
 // newest model release is older than ttlDays is skipped. WebDev Arena is left
 // out because it mirrors LMArena, which is read directly.
 import { inflateRawSync } from 'node:zlib';
@@ -8,12 +11,13 @@ import { getBuffer, parseCsv, normaliseModel, effortWord, vendorFor, harnessKind
 const URL = 'https://epoch.ai/data/benchmark_data.zip';
 const DAY = 24 * 3600 * 1000;
 
-// file -> how to read it; scores are fractions 0..1
+// file -> how to read it; scores are fractions 0..1; upstream is the board the results come from
 const FILES = {
-  'cursorbench_external.csv': { benchmark: 'cursorbench', score: 'Score' },
-  'frontierswe_external.csv': { benchmark: 'frontierswe', score: 'Score', harness: 'Harness' },
-  'deepswe_external.csv': { benchmark: 'deepswe', score: 'Pass@1', harness: 'Harness', effort: 'Reasoning effort' },
+  'cursorbench_external.csv': { benchmark: 'cursorbench', score: 'Score', upstream: 'https://cursor.com/cursorbench' },
+  'frontierswe_external.csv': { benchmark: 'frontierswe', score: 'Score', harness: 'Harness', upstream: 'https://www.frontierswe.com/' },
+  'deepswe_external.csv': { benchmark: 'deepswe', score: 'Pass@1', harness: 'Harness', effort: 'Reasoning effort', upstream: 'https://deepswe.datacurve.ai/' },
 };
+const UPSTREAM = Object.fromEntries(Object.values(FILES).map((f) => [f.benchmark, f.upstream]));
 
 // Entries of a ZIP archive: {name, date, data()}. Stored and deflated entries only, no ZIP64.
 export function readZip(buf) {
@@ -78,7 +82,15 @@ export default {
   url: URL,
   title: 'Epoch AI benchmarking hub',
   kind: 'data',
-  licence: 'CC-BY-4.0',
+  licence: 'CC-BY-4.0 (Epoch AI compilation); upstream results from cursor.com/cursorbench, frontierswe.com, deepswe.datacurve.ai, no licence stated',
+  attribution: {
+    creator: 'Epoch AI',
+    licenceUrl: 'https://creativecommons.org/licenses/by/4.0/',
+    citation: "Epoch AI, 'Capabilities & benchmarking'. Published online at epoch.ai. Retrieved from 'https://epoch.ai/benchmarks' [online resource].",
+    citationUrl: 'https://epoch.ai/benchmarks',
+    modified: 'scores rounded to 0.1 point, model names normalised, subset (cursorbench, frontierswe and deepswe files only)',
+    upstream: UPSTREAM,
+  },
   async read({ fetchImpl, now, ttlDays = 45 }) {
     const entries = readZip(await getBuffer(fetchImpl, URL));
     const records = [];

@@ -1,6 +1,6 @@
 # Renewable sources for the knowledge file
 
-As of 2026-11-11. Follows `2026-11-07-agent-selection.md`, whose one-off sources (blogs, aggregators, papers) never change, so the knowledge could not renew itself. Rule from now on: a claim stays in `knowledge/agents.json` only as a dated fact from a source that a maintained organisation keeps updating, that a script can read, and that is free (no key, or a free key). Every candidate below was fetched on 2026-11-11.
+As of 2026-11-11. Licences last reviewed 2026-11-19; see [DATA-SOURCES.md](../../DATA-SOURCES.md). Follows `2026-11-07-agent-selection.md`, whose one-off sources (blogs, aggregators, papers) never change, so the knowledge could not renew itself. Rule from now on: a claim stays in `knowledge/agents.json` only as a dated fact from a source that a maintained organisation keeps updating, that a script can read, and that is free (no key, or a free key). Every candidate below was fetched on 2026-11-11.
 
 ## Chosen
 
@@ -10,14 +10,16 @@ As of 2026-11-11. Follows `2026-11-07-agent-selection.md`, whose one-off sources
 | models.dev `api.json` | `families[].latest`, new-model stubs | JSON, MIT, updated daily |
 | OpenRouter `/api/v1/models` | second signal for new and retiring models (not used yet) | JSON, no key |
 | LMArena dataset on Hugging Face (`webdev`, `agent`) | preference ranks of current models | JSON via datasets-server, CC-BY-4.0 |
-| Terminal-Bench leaderboard (tbench.ai) | harness + model scores | HTML with embedded JSON, Apache-2.0 repository, data licence not stated |
+| Terminal-Bench leaderboard (Harbor Hub public read API, `api.harborframework.com/functions/v1/leaderboard-read`) | harness + model scores | JSON, documented for display, repository Apache-2.0, no site terms (checked 2026-11-19) |
 | Epoch AI benchmark data | `deepswe` and model metadata | CSV in a zip, CC-BY-4.0 |
-| LiveBench, Vals, Scale SEAL | extra leaderboards (adapters in `scripts/knowledge-sources/`) | see the adapters |
+| LiveBench, Vals | extra leaderboards (adapters in `scripts/knowledge-sources/`) | see the adapters |
 | Vendor documentation (Claude Code, Codex, opencode, Antigravity, Gemini CLI discussion) | `permissions` and the Gemini end-of-access fact; links only, not read by the script | HTML or Markdown |
 
 Facts become frozen, and are dropped, when a source has not changed for more than its `ttlDays` or the source failed twice in a row.
 
 ## Rejected
+
+- [Scale SEAL leaderboards](https://labs.scale.com/leaderboard) are available for readers. Automated refresh is disabled under the supported-browser and internal-use limits in the [Scale Website Terms §1](https://scale.com/legal/terms).
 
 - Aider polyglot leaderboard: fetched, frozen (newest entry 2025-10-03). SWE-bench leaderboards: newest 2026-02-26. SWE-rebench: newest 2026-07-24, 7.8 MB of HTML. Epoch `terminalbench` and `swe_bench_verified`: newest runs in June 2026.
 - Artificial Analysis API: HTTP 410.

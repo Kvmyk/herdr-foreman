@@ -77,7 +77,7 @@ export default {
   url: BASE,
   title: 'Vals AI benchmarks',
   kind: 'html',
-  licence: 'none stated (public site; robots.txt allows the benchmark pages)',
+  licence: 'no licence found; facts only; checked 2026-11-19',
   async read({ fetchImpl }) {
     const records = [];
     const updated = [];
