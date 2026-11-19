@@ -98,6 +98,8 @@ export function runOps(deps) {
         task: readTask(task, io) ?? `resume foreman run ${task}`,
         repo: run.repo,
         backend: run.backend ?? 'herdr',
+        // The user's choice about permission questions comes back with the new leader.
+        auto: run.auto === true,
         notes: file,
         prompt: buildResumePrompt({ slug: task, instructionsPath: INSTRUCTIONS_PATH, notesPath: file, foremanCmd }),
       };
@@ -144,7 +146,7 @@ export async function runCommand(r, { ops, print, stdout, ui }) {
       return 0;
     case 'resume': {
       const prep = await ops.prepareResume({ task });
-      const res = await ops.start({ task: prep.task, backend: prep.backend, cwd: prep.repo, slug: prep.slug, prompt: prep.prompt });
+      const res = await ops.start({ task: prep.task, backend: prep.backend, cwd: prep.repo, slug: prep.slug, prompt: prep.prompt, ...(prep.auto ? { prefs: { autoAnswer: true } } : {}) });
       if (!res.ok) throw fail('RESUME_FAILED', res.message);
       print({ slug: prep.slug, notes: prep.notes, leader: res.leader ?? null, paneId: res.paneId ?? null }, (v) => stdout.write(`The new leader starts from ${v.notes}\n`));
       return 0;

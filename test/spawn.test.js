@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { parseSpec, spawnWorkers } from '../src/spawn.js';
+import { parseSpec, spawnWorkers, agentArgs } from '../src/spawn.js';
 import { DEFAULT_CONFIG } from '../src/config.js';
 
 import { autoFile } from '../src/history.js';
@@ -300,13 +300,14 @@ test('a failing push guard rolls back the worktree', async () => {
 
 test('--auto passes each kind its auto-approve args and records auto', async () => {
   const f = fakes();
-  const { warnings } = await call(f, { specs: ['c=claude', 'a=agy', 'o=opencode', 'p=pi', 'x=codex'], auto: true });
+  const { warnings, workers } = await call(f, { specs: ['c=claude', 'a=agy', 'o=opencode', 'p=pi', 'x=codex'], auto: true });
   const args = Object.fromEntries(f.log.filter(([k]) => k === 'start').map(([, o]) => [o.name, o.args]));
   assert.deepEqual(args.c.slice(0, 4), ['--permission-mode', 'auto', '--disallowedTools', 'Bash(git push:*),Bash(gh:*)']);
   assert.deepEqual(args.a, ['--dangerously-skip-permissions']);
   assert.deepEqual(args.o, ['--auto']);
-  assert.deepEqual(args.p, []);
-  assert.deepEqual(args.x, ['--ask-for-approval', 'never', '--sandbox', 'workspace-write', '--add-dir', path.join(repo, '.git')]);
+  assert.deepEqual(args.p, ['--approve']);
+  const trust = ['-c', `projects.${JSON.stringify(workers.find((w) => w.name === 'x').worktree)}.trust_level="trusted"`];
+  assert.deepEqual(args.x, [...(process.platform === 'win32' ? ['--dangerously-bypass-approvals-and-sandbox'] : ['--ask-for-approval', 'never', '--sandbox', 'workspace-write', '--add-dir', path.join(repo, '.git')]), ...trust]);
   assert.ok(!warnings.some((w) => /codex/.test(w) && /auto/.test(w)));
   assert.ok(!warnings.some((w) => /\bpi\b/.test(w)));
   assert.deepEqual(JSON.parse(f.files[path.join(paths.runs, 'fix-login.json')]).workers.map((w) => w.auto), [true, true, true, true, true]);
@@ -701,4 +702,44 @@ test('a worker whose trust dialog foreman answered is reported as answered to th
   const { workers } = await call(f, { specs: ['w1=claude'], sleep: async () => {} });
   assert.equal(workers[0].status, 'ready');
   assert.deepEqual(told, ['t9']);
+});
+
+test('in auto mode permission and update dialogs at startup are answered, with a few tries', async () => {
+  const f = fakes();
+  const keys = [];
+  const screens = ['Do you want to allow this folder?\n ❯ 1. Yes\n   2. No', 'A new version is available. Update available: press esc to skip', 'ok'];
+  let at = 0;
+  f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_not_ready', message: 'claude is waiting for an answer' });
+  f.herdr.agentRead = async () => screens[Math.min(at, screens.length - 1)];
+  f.herdr.agentKeys = async (name, k) => { keys.push(k); at++; };
+  let listed = 0;
+  // blocked after the first answer (the next dialog), idle after the second
+  f.herdr.agentList = async () => { listed++; return keys.length >= 2 ? [{ name: 'w1', agent_status: 'idle' }] : []; };
+  const { workers, warnings } = await call(f, { specs: ['w1=claude'], auto: true, sleep: async () => {} });
+  assert.deepEqual(keys, [['enter'], ['esc']]);
+  assert.equal(workers[0].status, 'ready');
+  assert.ok(warnings.some((w) => /answered the update dialog/.test(w)));
+  assert.ok(listed > 0);
+});
+
+test('without auto a permission dialog at startup is left to the user', async () => {
+  const f = fakes();
+  const keys = [];
+  f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_not_ready', message: 'waiting' });
+  f.herdr.agentRead = async () => 'Do you want to allow this folder?\n ❯ 1. Yes\n   2. No';
+  f.herdr.agentKeys = async (name, k) => { keys.push(k); };
+  const { workers } = await call(f, { specs: ['w1=claude'], sleep: async () => {} });
+  assert.deepEqual(keys, []);
+  assert.equal(workers[0].status, 'not_ready');
+  assert.match(workers[0].error, /asks for permission/);
+});
+
+test('auto workers get their worktree pre-trusted (codex, pi) and codex drops its sandbox on Windows', () => {
+  const config = DEFAULT_CONFIG;
+  const codex = agentArgs({ name: 'c1', kind: 'codex', auto: true, config, dirs: ['/r/.git'], worktree: '/w/c1' });
+  assert.ok(codex.args.includes('-c') && codex.args.includes('projects."/w/c1".trust_level="trusted"'));
+  if (process.platform === 'win32') assert.ok(codex.args.includes('--dangerously-bypass-approvals-and-sandbox'));
+  else assert.ok(codex.args.includes('workspace-write'));
+  assert.ok(agentArgs({ name: 'p1', kind: 'pi', auto: true, config, worktree: '/w/p1' }).args.includes('--approve'));
+  assert.deepEqual(agentArgs({ name: 'p1', kind: 'pi', config, worktree: '/w/p1' }).args, []);
 });

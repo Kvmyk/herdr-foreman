@@ -8,7 +8,7 @@
 // layout "grid") the app lays them out. Workers are started as the leader's
 // children, so every Herdr client lists them under it.
 import path from 'node:path';
-import { HERDR_KINDS, PROBES, EFFORT_LEVELS, autoArgsOf } from './inventory/kinds.js';
+import { HERDR_KINDS, PROBES, EFFORT_LEVELS, autoArgsOf, trustArgsOf } from './inventory/kinds.js';
 import { planPanes, chooseLayout, MAX_BESIDE_LEADER } from './layout.js';
 import { checkStartFlags, flagsOf } from './startflags.js';
 import { classifyScreen, describeBlocked } from './blocked.js';
@@ -33,7 +33,7 @@ export function parseSpec(s) {
 
 // The command-line arguments a worker's agent starts with (model, effort,
 // auto mode, lean start), and warnings for what its kind cannot take.
-export function agentArgs({ name, kind, model = null, effort = null, auto = false, full = false, config, dirs = [] }) {
+export function agentArgs({ name, kind, model = null, effort = null, auto = false, full = false, config, dirs = [], worktree = null }) {
   const probe = PROBES[kind];
   const args = [];
   const warnings = [];
@@ -47,7 +47,7 @@ export function agentArgs({ name, kind, model = null, effort = null, auto = fals
   // --full keeps MCP servers and all tools, e.g. for a worker that tests a web app in the browser.
   const autoArgs = auto ? autoArgsOf(probe, { dirs }) : null;
   if (autoArgs) {
-    args.push(...autoArgs);
+    args.push(...autoArgs, ...trustArgsOf(probe, { worktree }));
     isAuto = true;
   }
   else if (auto) warnings.push(`no auto-approve mode known for ${kind}; ${name} may still ask for permission`);
@@ -175,6 +175,10 @@ async function readTail(herdr, targets) {
   }
   return '';
 }
+
+// Startup dialogs foreman answers by itself in auto mode, and how often it tries.
+const AUTO_DIALOGS = ['trust', 'permission', 'update'];
+const AUTO_DIALOG_TRIES = 3;
 
 // Press the answer, then wait for the agent to stop being blocked.
 async function answerTrust({ herdr, w, keys, sleep, pressed = false }) {
@@ -324,7 +328,7 @@ export async function spawnWorkers({
   const gitDirs = auto ? [await git.commonDir(repo).catch(() => null)].filter(Boolean) : [];
   const argsOf = new Map();
   const startArgs = workers.map((w) => {
-    const start = agentArgs({ name: w.name, kind: w.kind, model: w.model, effort, auto, full, config, dirs: gitDirs });
+    const start = agentArgs({ name: w.name, kind: w.kind, model: w.model, effort, auto, full, config, dirs: gitDirs, worktree: w.worktree });
     w.auto = start.auto;
     warnings.push(...start.warnings);
     argsOf.set(w.kind, [...new Set([...(argsOf.get(w.kind) ?? []), ...flagsOf(start.args)])]);
@@ -359,18 +363,32 @@ export async function spawnWorkers({
     if (res.ok) continue;
     w.error = `${res.code}: ${res.message}`;
     w.exited = res.code === 'agent_exited';
-    const screen = await readTail(herdr, [w.name, w.paneId]);
+    let screen = await readTail(herdr, [w.name, w.paneId]);
     if (screen) w.screen = screen;
-    const c = classifyScreen(w.kind, screen);
-    // The worktree is foreman's own, so a known trust dialog is answered here.
-    if (c?.safeToAnswer && sleep && await answerTrust({ herdr, w, keys: c.keys, sleep, pressed: answeredEarly.has(w.name) })) {
+    let c = classifyScreen(w.kind, screen);
+    // The worktree is foreman's own, so a known trust dialog is answered here. In auto mode the user
+    // chose not to be asked, so permission and update dialogs at startup are answered too, with
+    // a few tries because one answer can be followed by the next dialog; what remains is reported.
+    const tries = auto ? AUTO_DIALOG_TRIES : 1;
+    let answeredType = null;
+    for (let n = 0; n < tries && sleep && c && (c.safeToAnswer || (auto && c.keys && AUTO_DIALOGS.includes(c.type))); n++) {
+      if (await answerTrust({ herdr, w, keys: c.keys, sleep, pressed: n === 0 && answeredEarly.has(w.name) })) {
+        answeredType = c.type;
+        break;
+      }
+      // Still blocked: look again, the answer may have brought up the next dialog.
+      screen = await readTail(herdr, [w.name, w.paneId]);
+      c = classifyScreen(w.kind, screen);
+    }
+    if (answeredType) {
       w.status = 'ready';
       w.error = null;
       // Nobody is waited for any more: the Herdr app takes its pin off the worker.
       await Promise.resolve().then(() => herdr.answered?.(w.paneId ?? w.name)).catch(() => {});
-      warnings.push(`${w.name}: answered the folder-trust dialog of ${w.kind} for its worktree`);
+      warnings.push(`${w.name}: answered the ${answeredType === 'trust' ? 'folder-trust' : answeredType} dialog of ${w.kind} for its worktree`);
       continue;
     }
+    if (screen) w.screen = screen;
     const hint = describeBlocked({ kind: w.kind, screen, task, name: w.name, foremanCmd });
     if (hint) w.error += `; ${hint}`;
     if (screen) w.error += `

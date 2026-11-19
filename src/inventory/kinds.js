@@ -137,15 +137,22 @@ export const PROBES = Object.freeze({
   },
   opencode: { probe: probeOpencode, modelArgs: flag('--model'), listsModels: true, autoArgs: ['--auto'], verified: true },
   // pi never asks for permission.
-  pi: { probe: probePi, modelArgs: flag('--model'), listsModels: true, autoArgs: [], verified: true },
+  // --approve trusts the project-local files (.pi) of the folder it starts in, which otherwise asks at startup.
+  pi: { probe: probePi, modelArgs: flag('--model'), listsModels: true, autoArgs: [], trustArgs: () => ['--approve'], verified: true },
   // --approval-mode yolo approves every tool call (from gemini's docs; gemini is not installed on every machine).
   gemini: { probe: probeGemini, modelArgs: flag('-m'), autoArgs: ['--approval-mode', 'yolo'], verified: true },
-  // Never asks; shell commands run in a sandbox that writes only below the working directory and
-  // the --add-dir folders and has no network, so git push and gh fail. Taken from `codex --help`
-  // (0.128), not exercised against a signed-in codex.
+  // Never asks. On Windows the workspace-write sandbox makes every shell command hang and every
+  // write fail (seen with codex 0.170 workers: nothing could run), so there auto mode turns the
+  // sandbox off too; the worktree's push guard still stands, and the user chose auto mode.
+  // Elsewhere shell commands run in a sandbox that writes only below the working directory and
+  // the --add-dir folders and has no network, so git push and gh fail.
   codex: {
     probe: probeCodex, modelArgs: flag('-m'), verified: false,
-    autoArgs: ({ dirs = [] } = {}) => ['--ask-for-approval', 'never', '--sandbox', 'workspace-write', ...dirs.flatMap((d) => ['--add-dir', d])],
+    autoArgs: ({ dirs = [], platform = process.platform } = {}) => (platform === 'win32'
+      ? ['--dangerously-bypass-approvals-and-sandbox']
+      : ['--ask-for-approval', 'never', '--sandbox', 'workspace-write', ...dirs.flatMap((d) => ['--add-dir', d])]),
+    // Marks the folder trusted, so codex does not ask "do you trust this directory" at startup.
+    trustArgs: ({ worktree }) => ['-c', `projects.${JSON.stringify(worktree)}.trust_level="trusted"`],
   },
 });
 
@@ -178,10 +185,15 @@ export function submitStrategy(kind) {
 // folders besides the working directory that the agent must be able to write
 // (the repository's .git for a worktree's commits, foreman's own folder for the leader).
 // Returns null when the kind has no auto mode known.
+// A kind's trustArgs({ worktree }) keep its folder-trust question from showing in foreman's own worktree.
 export function autoArgsOf(probe, ctx = {}) {
   const a = probe?.autoArgs;
   if (!a) return null;
   return typeof a === 'function' ? a(ctx) : a;
+}
+
+export function trustArgsOf(probe, ctx = {}) {
+  return ctx.worktree ? probe?.trustArgs?.(ctx) ?? [] : [];
 }
 
 // In the Herdr app, hc runs the agent's own program (named like its kind) in a

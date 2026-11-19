@@ -195,6 +195,9 @@ test('prepareResume writes the notes; a cleaned-up run cannot be resumed', async
   assert.equal(prep.task, 'fix the login');
   assert.equal(prep.repo, repo);
   assert.equal(prep.backend, 'herdr');
+  assert.equal(prep.auto, false);
+  f.all[path.join(paths.runs, 'auto.json')] = JSON.stringify(run({ task: 'auto', auto: true }));
+  assert.equal((await ops.prepareResume({ task: 'auto' })).auto, true);
   assert.match(f.all[prep.notes], /Resuming foreman run/);
   assert.ok(prep.prompt.includes(prep.notes));
   await assert.rejects(ops.prepareResume({ task: 'done' }), /is finished \(landed\)/);
@@ -222,7 +225,11 @@ test('foreman resume starts a leader in the run\'s repo; respawn passes its flag
   assert.equal(await main(['respawn', '--task', 'fix-login', 'w1=claude:opus', '--effort', 'high', '--auto'], deps), 0);
   assert.deepEqual(calls[1], { task: 'fix-login', spec: 'w1=claude:opus', newTab: false, effort: 'high', auto: true, full: false });
   assert.match(out, /send it again with foreman prompt/);
+  // A run the user chose auto-answer for starts its new leader with that choice.
+  deps.ops.prepareResume = async ({ task }) => ({ slug: task, task: 'x', repo, backend: 'app', notes: '/s/tasks/n.md', prompt: 'P', auto: true });
+  assert.equal(await main(['resume', '--task', 'fix-login'], deps), 0);
+  assert.deepEqual(calls.at(-1).prefs, { autoAnswer: true });
   // Without --task these words are a task.
   assert.equal(await main(['resume', 'the', 'upload'], deps), 0);
-  assert.equal(calls[2].task, 'resume the upload');
+  assert.equal(calls.at(-1).task, 'resume the upload');
 });

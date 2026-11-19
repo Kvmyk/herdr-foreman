@@ -125,7 +125,7 @@ export async function respawnWorker({ run, herdr, spec, pane = null, newTab = fa
     else paneId = await herdr.paneSplit({ pane, direction: 'right', ratio: 0.5, cwd: w.worktree });
   }
 
-  const start = agentArgs({ name, kind, model, effort, auto, full, config, dirs: auto && gitDir ? [gitDir] : [] });
+  const start = agentArgs({ name, kind, model, effort, auto, full, config, dirs: auto && gitDir ? [gitDir] : [], worktree: w.worktree });
   const res = await herdr.agentStart({
     name, kind, pane: paneId, cwd: w.worktree, space: place.space, tab: place.tab, label: place.label,
     timeoutMs: config.startTimeoutMs, args: start.args,
