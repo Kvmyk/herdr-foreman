@@ -455,3 +455,89 @@ What each refresh of `knowledge/agents.json` changed, newest last. Written by `s
   - `vals` moved (HTTP 200) -> https://www.vals.ai/benchmarks: https://www.vals.ai/benchmarks/
   - `seal` moved (HTTP 200) -> https://labs.scale.com/leaderboard: https://scale.com/leaderboard/
   - `codex-docs` moved (HTTP 200) -> https://learn.chatgpt.com/docs/llms.txt: https://developers.openai.com/codex/llms.txt
+
+## 2026-11-17
+
+- Needs a manual look, no stub added (only alias ids (*-latest)): gpt-daybreak-blue-latest (openai, models.dev family `gpt-sol`).
+- Needs a manual look, no stub added (variant of existing family gpt): gpt-daybreak-red-latest (openai, models.dev family `gpt`).
+- Needs a manual look, no stub added (variant of existing family gemini-pro): gemini-pro-latest (google, models.dev family `gemini-pro`).
+- Source `seal` is frozen, its facts were dropped: returned ok false twice in a row (seal: SWE Atlas variant qna missing).
+- Facts for models no family matches (not stored; add a family or fix the model id):
+  - `muse-wonder-1.0` (epoch)
+  - `muse-spark-1.3` (epoch)
+  - `composer-2.5` (epoch)
+  - `inkling-2-small` (epoch)
+  - `muse-spark-1.2` (epoch)
+  - `inkling` (epoch)
+  - `muse-spark-1.3` (livebench)
+  - `mistral-large-4.0` (livebench)
+  - `muse-wonder-1.0` (livebench)
+  - `minimax-m3.1-flash` (livebench)
+  - `step-5-preview` (livebench)
+  - `mimo-v2.6-pro` (livebench)
+  - `muse-spark-open` (livebench)
+  - `nemotron-super-vl-3.5` (livebench)
+  - `smaug-nemotron-3.5-nvfp4` (livebench)
+  - `inkling` (livebench)
+  - `mistral-large-4` (livebench)
+  - `nemotron-super-vl-3.5-nvfp4` (livebench)
+  - `copilot-fusion` (tbench)
+  - `muse-wonder` (tbench)
+  - `hy4` (tbench)
+  - `muse-ember` (tbench)
+  - `mistral-large-4` (tbench)
+  - `mimo-v2.6-pro` (tbench)
+  - `ember-1` (tbench)
+  - `hy4-preview` (tbench)
+  - `mimo-v2.6-flash` (tbench)
+  - `muse-spark-1.3` (tbench)
+  - `inkling-small-2` (tbench)
+  - `minimax-m3` (tbench)
+  - `beam-1.0` (tbench)
+  - `inkling-small` (tbench)
+  - `nemotron-3.5-super-vl` (tbench)
+  - `inkling` (tbench)
+  - `muse-wonder-full` (vals)
+  - `muse-wonder` (vals)
+  - `hy4` (vals)
+  - `muse-ember` (vals)
+  - `step-5-preview` (vals)
+  - `mimo-v2.6-pro` (vals)
+  - `mistral-large-4` (vals)
+  - `mistral-large-4-oss` (vals)
+  - `minimax-m3.1-flash` (vals)
+  - `muse-spark-1.3` (vals)
+  - `mimo-v2.6-flash` (vals)
+  - `ember-1` (vals)
+  - `hy4-flash` (vals)
+  - `inkling-2-small` (vals)
+  - `hy4-preview` (vals)
+  - `muse-spark-open` (vals)
+  - `muse-spark-1.2` (vals)
+  - `beam-1.0` (vals)
+  - `mercury-3` (vals)
+  - `minimax-m3` (vals)
+  - `inkling` (vals)
+  - `mimo-v2.5-pro` (vals)
+  - `inkling-small` (vals)
+  - `mercury-2.5` (vals)
+  - `nemotron-3.5-super-vl-120b-a12b` (vals)
+  - `muse-spark-1.1` (vals)
+  - `mimo-v2.5` (vals)
+  - `muse-spark` (vals)
+  - `minimax-m2.5` (vals)
+  - `minimax-m2.7` (vals)
+  - `laguna-m.1` (vals)
+  - `nemotron-3-ultra-550b-a55b` (vals)
+  - `laguna-xs.2` (vals)
+  - `ling-3.0-flash-af-rc3` (vals)
+  - `ling-3.0-flash-2607` (vals)
+  - `mistral-medium-3.5` (vals)
+  - `mistral-small-2603` (vals)
+  - `nemotron-lightning-3p5-30b-a3b` (vals)
+- Harness `claude` release 2.1.325 -> 2.1.326.
+- Harness `opencode` release 1.19.5 -> 1.19.6.
+- Note: source links that redirect (still reachable, consider updating the URL):
+  - `vals` moved (HTTP 200) -> https://www.vals.ai/benchmarks: https://www.vals.ai/benchmarks/
+  - `seal` moved (HTTP 200) -> https://labs.scale.com/leaderboard: https://scale.com/leaderboard/
+  - `codex-docs` moved (HTTP 200) -> https://learn.chatgpt.com/docs/llms.txt: https://developers.openai.com/codex/llms.txt
