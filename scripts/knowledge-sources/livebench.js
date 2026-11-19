@@ -23,7 +23,7 @@ export default {
   url: SITE,
   title: 'LiveBench 2.0',
   kind: 'data',
-  licence: 'none stated (site data)',
+  licence: 'no licence found; facts only; checked 2026-11-19',
   async read({ fetchImpl }) {
     const release = await newestRelease(fetchImpl);
     const rows = parseCsv(await getText(fetchImpl, `${SITE}data/${release}/table.csv`));
