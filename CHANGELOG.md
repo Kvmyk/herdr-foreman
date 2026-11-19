@@ -4,8 +4,17 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-11-19
+
 ### Fixed
 
+- Prompts to codex, opencode, agy and pi count as sent only when the agent really started: on Windows foreman waits until the pasted text settles before pressing enter, and in the Herdr app it uses the agent's real status. `foreman prompt` no longer says `sent` for a prompt that stayed in the input, or `not submitted` for one that went in.
+- `foreman prompt` says when a prompt never reached the agent's input (for example behind opencode's restart notice after it updates itself) and that it should be sent again.
+- Footers, tips and banners (`Update available`, `bypass permissions on`, `/permissions`) no longer count as questions, so prompts in auto mode are submitted and workers are no longer marked as needing you. agy's `esc to dismiss` notice is closed on its own.
+- `foreman respawn` answers startup dialogs like `spawn`, so agy's folder-trust question no longer waits for enter.
+- opencode workers in the Herdr app show as ready as soon as their input is on screen, instead of after 90 s with a message about folder trust.
+- A worker whose agent fails at start shows the agent's error, such as an unsupported model, instead of "needs you".
+- `foreman brief` lists codex's models and warns when `~/.codex/config.toml` sets a model codex no longer offers.
 - The leader no longer asks again about permission questions or uncommitted changes when you already chose in the Herdr app or with `--auto-answer`: your choices come first in its prompt and say they override the instructions, and "off" is passed on too (`--no-auto-answer`, `--no-include-uncommitted`). A resumed run keeps its auto choice.
 - Codex in auto mode on Windows runs without its sandbox (`--dangerously-bypass-approvals-and-sandbox`), because the Windows `workspace-write` sandbox hung every shell command; the push guard stays.
 - Auto-mode workers start with their worktree already trusted (codex `-c projects."<worktree>".trust_level`, pi `--approve`), and foreman answers startup trust, permission and update dialogs for them, trying a few times. With auto-answer it also answers the leader's folder-trust question.
@@ -256,7 +265,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.2...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.3...HEAD
+[0.13.3]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.12.0...v0.13.0
