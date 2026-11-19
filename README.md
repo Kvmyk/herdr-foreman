@@ -156,7 +156,7 @@ The logo, the banners and the demo GIF are original and covered by the same lice
 
 ## Third-party data
 
-The knowledge file `knowledge/agents.json` contains facts (scores, ranks, dates, links) taken from public sources: Epoch AI and Arena (both CC BY 4.0, credited), Terminal-Bench (Apache-2.0 GitHub repository), LiveBench and Vals AI (no licence found, facts only). Scale SEAL is disabled because of Scale's terms. This data is not under the MIT licence; see [DATA-SOURCES.md](DATA-SOURCES.md) for each source, its licence, the credit lines and how to ask for removal.
+The knowledge file `knowledge/agents.json` contains facts (scores, ranks, dates, links) taken from public sources: Epoch AI and Arena (both CC BY 4.0, credited), Terminal-Bench (Stanford / Harbor / Laude Institute; facts from the Harbor Hub public read API, repository Apache-2.0), LiveBench and Vals AI (no licence found, facts only). Scale SEAL is disabled because of Scale's terms. This data is not under the MIT licence; see [DATA-SOURCES.md](DATA-SOURCES.md) for each source, its licence, the credit lines and how to ask for removal.
 
 ## License
 
