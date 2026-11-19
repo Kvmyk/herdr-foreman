@@ -4,6 +4,12 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-19
+
+### Changed
+
+- The knowledge log lists the facts for models no family matches only when that list changed; otherwise one line says `unchanged since <date> (<n> models)`.
+
 ## [0.14.0] - 2026-11-19
 
 ### Added
@@ -288,7 +294,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.3...v0.14.0
 [0.13.3]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.1...v0.13.2
