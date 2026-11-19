@@ -849,3 +849,14 @@ What each refresh of `knowledge/agents.json` changed, newest last. Written by `s
 - Note: source links that redirect (still reachable, consider updating the URL):
   - `vals` moved (HTTP 200) -> https://www.vals.ai/benchmarks: https://www.vals.ai/benchmarks/
   - `codex-docs` moved (HTTP 200) -> https://learn.chatgpt.com/docs/llms.txt: https://developers.openai.com/codex/llms.txt
+
+## 2026-11-19
+
+- Needs a manual look, no stub added (variant of existing family gpt): gpt-daybreak-red-latest (openai, models.dev family `gpt`).
+- Needs a manual look, no stub added (only alias ids (*-latest)): gpt-daybreak-blue-latest (openai, models.dev family `gpt-sol`).
+- Needs a manual look, no stub added (variant of existing family gemini-pro): gemini-pro-latest (google, models.dev family `gemini-pro`).
+- Facts for models no family matches: unchanged since 2026-11-19 (142 models).
+- Harness `claude` release 2.1.328 -> 2.1.329.
+- Note: source links that redirect (still reachable, consider updating the URL):
+  - `vals` moved (HTTP 200) -> https://www.vals.ai/benchmarks: https://www.vals.ai/benchmarks/
+  - `codex-docs` moved (HTTP 200) -> https://learn.chatgpt.com/docs/llms.txt: https://developers.openai.com/codex/llms.txt
