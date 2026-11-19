@@ -4,6 +4,29 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-19
+
+### Added
+
+- `DATA-SOURCES.md` lists each benchmark source behind `knowledge/agents.json`, its licence, the credit lines and how to ask for removal; the README has a Third-party data section.
+- Facts from Epoch AI and Arena carry their full CC BY 4.0 credit (creator, licence link, what was changed) in `sourceMeta`.
+
+### Changed
+
+- The README says MIT covers foreman's code and its own selection, not the third-party data.
+- The Arena sources are now called Arena (formerly LMArena) Code Arena and Agent Arena, and are read only from Arena's CC BY 4.0 dataset on Hugging Face.
+- A knowledge source that fails keeps its facts for 7 days after its last good read, or until its third failed run in a row; `sourceMeta` shows its `error`, `failures` and `lastOk`, and the refresh prints the error.
+
+### Removed
+
+- Scale SEAL is no longer read, because Scale's terms do not allow it.
+
+### Fixed
+
+- Arena facts are refreshed again: the refresh reads fewer pages from Hugging Face, retries for longer and says why a read failed.
+- Terminal-Bench facts come from the public Harbor Hub API and no longer fail on submissions without a leaderboard field.
+- LiveBench and Vals AI facts state that no licence was found for them.
+
 ## [0.13.3] - 2026-11-19
 
 ### Fixed
@@ -265,7 +288,8 @@ First public release.
 - Lower token use: `foreman wait` instead of polling, lean Claude starts, effort per worker and compact JSON.
 - Logo, banners, demo video, GIF and LinkedIn cut, with the scripts that make them.
 
-[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.3...HEAD
+[Unreleased]: https://github.com/Kvmyk/herdr-foreman/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.3...v0.14.0
 [0.13.3]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.2...v0.13.3
 [0.13.2]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/Kvmyk/herdr-foreman/compare/v0.13.0...v0.13.1
