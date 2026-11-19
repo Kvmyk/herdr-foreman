@@ -216,6 +216,16 @@ test('applyFacts writes facts, tendencies and updated from the newest fact, and 
   assert.deepEqual(k.sourceMeta.tbench, { title: 'tbench', kind: 'data', licence: 'CC-BY-4.0', ttlDays: 45, newest: '2026-11-11', checked: '2026-11-11', ok: true });
 });
 
+test('applyFacts carries the attribution of a source into sourceMeta', () => {
+  const k = base();
+  const attribution = { creator: 'Someone', licenceUrl: 'https://creativecommons.org/licenses/by/4.0/', modified: 'rounded' };
+  applyFacts(k, { records: [rec()], status: { tbench: { ok: true, newest: '2026-11-11', count: 1 } } }, [src('tbench', { attribution })], '2026-11-11');
+  assert.deepEqual(k.sourceMeta.tbench.attribution, attribution);
+  const plain = base();
+  applyFacts(plain, { records: [rec()], status: { tbench: { ok: true, newest: '2026-11-11', count: 1 } } }, [src('tbench')], '2026-11-11');
+  assert.equal('attribution' in plain.sourceMeta.tbench, false);
+});
+
 const F = (over) => ({ ...rec(over), text: `${over.model ?? 'm'} ${over.benchmark ?? 'B'}` });
 
 test('selectFamilyFacts keeps the best model per benchmark, harness and category facts first, at most 8', () => {
