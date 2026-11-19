@@ -12,6 +12,10 @@ const USER_AGENT = `${PRODUCT}/1.0 (+https://github.com/Kvmyk/herdr-foreman)`;
 const TIMEOUT_MS = 30000;
 
 const RETRY_DELAYS_MS = [1000, 4000];
+// The Hugging Face datasets-server rate-limits shared CI addresses in bursts: wait
+// longer, with jitter, and retry timeouts there too.
+const HF_HOST = 'datasets-server.huggingface.co';
+const HF_RETRY_DELAYS_MS = [2000, 8000, 20000];
 const TRANSIENT = new Set([429, 500, 502, 503, 504]);
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 const MAX_REDIRECTS = 5;
@@ -65,28 +69,44 @@ function robotsAllow(rules, url) {
   return best?.allow ?? true;
 }
 
-function retryDelay(res, attempt, now) {
+const retryPolicy = (url) => (url.hostname === HF_HOST
+  ? { delays: HF_RETRY_DELAYS_MS, jitter: true, timeouts: true }
+  : { delays: RETRY_DELAYS_MS, jitter: false, timeouts: false });
+
+const backoff = (policy, attempt, random) => Math.round(policy.delays[attempt] * (policy.jitter ? 0.75 + 0.5 * random() : 1));
+
+function retryDelay(res, attempt, now, policy, random) {
   const after = [429, 503].includes(res.status) ? res.headers?.get('retry-after')?.trim() : null;
   if (after) {
     const delay = /^\d+$/.test(after) ? Number(after) * 1000 : Date.parse(after) - now();
     if (!Number.isNaN(delay)) return Math.max(0, delay);
   }
-  return RETRY_DELAYS_MS[attempt];
+  return backoff(policy, attempt, random);
 }
+
+const isTimeout = (err) => ['TimeoutError', 'AbortError'].includes(err?.name);
 
 // Share robots checks for concurrent requests within one refresh. Follow redirects
 // manually so a new origin's policy is applied before any resource request there.
-export function createKnowledgeFetch(fetchImpl, { wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now } = {}) {
+export function createKnowledgeFetch(fetchImpl, { wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), now = Date.now, random = Math.random } = {}) {
   if (guardedFetches.has(fetchImpl)) return fetchImpl;
   const policies = new Map();
 
   async function request(url, options, timeoutMs) {
     const headers = new Headers(options.headers);
     headers.set('user-agent', USER_AGENT);
+    const policy = retryPolicy(url);
     for (let attempt = 0; ; attempt++) {
-      const res = await fetchImpl(url.href, { ...options, headers, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
-      if (attempt >= RETRY_DELAYS_MS.length || !TRANSIENT.has(res.status)) return res;
-      const delay = retryDelay(res, attempt, now);
+      let res;
+      try {
+        res = await fetchImpl(url.href, { ...options, headers, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });
+      } catch (err) {
+        if (!policy.timeouts || !isTimeout(err) || attempt >= policy.delays.length) throw err;
+        await wait(backoff(policy, attempt, random));
+        continue;
+      }
+      if (attempt >= policy.delays.length || !TRANSIENT.has(res.status)) return res;
+      const delay = retryDelay(res, attempt, now, policy, random);
       // Leave a longer server-requested pause to the next refresh.
       if (delay >= timeoutMs) return res;
       await res.body?.cancel();
@@ -141,9 +161,22 @@ export function createKnowledgeFetch(fetchImpl, { wait = (ms) => new Promise((re
   return guardedFetch;
 }
 
+// What the server said about a failed request: its error code header (Hugging Face
+// sends X-Error-Code, for example ResponseNotReady) and the start of the body.
+async function errorDetail(res) {
+  const code = res.headers?.get?.('x-error-code');
+  let body = '';
+  try {
+    body = String(await res.text()).replace(/\s+/g, ' ').trim().slice(0, 200);
+  } catch {
+    // No readable body; the status says enough.
+  }
+  return `${code ? ` (${code})` : ''}${body ? `: ${body}` : ''}`;
+}
+
 async function requestData(fetchImpl, url, options) {
   const res = await createKnowledgeFetch(fetchImpl)(url, options);
-  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}${await errorDetail(res)}`);
   return res;
 }
 export const getText = async (fetchImpl, url) => (await requestData(fetchImpl, url)).text();
@@ -158,14 +191,23 @@ export async function postJson(fetchImpl, url, payload) {
   return response.json();
 }
 
-// All rows of one split from the Hugging Face datasets-server (100 per page).
-export async function hfRows(fetchImpl, { dataset, config, split, maxPages = 30 }) {
+const HF_PAGE = 100;
+class RevisionChanged extends Error {}
+
+// One pass over the pages of a datasets-server /rows or /filter URL. Every page must
+// come from the dataset revision of the first one (x-revision header).
+async function hfPages(fetchImpl, base, label, maxPages) {
   const rows = [];
   let features = null;
-  for (let page = 0, total = Infinity; page * 100 < total; page++) {
-    if (page >= maxPages) fail(`${dataset}/${config}: more than ${maxPages} pages`);
-    const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(dataset)}&config=${encodeURIComponent(config)}&split=${encodeURIComponent(split)}&offset=${page * 100}&length=100`;
-    const body = await getJson(fetchImpl, url);
+  let revision = null;
+  for (let page = 0, total = Infinity; page * HF_PAGE < total; page++) {
+    if (page >= maxPages) fail(`${label}: more than ${maxPages} pages`);
+    const url = `${base}&offset=${page * HF_PAGE}&length=${HF_PAGE}`;
+    const res = await requestData(fetchImpl, url);
+    const rev = res.headers?.get?.('x-revision') ?? null;
+    if (page === 0) revision = rev;
+    else if (rev && revision && rev !== revision) throw new RevisionChanged(`${revision} -> ${rev}`);
+    const body = await res.json();
     if (!Array.isArray(body?.rows) || !Array.isArray(body.features) || !Number.isInteger(body.num_rows_total)) fail(`${url}: unexpected response`);
     features ??= body.features.map((f) => f.name);
     total = body.num_rows_total;
@@ -173,6 +215,39 @@ export async function hfRows(fetchImpl, { dataset, config, split, maxPages = 30 
     if (!body.rows.length) break;
   }
   return { features, rows };
+}
+
+// Restart once when the dataset gets a new revision while paging, then give up.
+async function hfConsistentPages(fetchImpl, base, label, maxPages) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await hfPages(fetchImpl, base, label, maxPages);
+    } catch (err) {
+      if (!(err instanceof RevisionChanged)) throw err;
+      if (attempt >= 1) fail(`${label}: dataset revision changed while paging, also after a restart (${err.message}); try again later`);
+    }
+  }
+}
+
+// Rows of one split from the Hugging Face datasets-server, 100 per page. With where
+// (a condition such as "category"='overall') only the matching rows are read through
+// /filter; if /filter fails, /rows is read instead, so callers still filter themselves.
+export async function hfRows(fetchImpl, { dataset, config, split, where = null, maxPages = 30 }) {
+  const label = `${dataset}/${config}`;
+  const query = `dataset=${encodeURIComponent(dataset)}&config=${encodeURIComponent(config)}&split=${encodeURIComponent(split)}`;
+  const rowsUrl = `https://${HF_HOST}/rows?${query}`;
+  if (!where) return hfConsistentPages(fetchImpl, rowsUrl, label, maxPages);
+  try {
+    return await hfConsistentPages(fetchImpl, `https://${HF_HOST}/filter?${query}&where=${encodeURIComponent(where)}`, label, maxPages);
+  } catch (filterErr) {
+    if (filterErr instanceof RobotsError) throw filterErr;
+    try {
+      return await hfConsistentPages(fetchImpl, rowsUrl, label, maxPages);
+    } catch (err) {
+      if (err instanceof RobotsError) throw err;
+      throw new Error(`${err.message} (after /filter failed: ${filterErr.message})`);
+    }
+  }
 }
 
 export function fail(message) {

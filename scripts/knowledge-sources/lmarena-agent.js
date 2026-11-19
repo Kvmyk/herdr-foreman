@@ -10,6 +10,8 @@
 import { hfRows, normaliseModel, harnessKind, vendorFor, vendorLabel, isoDay, fail } from './normalise.js';
 
 const REQUIRED = ['model_name', 'organization', 'score', 'category', 'leaderboard_publish_date'];
+// Only the overall rows are used: /filter reads just those (hfRows falls back to /rows).
+const OVERALL = `"category"='overall'`;
 
 export default {
   id: 'lmarena-agent',
@@ -23,7 +25,7 @@ export default {
     modified: 'score replaced by its rank, model names normalised, subset (overall category of the latest leaderboard)',
   },
   async read({ fetchImpl }) {
-    const { features, rows } = await hfRows(fetchImpl, { dataset: 'lmarena-ai/leaderboard-dataset', config: 'agent', split: 'latest' });
+    const { features, rows } = await hfRows(fetchImpl, { dataset: 'lmarena-ai/leaderboard-dataset', config: 'agent', split: 'latest', where: OVERALL });
     for (const f of REQUIRED) if (!features.includes(f)) fail(`agent: missing column ${f}`);
     return rows.filter((r) => r.category === 'overall').map((r) => {
       const { model, effort, harnessLabel } = normaliseModel(r.model_name, { vendor: vendorLabel(r.organization) });
