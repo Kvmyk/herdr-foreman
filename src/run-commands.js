@@ -114,7 +114,7 @@ export function runOps(deps) {
         // The user's choice about permission questions holds for the whole task.
         auto: auto || run.auto === true || Boolean(run.workers.find((w) => w.name === name)?.auto),
         gitDir: await createGit({ run: deps.run }).commonDir(run.repo).catch(() => null),
-        config: loadConfig(io), exists: deps.exists, now: deps.now,
+        config: loadConfig(io), exists: deps.exists, now: deps.now, sleep: deps.sleep,
       });
       noteRun(task, (r) => ({ workers: r.workers.map((w) => (w.name === res.worker.name ? res.worker : w)) }));
       const w = res.worker;

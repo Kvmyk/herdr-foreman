@@ -193,13 +193,38 @@ async function answerTrust({ herdr, w, keys, sleep, pressed = false }) {
   return false;
 }
 
+// After a start that did not report ready: read the screen and answer the dialog on it. The
+// worktree is foreman's own, so a known trust dialog is answered. In auto mode the user chose
+// not to be asked, so permission and update dialogs at startup are answered too, with a few
+// tries because one answer can be followed by the next dialog.
+// Returns { answered: the dialog type or null, screen, hint-able classification c }.
+export async function answerStartDialogs({ herdr, w, auto = false, sleep = null, pressed = false }) {
+  let screen = await readTail(herdr, [w.name, w.paneId]);
+  let c = classifyScreen(w.kind, screen);
+  const tries = auto ? AUTO_DIALOG_TRIES : 1;
+  for (let n = 0; n < tries && sleep && c && (c.safeToAnswer || (auto && c.keys && AUTO_DIALOGS.includes(c.type))); n++) {
+    if (await answerTrust({ herdr, w, keys: c.keys, sleep, pressed: n === 0 && pressed })) {
+      await Promise.resolve().then(() => herdr.answered?.(w.paneId ?? w.name)).catch(() => {});
+      return { answered: c.type, screen, c };
+    }
+    // Still blocked: look again, the answer may have brought up the next dialog.
+    screen = await readTail(herdr, [w.name, w.paneId]);
+    c = classifyScreen(w.kind, screen);
+  }
+  return { answered: null, screen, c };
+}
+
+export const dialogWarning = (w, type) => `${w.name}: answered the ${type === 'trust' ? 'folder-trust' : type} dialog of ${w.kind} for its worktree`;
+
 // While an agent starts, answer its folder-trust dialog as soon as it shows,
 // instead of letting the start wait out its whole timeout.
-async function watchTrust({ herdr, w, sleep, isDone, answered }) {
+export async function watchTrust({ herdr, w, sleep, isDone, answered }) {
   for (let waited = 0; !isDone() && waited < 120000; waited += 1500) {
     await sleep(1500);
     if (isDone()) return;
     const c = classifyScreen(w.kind, await readTail(herdr, [w.name, w.paneId]));
+    // The start may have ended while the screen was read: its caller answers then, not twice.
+    if (isDone()) return;
     if (c?.safeToAnswer) {
       answered.add(w.name);
       try { await herdr.agentKeys(w.name, c.keys); } catch { /* the start result reports it */ }
@@ -363,29 +388,13 @@ export async function spawnWorkers({
     if (res.ok) continue;
     w.error = `${res.code}: ${res.message}`;
     w.exited = res.code === 'agent_exited';
-    let screen = await readTail(herdr, [w.name, w.paneId]);
-    if (screen) w.screen = screen;
-    let c = classifyScreen(w.kind, screen);
-    // The worktree is foreman's own, so a known trust dialog is answered here. In auto mode the user
-    // chose not to be asked, so permission and update dialogs at startup are answered too, with
-    // a few tries because one answer can be followed by the next dialog; what remains is reported.
-    const tries = auto ? AUTO_DIALOG_TRIES : 1;
-    let answeredType = null;
-    for (let n = 0; n < tries && sleep && c && (c.safeToAnswer || (auto && c.keys && AUTO_DIALOGS.includes(c.type))); n++) {
-      if (await answerTrust({ herdr, w, keys: c.keys, sleep, pressed: n === 0 && answeredEarly.has(w.name) })) {
-        answeredType = c.type;
-        break;
-      }
-      // Still blocked: look again, the answer may have brought up the next dialog.
-      screen = await readTail(herdr, [w.name, w.paneId]);
-      c = classifyScreen(w.kind, screen);
-    }
-    if (answeredType) {
+    const first = await readTail(herdr, [w.name, w.paneId]);
+    if (first) w.screen = first;
+    const { answered, screen } = await answerStartDialogs({ herdr, w, auto, sleep, pressed: answeredEarly.has(w.name) });
+    if (answered) {
       w.status = 'ready';
       w.error = null;
-      // Nobody is waited for any more: the Herdr app takes its pin off the worker.
-      await Promise.resolve().then(() => herdr.answered?.(w.paneId ?? w.name)).catch(() => {});
-      warnings.push(`${w.name}: answered the ${answeredType === 'trust' ? 'folder-trust' : answeredType} dialog of ${w.kind} for its worktree`);
+      warnings.push(dialogWarning(w, answered));
       continue;
     }
     if (screen) w.screen = screen;
