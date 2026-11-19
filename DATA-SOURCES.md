@@ -19,6 +19,10 @@ Last reviewed: 2026-11-19. This is a maintainer's summary, not legal advice.
 
 - Epoch's external series (CursorBench, FrontierSWE, DeepSWE) keep their own terms, according to Epoch; they are not covered by Epoch's CC BY 4.0.
 - LiveBench and Vals AI: no licence found, and permission has not been granted yet. Only facts are taken.
+- Arena: both `lmarena-webdev` and `lmarena-agent` are read from the Hugging Face dataset viewer API at `datasets-server.huggingface.co`. That one host serves both, so if it rate-limits or fails, both sources fail together. Only the `overall` rows are requested (`/filter`, falling back to `/rows`). arena.ai and lmarena.ai are never read: their Terms of Use forbid automated access.
+- When a source fails, `sourceMeta.<id>` in `knowledge/agents.json` gets `ok: false`, the `error` the refresh got and the number of `failures` in a row. `lastOk` is the date of the last successful read. The error is also printed as a warning and written to `docs/research/knowledge-log.md`.
+- Grace rule: a failing source keeps its facts. It is frozen (its facts are dropped) from its second failed run in a row once more than 7 days have passed since `lastOk`, and always at its third failed run in a row.
+- The CC BY 4.0 attribution (`creator`, `licenceUrl`, `modified`) stays in `sourceMeta` while a source is `ok: false` or frozen, because facts read earlier may still be in the file or in its history.
 
 ## Credits
 

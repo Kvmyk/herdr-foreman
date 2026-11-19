@@ -105,8 +105,10 @@ export function validateKnowledge(k) {
         if (!isObject(m)) errors.push(`sourceMeta ${id} is not an object`);
         else {
           if (m.ttlDays !== undefined && !(typeof m.ttlDays === 'number' && m.ttlDays > 0)) errors.push(`sourceMeta ${id}: ttlDays is not a positive number`);
-          for (const d of ['newest', 'checked']) if (m[d] !== undefined && m[d] !== null && !isIsoDate(m[d])) errors.push(`sourceMeta ${id}: ${d} is not a YYYY-MM-DD date`);
+          for (const d of ['newest', 'checked', 'lastOk']) if (m[d] !== undefined && m[d] !== null && !isIsoDate(m[d])) errors.push(`sourceMeta ${id}: ${d} is not a YYYY-MM-DD date`);
           if (m.ok !== undefined && typeof m.ok !== 'boolean') errors.push(`sourceMeta ${id}: ok is not true or false`);
+          if (m.error !== undefined && typeof m.error !== 'string') errors.push(`sourceMeta ${id}: error is not a string`);
+          if (m.failures !== undefined && !(Number.isInteger(m.failures) && m.failures > 0)) errors.push(`sourceMeta ${id}: failures is not a positive whole number`);
           for (const t of ['title', 'kind', 'licence']) if (!isTextOrNull(m[t])) errors.push(`sourceMeta ${id}: ${t} is not a string`);
         }
       }
