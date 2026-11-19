@@ -84,7 +84,7 @@
       "permissions": "",
       "notes": "",
       "sources": ["gemini-migration"],
-      "release": {"version":"0.69.0","date":"2026-11-19","source":"npm"}
+      "release": {"version":"0.70.0","date":"2026-11-19","source":"npm"}
     },
     "pi": {
       "strengths": [],
