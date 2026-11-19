@@ -5,9 +5,14 @@
 // space or tab. A "pane" here is an hc terminal, and its address (t7) is the
 // pane id. Failures become HerdrError with hc's error kind as code.
 import { randomBytes } from 'node:crypto';
-import { HerdrError, realSleep, sendKeys, submitIfStuck } from './herdr.js';
+import { HerdrError, realSleep, sendKeys, checkSubmit, clearForPrompt, inputEmpty, modalShown } from './herdr.js';
 import { appArgv } from './inventory/kinds.js';
 import { appStackSteps } from './layout.js';
+import { classifyScreen } from './blocked.js';
+import { screenTail } from './wait.js';
+
+// Seconds between looks at a starting agent's screen (see waitReady).
+export const WAIT_STEP_S = 5;
 
 // `hc ls` gives a terminal's status as its state word, `hc get` as the whole
 // Status record ({ app, state, kind, msg }); either way, the state word.
@@ -160,6 +165,28 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     await call('label', [terminal, 'herdr.pinned=1', `foreman.pinned=${restore || '1'}`]).catch(() => {});
   }
 
+  // hc's wait for a new agent to be ready, in check-ins of WAIT_STEP_S. A
+  // program that never reported a status (opencode in the app) stays
+  // "working" for hc until it exits, so at each check-in its screen decides:
+  // an empty input with no dialog, the same at two check-ins, is ready; a
+  // dialog ends the wait (it is reported as not ready, with its label).
+  async function waitReady(pane, kind, secs) {
+    let before = null;
+    for (let left = secs; ;) {
+      const step = Math.min(left, WAIT_STEP_S);
+      const w = await call('wait', ['--timeout', String(step), pane], (step + 15) * 1000);
+      left -= step;
+      if (w.ended || left <= 0) return w;
+      const t = await call('get', [pane]).catch(() => null);
+      if (!t || t.reported !== false) continue;
+      const screen = screenTail(await run(hc, ['read', '--lines', '0', pane], { timeoutMs: 15000 }).then((r) => (r.code === 0 ? r.stdout : '')).catch(() => ''));
+      const dialog = modalShown(screen, kind) ?? classifyScreen(kind, screen);
+      if (dialog) return { ...w, dialog };
+      if (screen && screen === before && inputEmpty(screen, 10)) return { ...w, ended: true, status: 'idle' };
+      before = screen;
+    }
+  }
+
   async function terminals() {
     return (await call('ls', [])).terminals ?? [];
   }
@@ -305,8 +332,9 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
       const secs = Math.ceil((timeoutMs ?? 30000) / 1000);
       let res;
       try {
-        const w = await call('wait', ['--timeout', String(secs), pane], (secs + 15) * 1000);
-        if (w.ended && ['idle', 'done'].includes(w.status)) res = { ok: true, pane };
+        const w = await waitReady(pane, kind, secs);
+        if (w.dialog) res = { ok: false, pane, code: 'agent_not_ready', message: w.dialog.label };
+        else if (w.ended && ['idle', 'done'].includes(w.status)) res = { ok: true, pane };
         else if (w.reason === 'exit') res = { ok: false, pane, code: 'agent_exited', message: `${kind} exited (code ${w.exit_code})` };
         // An error the agent reported (a model it cannot use, a failed sign-in) is not
         // a question: it is said in the agent's own words, and nobody is called for it.
@@ -315,7 +343,10 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
           res = { ok: false, pane, code: 'agent_error', message: `${kind} reported an error${msg ? `: ${msg}` : ''}` };
         } else if (w.status === 'blocked') {
           const asks = (await call('get', [pane]).catch(() => null))?.status?.kind;
-          res = { ok: false, pane, code: 'agent_not_ready', message: `${kind} is waiting for an answer${asks ? ` (${asks})` : ''}` };
+          // agy reports its "esc to dismiss" notice as a permission question: the screen says what it is.
+          const screen = await this.agentRead(pane).catch(() => '');
+          const notice = classifyScreen(kind, screenTail(screen), { blockedKind: asks })?.type === 'notice';
+          res = { ok: false, pane, code: 'agent_not_ready', message: notice ? `${kind} shows a notice (esc closes it)` : `${kind} is waiting for an answer${asks ? ` (${asks})` : ''}` };
         }
         // A folder-trust dialog comes before the agent reports any status.
         else res = { ok: false, pane, code: 'agent_not_ready', message: `${kind} did not report ready within ${secs}s; it may be asking whether to trust the folder` };
@@ -358,19 +389,21 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     // did not is the screen read: kind picks how (submitStrategy), and enter is
     // pressed while the text sits in the input. hc's status (`get` gives a
     // Status record: its state) and a turn past the send's count as work.
+    // A notice on screen is closed first; a modal that would lose the paste stops it (clearForPrompt).
     async agentPrompt(target, text, { kind = null } = {}) {
+      const held = await clearForPrompt({ read: () => this.agentRead(target), keys: (k) => sendKeys((key) => call('keys', [target, key]), k, sleep), sleep, kind });
+      if (held) return held;
       const sent = await call('send', [target, '--', text]);
       await this.answered(target);
       if (sent?.started === true) return { submitted: true };
       const turn = typeof sent?.turn === 'number' ? sent.turn : null;
-      const submitted = await submitIfStuck({
+      return checkSubmit({
         read: () => this.agentRead(target), press: () => call('keys', [target, 'enter']), sleep, text, kind, turn, platform,
         status: async () => {
           const t = await call('get', [target]);
           return { state: statusState(t?.status), turn: typeof t?.turn === 'number' ? t.turn : null };
         },
       });
-      return { submitted };
     },
 
     // Keys answer a question, so a pin foreman set on the terminal comes off.

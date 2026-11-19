@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHerdr, HerdrError, promptStuck, submitIfStuck, STABLE_MS } from '../src/herdr.js';
+import { createHerdr, HerdrError, promptStuck, submitIfStuck, checkSubmit, clearForPrompt, STABLE_MS } from '../src/herdr.js';
+import { OPENCODE_UPDATE_MODAL, OPENCODE_READY, AGY_AUTO_NOTICE } from './fixtures/screens.js';
 import { submitStrategy } from '../src/inventory/kinds.js';
 import { fakeRun, json, herdrError } from './helpers.js';
 
@@ -161,9 +162,13 @@ test('submitIfStuck presses enter while the prompt sits in the input, with growi
 test('submitIfStuck never presses blindly: no text and no sign either way is unknown', async () => {
   let presses = 0;
   const press = async () => { presses++; };
-  // An empty input is a sign the prompt went in.
-  assert.equal(await submitIfStuck({ read: screens('> \n  footer'), press, sleep: async () => {}, text: LONG, kind: 'pi', platform: 'linux' }), true);
-  assert.equal(await submitIfStuck({ read: screens('│ ❯  │\n  footer'), press, sleep: async () => {}, text: LONG, kind: null, platform: 'linux' }), true);
+  // An empty input is a sign the prompt went in only after the text was seen there.
+  assert.equal(await submitIfStuck({ read: screens(`> ${LONG}\n  footer`, '> \n  footer'), press, sleep: async () => {}, text: LONG, kind: 'pi', platform: 'linux' }), true);
+  assert.equal(await submitIfStuck({ read: screens(`│ ❯ ${LONG} │`, '│ ❯  │\n  footer'), press, sleep: async () => {}, text: LONG, kind: null, platform: 'linux' }), true);
+  presses = 0;
+  // Never seen, and the input stays empty: the paste was lost.
+  assert.deepEqual(await checkSubmit({ read: screens('> \n  footer'), press, sleep: async () => {}, text: LONG, kind: 'pi', platform: 'linux' }), { submitted: false, reason: 'lost' });
+  assert.equal(await submitIfStuck({ read: screens('│ ❯  │\n  footer'), press, sleep: async () => {}, text: LONG, kind: null, platform: 'linux' }), false);
   // Neither the text nor an empty input: the screen cannot tell.
   assert.equal(await submitIfStuck({ read: screens('some output\n  footer'), press, sleep: async () => {}, text: LONG, kind: 'pi', platform: 'linux' }), null);
   assert.equal(await submitIfStuck({ read: async () => { throw new Error('gone'); }, press, sleep: async () => {}, text: LONG, kind: 'codex', platform: 'linux' }), null);
@@ -282,7 +287,8 @@ test('agentPrompt for codex lets herdr wait until the agent works', async () => 
   const run = fakeRun([[/^herdr agent prompt/, json({ type: 'ok', agent_status: 'working' })]]);
   const res = await createHerdr({ run, sleep: async () => {} }).agentPrompt('w1', 'go', { kind: 'codex' });
   assert.deepEqual(res, { submitted: true });
-  assert.deepEqual(run.calls.map((c) => c.args), [['agent', 'prompt', 'w1', 'go', '--wait', '--until', 'working', '--until', 'blocked', '--timeout', '6000']]);
+  // Before it, a look whether a notice or a modal holds the agent (no screen here: it goes ahead).
+  assert.deepEqual(run.calls.map((c) => c.args), [['agent', 'read', 'w1', '--source', 'visible'], ['agent', 'prompt', 'w1', 'go', '--wait', '--until', 'working', '--until', 'blocked', '--timeout', '6000']]);
 });
 
 test('agentPrompt for codex presses enter when herdr says the prompt stalled', async () => {
@@ -308,4 +314,34 @@ test('agentPrompt asks herdr for the agent status before pressing enter', async 
   const res = await createHerdr({ run, sleep: async () => {}, platform: 'linux' }).agentPrompt('w1', LONG, { kind: 'codex' });
   assert.deepEqual(res, { submitted: true });
   assert.equal(run.calls.filter((c) => c.args[1] === 'send-keys').length, 0);
+});
+
+// Live (2026-11-19): `foreman prompt` to opencode said "sent" because its
+// empty input placeholder showed, though the text never reached the input.
+test('checkSubmit: an empty opencode input with the text never seen is a lost prompt, not a sent one', async () => {
+  let presses = 0;
+  const res = await checkSubmit({ read: screens(OPENCODE_READY), press: async () => { presses++; }, sleep: async () => {}, text: BRIEF, kind: 'opencode', platform: 'win32' });
+  assert.deepEqual(res, { submitted: false, reason: 'lost' });
+  assert.equal(presses, 0);
+  // Seen in the input first, then gone: it went in.
+  const typed = OPENCODE_READY.replace('Ask anything... "Fix a TODO in the codebase"', 'Reply only DONE when finished.');
+  const ok = await checkSubmit({ read: screens(typed, typed, OPENCODE_READY), press: async () => { presses++; }, sleep: async () => {}, text: 'Reply only DONE when finished.', kind: 'opencode', platform: 'win32' });
+  assert.deepEqual(ok, { submitted: true });
+  assert.equal(presses, 1);
+});
+
+test('checkSubmit: opencode\'s restart modal in the middle of the screen is a dialog', async () => {
+  const res = await checkSubmit({ read: screens(OPENCODE_UPDATE_MODAL), press: async () => {}, sleep: async () => {}, text: BRIEF, kind: 'opencode', platform: 'linux' });
+  assert.deepEqual(res, { submitted: false, reason: 'dialog', label: 'opencode updated itself and must be restarted' });
+});
+
+test('clearForPrompt closes a notice first, and holds a prompt back from a modal that would lose it', async () => {
+  const pressed = [];
+  const keys = async (k) => { pressed.push(...k); };
+  assert.equal(await clearForPrompt({ read: async () => AGY_AUTO_NOTICE, keys, sleep: async () => {}, kind: 'agy' }), null);
+  assert.deepEqual(pressed, ['esc']);
+  assert.deepEqual(await clearForPrompt({ read: async () => OPENCODE_UPDATE_MODAL, keys, sleep: async () => {}, kind: 'opencode' }), { submitted: false, reason: 'dialog', label: 'opencode updated itself and must be restarted' });
+  assert.equal(await clearForPrompt({ read: async () => OPENCODE_READY, keys, sleep: async () => {}, kind: 'opencode' }), null);
+  assert.equal(await clearForPrompt({ read: async () => { throw new Error('gone'); }, keys, sleep: async () => {} }), null);
+  assert.deepEqual(pressed, ['esc']);
 });
