@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import tbench from '../scripts/knowledge-sources/tbench.js';
 import {
-  detectNewModels, analyzeNewModels, checkSources, refresh, serializeKnowledge, renderLogEntry,
+  detectNewModels, analyzeNewModels, checkSources, refresh, serializeKnowledge, renderLogEntry, parseLastUnmatched,
   applyFacts, factText, selectFamilyFacts, selectHarnessFacts, fetchReleases, latestModels,
 } from '../scripts/refresh-knowledge.js';
 
@@ -451,4 +451,38 @@ test('serializeKnowledge keeps facts, release and sourceMeta on one line each an
   assert.equal(serializeKnowledge(JSON.parse(text)), text);
   assert.match(text, /\n {8}\{"text":"Terminal-Bench 4\.1, claude-opus-5\.5: 65\.8%[^\n]*"source":"tbench"\}\n/);
   assert.match(text, /\n {4}"tbench": \{"title":"tbench"[^\n]*"ok":true,"lastOk":"2026-11-11"\},?\n/);
+});
+
+const UN = [{ model: 'm-a', source: 's1' }, { model: 'm-b', source: 's2' }];
+const unEntry = (today, unmatched, prev) => renderLogEntry({ today, stubs: [], links: [], warnings: [], unmatched }, prev);
+
+test('unmatched list: same set in another order collapses to one unchanged line', () => {
+  const prev = parseLastUnmatched(unEntry('2026-11-10', UN));
+  const log = unEntry('2026-11-12', [UN[1], UN[0]], prev);
+  assert.match(log, /- Facts for models no family matches: unchanged since 2026-11-10 \(2 models\)\./);
+  assert.doesNotMatch(log, /^ {2}- `/m);
+});
+
+test('unmatched list: a changed set, a different source, or no previous list prints the full list', () => {
+  const prev = parseLastUnmatched(unEntry('2026-11-10', UN));
+  for (const next of [[UN[0]], [...UN, { model: 'm-c', source: 's1' }], [UN[0], { model: 'm-b', source: 's9' }]]) {
+    const log = unEntry('2026-11-12', next, prev);
+    assert.match(log, /no family matches \(not stored/);
+    assert.equal(log.match(/^ {2}- `/gm).length, next.length);
+  }
+  assert.match(unEntry('2026-11-12', UN, null), /no family matches \(not stored/);
+});
+
+test('parseLastUnmatched skips unchanged sections, keeps the real list date and round-trips', () => {
+  const full = unEntry('2026-11-10', UN);
+  const same = unEntry('2026-11-11', UN, parseLastUnmatched(full));
+  const log = `# Knowledge log\n\n${full}\n${same}\n## 2026-11-12\n\n- Warning: x\n`;
+  assert.deepEqual(parseLastUnmatched(log), { date: '2026-11-10', entries: UN });
+  assert.equal(parseLastUnmatched('# Knowledge log\n'), null);
+});
+
+test('unmatched handling leaves the other entry lines alone', () => {
+  const base = { today: '2026-11-12', stubs: [], links: [], warnings: ['w1'], unmatched: UN };
+  const strip = (t) => t.split('\n').filter((l) => !/no family matches|^ {2}- `m-/.test(l)).join('\n');
+  assert.equal(strip(renderLogEntry(base, { date: '2026-11-10', entries: UN })), strip(renderLogEntry(base)));
 });
