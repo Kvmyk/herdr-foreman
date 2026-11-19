@@ -23,7 +23,13 @@ export default {
   url: SITE,
   title: 'LiveBench 2.0',
   kind: 'data',
-  licence: 'none stated (site data)',
+  licence: 'no licence found; facts only; checked 2026-11-19',
+  attribution: {
+    creator: 'LiveBench (White et al., ICLR 2025)',
+    citation: 'Colin White et al., "LiveBench: A Challenging, Contamination-Free LLM Benchmark", ICLR 2025.',
+    citationUrl: 'https://arxiv.org/abs/2406.19314',
+    modified: 'model names normalised, subset (coding and long_agentic columns of the newest release)',
+  },
   async read({ fetchImpl }) {
     const release = await newestRelease(fetchImpl);
     const rows = parseCsv(await getText(fetchImpl, `${SITE}data/${release}/table.csv`));

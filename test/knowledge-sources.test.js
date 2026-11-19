@@ -107,6 +107,31 @@ test('SOURCES follow the shared contract', () => {
   assert.deepEqual(SOURCES.filter((s) => s.kind === 'html').map((s) => s.id), ['tbench', 'vals', 'seal']);
 });
 
+test('sources carry the credit their licences ask for, and agents.json matches it', () => {
+  const CC_BY = 'https://creativecommons.org/licenses/by/4.0/';
+  for (const s of SOURCES.filter((x) => x.licence.startsWith('CC-BY-4.0'))) {
+    assert.ok(s.attribution?.creator, s.id);
+    assert.equal(s.attribution.licenceUrl, CC_BY, s.id);
+    assert.ok(s.attribution.modified, s.id);
+  }
+  const epoch = source('epoch');
+  assert.equal(epoch.attribution.citationUrl, 'https://epoch.ai/benchmarks');
+  // The files read are Epoch "_external" copies: the upstream boards keep their own credit.
+  assert.match(epoch.licence, /Epoch AI compilation.*no licence stated/);
+  assert.deepEqual(Object.keys(epoch.attribution.upstream), ['cursorbench', 'frontierswe', 'deepswe']);
+  for (const [benchmark, url] of Object.entries(epoch.attribution.upstream)) {
+    assert.ok(fixture(`epoch/${benchmark}_external.csv`).toString().includes(url), `${benchmark} Source column names ${url}`);
+  }
+  assert.equal(source('lmarena-webdev').title, 'Arena (formerly LMArena) Code Arena');
+  assert.equal(source('lmarena-agent').title, 'Arena (formerly LMArena) Agent Arena');
+  assert.match(source('livebench').attribution.creator, /White et al., ICLR 2025/);
+  const meta = JSON.parse(readFileSync(new URL('../knowledge/agents.json', import.meta.url), 'utf8')).sourceMeta;
+  for (const s of SOURCES.filter((x) => x.attribution)) {
+    const { title, licence, attribution } = meta[s.id];
+    assert.deepEqual({ title, licence, attribution }, { title: s.title, licence: s.licence, attribution: s.attribution }, s.id);
+  }
+});
+
 test('collectFacts reads every source from the fixtures', async () => {
   const { records, status } = await collectFacts({ fetchImpl: fakeFetch(), now: NOW });
   assert.deepEqual(Object.keys(status), SOURCES.map((s) => s.id));
