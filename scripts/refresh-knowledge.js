@@ -431,15 +431,43 @@ export async function refresh({ knowledge, api, fetchImpl, collectFacts = null, 
   return { knowledge: next, changed, stubs, review, links, frozen, failed, unmatched, releaseChanges, warnings, today };
 }
 
-export function renderLogEntry(result) {
+const UNMATCHED_HEADER = 'Facts for models no family matches';
+
+// Newest earlier log section that holds a full unmatched list: { date, entries } or null.
+// Sections that only carry the "unchanged" line are skipped, so the date stays that of the real list.
+export function parseLastUnmatched(logText) {
+  const parts = String(logText ?? '').split(/^## (\d{4}-\d{2}-\d{2})[ \t]*$/m);
+  for (let i = parts.length - 2; i >= 1; i -= 2) {
+    const lines = parts[i + 1].split(/\r?\n/);
+    const at = lines.findIndex((l) => l.startsWith(`- ${UNMATCHED_HEADER} (`));
+    if (at < 0) continue;
+    const entries = [];
+    for (const l of lines.slice(at + 1)) {
+      const m = /^ {2}- `(.+)` \((.+)\)$/.exec(l);
+      if (!m) break;
+      entries.push({ model: m[1], source: m[2] });
+    }
+    return { date: parts[i], entries };
+  }
+  return null;
+}
+
+export function renderLogEntry(result, previousUnmatched = null) {
   const lines = [`## ${result.today}`, ''];
   for (const s of result.stubs) lines.push(`- New unverified family \`${s.id}\` (${s.vendor}, match \`${s.match}\`) for: ${s.models.join(', ')}.`);
   for (const r of result.review ?? []) lines.push(`- Needs a manual look, no stub added (${r.reason}): ${r.models.join(', ')} (${r.provider}, models.dev family \`${r.family}\`).`);
   for (const f of (result.failed ?? []).filter((x) => !x.frozen)) lines.push(`- Source \`${f.id}\` failed, its facts are kept for now: ${f.error}`);
   for (const f of result.frozen ?? []) lines.push(`- Source \`${f.id}\` is frozen, its facts were dropped: ${f.reason}.`);
   if (result.unmatched?.length) {
-    lines.push('- Facts for models no family matches (not stored; add a family or fix the model id):');
-    for (const u of result.unmatched) lines.push(`  - \`${u.model}\` (${u.source})`);
+    const key = (u) => `${u.model}\u0000${u.source}`;
+    const current = new Set(result.unmatched.map(key));
+    const prev = new Set((previousUnmatched?.entries ?? []).map(key));
+    if (previousUnmatched && current.size === prev.size && [...current].every((k) => prev.has(k))) {
+      lines.push(`- ${UNMATCHED_HEADER}: unchanged since ${previousUnmatched.date} (${current.size} models).`);
+    } else {
+      lines.push(`- ${UNMATCHED_HEADER} (not stored; add a family or fix the model id):`);
+      for (const u of result.unmatched) lines.push(`  - \`${u.model}\` (${u.source})`);
+    }
   }
   for (const c of result.releaseChanges ?? []) lines.push(`- Harness \`${c.kind}\` release ${c.from ?? 'unknown'} -> ${c.to}.`);
   const bad = result.links.filter((l) => !['ok', 'moved'].includes(l.verdict));
@@ -511,7 +539,7 @@ async function main() {
   writeFileSync(KNOWLEDGE_FILE, serializeKnowledge(result.knowledge));
   const header = '# Knowledge log\n\nWhat each refresh of `knowledge/agents.json` changed, newest last. Written by `scripts/refresh-knowledge.js`.\n\n';
   const log = existsSync(LOG_FILE) ? readFileSync(LOG_FILE, 'utf8') : header;
-  writeFileSync(LOG_FILE, `${log.replace(/\n*$/, '\n\n')}${renderLogEntry(result)}`);
+  writeFileSync(LOG_FILE, `${log.replace(/\n*$/, '\n\n')}${renderLogEntry(result, parseLastUnmatched(log))}`);
   console.log(`knowledge written; see ${LOG_FILE.replace(ROOT, '')}`);
 }
 
