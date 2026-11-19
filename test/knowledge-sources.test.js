@@ -83,7 +83,7 @@ function fakeFetch(overrides = {}) {
       if (o === null) return response('not found', 404);
       return response(typeof o === 'function' ? o(options) : o);
     }
-    if (url.startsWith('https://datasets-server.huggingface.co/rows?')) {
+    if (/^https:\/\/datasets-server\.huggingface\.co\/(rows|filter)\?/.test(url)) {
       const config = new URL(url).searchParams.get('config');
       return response(fixture(`lmarena-${config}.json`));
     }
@@ -209,7 +209,114 @@ test('a transient HTTP error is retried, a 404 is not', async () => {
   const calls = [];
   const missing = async (url) => { calls.push(url); return response('gone', 404); };
   const gone = await readSource(source('lmarena-agent'), { fetchImpl: missing, now: NOW });
-  assert.deepEqual([gone.status.ok, calls.filter((url) => !url.endsWith('/robots.txt')).length], [false, 1]);
+  // /filter and then the /rows fallback, each asked once.
+  const asked = calls.filter((url) => !url.endsWith('/robots.txt'));
+  assert.deepEqual([gone.status.ok, asked.length, new Set(asked).size], [false, 2, 2]);
+  assert.match(asked[0], /\/filter\?/);
+  assert.match(asked[1], /\/rows\?/);
+});
+
+// ---- datasets-server (Arena) ------------------------------------------
+
+const HF = 'https://datasets-server.huggingface.co';
+const WEBDEV_ROWS_PAGE_2 = `${HF}/rows?dataset=lmarena-ai%2Fleaderboard-dataset&config=webdev&split=latest&offset=100&length=100`;
+
+// A two-page webdev split (150 rows, revision rev1); handler(url, page) may answer instead.
+function hfFetch(handler = () => null) {
+  const body = JSON.parse(fixture('lmarena-webdev.json'));
+  const calls = [];
+  const delays = [];
+  const raw = async (url) => {
+    calls.push(url);
+    if (url.endsWith('/robots.txt')) return new Response(null, { status: 404 });
+    const u = new URL(url);
+    const own = handler(u, Number(u.searchParams.get('offset')) / 100);
+    if (own instanceof Error) throw own;
+    return own ?? new Response(JSON.stringify({ ...body, num_rows_total: 150 }), { headers: { 'x-revision': 'rev1' } });
+  };
+  // No real waiting; random 0.5 makes the jitter factor exactly 1.
+  const fetchImpl = createKnowledgeFetch(raw, { wait: async (ms) => { delays.push(ms); }, random: () => 0.5 });
+  return { fetchImpl, calls: () => calls.filter((url) => !url.endsWith('/robots.txt')), delays };
+}
+const readWebdev = (fetchImpl) => readSource(source('lmarena-webdev'), { fetchImpl, now: NOW });
+
+test('Arena reads only the overall rows through /filter, page by page', async () => {
+  const { fetchImpl, calls, delays } = hfFetch();
+  const { status } = await readWebdev(fetchImpl);
+  assert.equal(status.ok, true, status.error);
+  assert.deepEqual(calls().map((url) => new URL(url).searchParams.get('offset')), ['0', '100']);
+  for (const url of calls()) {
+    assert.equal(new URL(url).pathname, '/filter');
+    assert.equal(new URL(url).searchParams.get('where'), `"category"='overall'`);
+  }
+  assert.deepEqual(delays, []);
+});
+
+test('Arena falls back to /rows when /filter fails', async () => {
+  const { fetchImpl, calls } = hfFetch((url) => (url.pathname === '/filter' ? new Response('{"error":"not supported"}', { status: 501 }) : null));
+  const { status } = await readWebdev(fetchImpl);
+  assert.equal(status.ok, true, status.error);
+  assert.deepEqual(calls().map((url) => new URL(url).pathname), ['/filter', '/rows', '/rows']);
+});
+
+// Regression for 2026-11-17: both Arena sources were ok:false and nobody could tell why.
+for (const [code, headers] of [[500, { 'x-error-code': 'UnexpectedError' }], [429, {}]]) {
+  test(`Arena: HTTP ${code} on page 2 gives ok false with the status, URL and server detail, after jittered retries`, async () => {
+    const { fetchImpl, calls, delays } = hfFetch((url, page) => (page === 1
+      ? new Response(JSON.stringify({ error: `went wrong ${code}` }), { status: code, headers }) : null));
+    const { records, status } = await readWebdev(fetchImpl);
+    assert.deepEqual(records, []);
+    assert.equal(status.ok, false);
+    assert.ok(status.error.startsWith(`${WEBDEV_ROWS_PAGE_2}: HTTP ${code}`), status.error);
+    if (headers['x-error-code']) assert.ok(status.error.includes(`HTTP ${code} (UnexpectedError): {"error":"went wrong ${code}"}`), status.error);
+    else assert.ok(status.error.includes(`HTTP ${code}: {"error":"went wrong ${code}"}`), status.error);
+    assert.match(status.error, /after \/filter failed: https:\/\/datasets-server\.huggingface\.co\/filter\?.*offset=100&length=100: HTTP/);
+    // Page 2 of /filter and of /rows: the first try and three retries each.
+    assert.equal(calls().filter((url) => url.includes('offset=100')).length, 8);
+    assert.deepEqual(delays, [2000, 8000, 20000, 2000, 8000, 20000]);
+  });
+}
+
+test('datasets-server retries are jittered between 75% and 125% of the base delay', async () => {
+  for (const [random, expected] of [[0, [1500, 6000, 15000]], [0.999, [2499, 9996, 24990]]]) {
+    const delays = [];
+    const request = createKnowledgeFetch(async (url) => (url.endsWith('/robots.txt') ? new Response(null, { status: 404 }) : new Response(null, { status: 502 })),
+      { wait: async (ms) => { delays.push(ms); }, random: () => random });
+    assert.equal((await request(`${HF}/rows?dataset=x`)).status, 502);
+    assert.deepEqual(delays, expected);
+  }
+});
+
+test('a timeout is retried on datasets-server but not elsewhere', async () => {
+  let timeouts = 1;
+  const { fetchImpl, delays } = hfFetch((url, page) => (page === 0 && timeouts-- > 0 ? new DOMException('timed out', 'TimeoutError') : null));
+  const { status } = await readWebdev(fetchImpl);
+  assert.equal(status.ok, true, status.error);
+  assert.deepEqual(delays, [2000]);
+  const calls = [];
+  const request = createKnowledgeFetch(async (url) => {
+    calls.push(url);
+    if (url.endsWith('/robots.txt')) return new Response(null, { status: 404 });
+    throw new DOMException('timed out', 'TimeoutError');
+  }, { wait: async () => assert.fail('no retry expected') });
+  await assert.rejects(request('https://example.test/data'), { name: 'TimeoutError' });
+  assert.deepEqual(calls, ['https://example.test/robots.txt', 'https://example.test/data']);
+});
+
+test('Arena restarts once when the dataset revision changes while paging, then fails clearly', async () => {
+  let changes = 1;
+  const page2 = (url, page) => (page === 1 && changes-- > 0
+    ? new Response(JSON.stringify({ ...JSON.parse(fixture('lmarena-webdev.json')), num_rows_total: 150 }), { headers: { 'x-revision': 'rev2' } }) : null);
+  const once = hfFetch(page2);
+  const { status } = await readWebdev(once.fetchImpl);
+  assert.equal(status.ok, true, status.error);
+  assert.deepEqual(once.calls().map((url) => new URL(url).searchParams.get('offset')), ['0', '100', '0', '100']);
+
+  changes = Infinity;
+  const always = hfFetch(page2);
+  const failed = await readWebdev(always.fetchImpl);
+  assert.equal(failed.status.ok, false);
+  assert.match(failed.status.error, /^lmarena-ai\/leaderboard-dataset\/webdev: dataset revision changed while paging, also after a restart \(rev1 -> rev2\); try again later/);
 });
 
 test('source fetch honors the shared user-agent and robots rules at each redirect', async () => {

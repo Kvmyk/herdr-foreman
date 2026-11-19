@@ -249,19 +249,23 @@ test('validateKnowledge checks the optional facts, release, latest and sourceMet
   const fact = { text: 'Bench: 1% (2026-11-11)', date: '2026-11-11', source: 's', score: 1, rank: 1, of: 2, harness: null };
   const ok = {
     updated: '2026-11-11', categories: ['x'], rules: [], sources: { s: 'https://e.test' },
-    sourceMeta: { s: { title: 't', kind: 'data', licence: 'MIT', ttlDays: 30, newest: '2026-11-11', checked: '2026-11-11', ok: true } },
+    sourceMeta: { s: { title: 't', kind: 'data', licence: 'MIT', ttlDays: 30, newest: '2026-11-11', checked: '2026-11-11', ok: false, lastOk: '2026-11-04', failures: 1, error: 'HTTP 500' } },
     harnesses: { pi: { release: { version: '1', date: '2026-11-10', source: 's' }, facts: [fact] } },
     families: [{ id: 'a', match: 'a', updated: '2026-11-11', latest: { id: 'a-1', date: '2026-11-01' }, facts: [fact] }],
   };
   assert.deepEqual(validateKnowledge(ok), []);
   const bad = structuredClone(ok);
   bad.sourceMeta.s.ttlDays = 0;
+  Object.assign(bad.sourceMeta.s, { lastOk: 'monday', failures: 0, error: { status: 500 } });
   bad.harnesses.pi.release.source = 'zz';
   bad.harnesses.pi.facts = [{ ...fact, source: 'zz' }];
   bad.families[0].latest = { id: 'a-1' };
   bad.families[0].facts = [{ ...fact, text: '', rank: 'one' }];
   assert.deepEqual(validateKnowledge(bad), [
     'sourceMeta s: ttlDays is not a positive number',
+    'sourceMeta s: lastOk is not a YYYY-MM-DD date',
+    'sourceMeta s: error is not a string',
+    'sourceMeta s: failures is not a positive whole number',
     'harness pi: a fact cites source zz that is not in sources',
     'harness pi: release source zz is not in sources',
     'family a: a fact has no text',
