@@ -535,7 +535,7 @@ test('agentStart ends the wait on a dialog of an agent that reports no status', 
   assert.equal(run.calls.filter((c) => c.args[0] === 'wait').length, 1);
 });
 
-test('agentStart keeps waiting for an agent that reports status, without reading its screen', async () => {
+test('agentStart keeps waiting for an agent that reports status, reading its screen only at the end', async () => {
   const run = fakeRun([
     [/^hc run/, out({ address: 't3' })],
     [/^hc wait/, out({ ended: false, reason: 'timeout', status: 'working' })],
@@ -543,9 +543,10 @@ test('agentStart keeps waiting for an agent that reports status, without reading
     [/^hc label/, out({})],
   ]);
   const res = await createHerdrApp({ run }).agentStart({ name: 'w1', kind: 'claude', cwd: '/wt', timeoutMs: 12000 });
-  assert.equal(res.code, 'agent_not_ready');
+  // Nothing on its screen asks a question: the message does not guess at a trust dialog.
+  assert.deepEqual(res, { ok: false, pane: 't3', code: 'agent_not_ready', message: 'claude did not report ready within 12s; no question is on its screen' });
   assert.deepEqual(run.calls.filter((c) => c.args[0] === 'wait').map((c) => c.args[3]), ['5', '5', '2']);
-  assert.equal(run.calls.some((c) => c.args[0] === 'read'), false);
+  assert.equal(run.calls.filter((c) => c.args[0] === 'read').length, 1);
 });
 
 test('agentStart: agy\'s auto-mode notice reported as a permission is said to be a notice', async () => {
@@ -571,4 +572,54 @@ test('agentPrompt closes a notice before sending, and sends nothing into opencod
   const modal = fakeRun([[/^hc read/, { stdout: OPENCODE_UPDATE_MODAL }], [/^hc send/, out({ turn: 0 })]]);
   assert.deepEqual(await createHerdrApp({ run: modal, sleep: async () => {} }).agentPrompt('v2', 'go', { kind: 'opencode' }), { submitted: false, reason: 'dialog', label: 'opencode updated itself and must be restarted' });
   assert.equal(modal.calls.some((c) => c.args[0] === 'send'), false);
+});
+
+// Live (2026-11-19, opencode 1.19.6): spawn waited the whole 90 s although the
+// input was on screen. hc's plain screen read gave opencode's rows run together
+// in one line, so no line looked like an empty input.
+test('agentRead reads opencode\'s run-together screen again with a line of history, which gives its rows', async () => {
+  const { OPENCODE_READY_RUN_TOGETHER } = await import('./fixtures/screens.js');
+  const { inputEmpty } = await import('../src/herdr.js');
+  assert.equal(OPENCODE_READY_RUN_TOGETHER.includes('\n'), false);
+  assert.equal(inputEmpty(OPENCODE_READY_RUN_TOGETHER, 10), false);
+  const run = fakeRun([
+    [/^hc read --lines 0/, { stdout: `${OPENCODE_READY_RUN_TOGETHER}\n` }],
+    [/^hc read --lines 1/, { stdout: OPENCODE_READY }],
+  ]);
+  const herdr = createHerdrApp({ run });
+  assert.equal(await herdr.agentRead('t7h'), OPENCODE_READY);
+  assert.equal(inputEmpty(await herdr.agentRead('t7h'), 10), true);
+  // A short one-line screen, and a read with history, are taken as they come.
+  const short = fakeRun([[/^hc read/, { stdout: 'screen\n' }]]);
+  assert.equal(await createHerdrApp({ run: short }).agentRead('w1'), 'screen\n');
+  assert.equal(short.calls.length, 1);
+});
+
+test('agentStart sees opencode ready from its run-together screen at the second check-in', async () => {
+  const { OPENCODE_READY_RUN_TOGETHER } = await import('./fixtures/screens.js');
+  const run = fakeRun([
+    [/^hc run/, out({ address: 't7h' })],
+    [/^hc wait/, out({ ended: false, reason: 'timeout', status: null, terminal: 't7h' })],
+    [/^hc get/, out({ address: 't7h', reported: false, status: null, turn: 0 })],
+    [/^hc read --lines 0/, { stdout: OPENCODE_READY_RUN_TOGETHER }],
+    [/^hc read --lines 1/, { stdout: OPENCODE_READY }],
+    [/^herdr-app do/, { code: 0 }],
+  ]);
+  const res = await createHerdrApp({ run }).agentStart({ name: 'v2', kind: 'opencode', cwd: '/wt', timeoutMs: 90000 });
+  assert.deepEqual(res, { ok: true, pane: 't7h' });
+  assert.equal(run.calls.filter((c) => c.args[0] === 'wait').length, 2);
+});
+
+test('agentStart that ran out of time names a trust dialog only when one is on screen', async () => {
+  const mk = (screen) => fakeRun([
+    [/^hc run/, out({ address: 't3' })],
+    [/^hc wait/, out({ ended: false, reason: 'timeout', status: 'working' })],
+    [/^hc get/, out({ address: 't3', reported: true })],
+    [/^hc read/, { stdout: screen }],
+    [/^hc label/, out({})],
+  ]);
+  const trust = await createHerdrApp({ run: mk('Do you trust the files in this folder?\n ❯ 1. Yes\n   2. No') }).agentStart({ name: 'w1', kind: 'claude', cwd: '/wt', timeoutMs: 5000 });
+  assert.equal(trust.message, 'claude did not report ready within 5s; it asks to trust this folder');
+  const none = await createHerdrApp({ run: mk('loading...') }).agentStart({ name: 'w1', kind: 'claude', cwd: '/wt', timeoutMs: 5000 });
+  assert.equal(none.message, 'claude did not report ready within 5s; no question is on its screen');
 });

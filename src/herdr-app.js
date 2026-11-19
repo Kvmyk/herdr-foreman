@@ -13,6 +13,8 @@ import { screenTail } from './wait.js';
 
 // Seconds between looks at a starting agent's screen (see waitReady).
 export const WAIT_STEP_S = 5;
+// A screen read back as one line longer than this has its rows run together (see readScreen).
+const RUN_TOGETHER = 512;
 
 // `hc ls` gives a terminal's status as its state word, `hc get` as the whole
 // Status record ({ app, state, kind, msg }); either way, the state word.
@@ -171,7 +173,7 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
   // an empty input with no dialog, the same at two check-ins, is ready; a
   // dialog ends the wait (it is reported as not ready, with its label).
   async function waitReady(pane, kind, secs) {
-    let before = null;
+    let emptyBefore = false;
     for (let left = secs; ;) {
       const step = Math.min(left, WAIT_STEP_S);
       const w = await call('wait', ['--timeout', String(step), pane], (step + 15) * 1000);
@@ -179,12 +181,29 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
       if (w.ended || left <= 0) return w;
       const t = await call('get', [pane]).catch(() => null);
       if (!t || t.reported !== false) continue;
-      const screen = screenTail(await run(hc, ['read', '--lines', '0', pane], { timeoutMs: 15000 }).then((r) => (r.code === 0 ? r.stdout : '')).catch(() => ''));
+      const screen = screenTail(await readScreen(pane).catch(() => ''));
       const dialog = modalShown(screen, kind) ?? classifyScreen(kind, screen);
       if (dialog) return { ...w, dialog };
-      if (screen && screen === before && inputEmpty(screen, 10)) return { ...w, ended: true, status: 'idle' };
-      before = screen;
+      // An empty input at two check-ins in a row: the agent is drawn and waits.
+      const empty = inputEmpty(screen, 10);
+      if (empty && emptyBefore) return { ...w, ended: true, status: 'idle' };
+      emptyBefore = empty;
     }
+  }
+
+  // Plain text of the visible screen; with lines, that much history above it
+  // too. A program that paints every row to the last column (opencode) comes
+  // back from hc's plain screen read as one long line, its rows run together;
+  // read with one line of history, hc gives the rows.
+  async function readScreen(target, lines = null) {
+    const once = async (n) => {
+      const res = await run(hc, ['read', '--lines', String(n), target], { timeoutMs: 15000 });
+      if (res.code !== 0) throw errorOf(res);
+      return res.stdout;
+    };
+    const text = await once(lines ?? 0);
+    const flat = text.trimEnd();
+    return lines || flat.includes('\n') || flat.length <= RUN_TOGETHER ? text : once(1);
   }
 
   async function terminals() {
@@ -348,8 +367,12 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
           const notice = classifyScreen(kind, screenTail(screen), { blockedKind: asks })?.type === 'notice';
           res = { ok: false, pane, code: 'agent_not_ready', message: notice ? `${kind} shows a notice (esc closes it)` : `${kind} is waiting for an answer${asks ? ` (${asks})` : ''}` };
         }
-        // A folder-trust dialog comes before the agent reports any status.
-        else res = { ok: false, pane, code: 'agent_not_ready', message: `${kind} did not report ready within ${secs}s; it may be asking whether to trust the folder` };
+        else {
+          // A folder-trust dialog comes before the agent reports any status; say so only when one is on screen.
+          const screen = screenTail(await readScreen(pane).catch(() => ''));
+          const asks = classifyScreen(kind, screen);
+          res = { ok: false, pane, code: 'agent_not_ready', message: `${kind} did not report ready within ${secs}s${asks ? `; it ${asks.label.slice(kind.length + 1)}` : '; no question is on its screen'}` };
+        }
       } catch (err) {
         res = { ok: false, pane, code: err.code, message: err.message };
       }
@@ -376,9 +399,7 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
 
     // Plain text of the visible screen; with lines, that much history above it too.
     async agentRead(target, { lines = null } = {}) {
-      const res = await run(hc, ['read', '--lines', String(lines ?? 0), target], { timeoutMs: 15000 });
-      if (res.code !== 0) throw errorOf(res);
-      return res.stdout;
+      return readScreen(target, lines);
     },
 
     // hc refuses to type into a blocked agent: answer its question with keys first.

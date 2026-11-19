@@ -36,3 +36,14 @@ export const AGY_AUTO_NOTICE = [
   '>',
   '? for shortcuts                         auto · Gemini 3.8 Flash · low',
 ].join('\n');
+
+// How `hc read --lines 0` returns opencode's screen (1.19.6, a pane 197 columns
+// wide): opencode paints every row to the last column, and hc's plain screen
+// read gives the rows run together in one line, without a newline (live: 9630
+// characters, 0 newlines). Read with one line of history ("stitched"), hc gives
+// the rows: OPENCODE_READY.
+export const OPENCODE_COLS = 197;
+export const OPENCODE_READY_RUN_TOGETHER = OPENCODE_READY.split('\n')
+  .map((row) => `${' '.repeat(63)}${row}`.slice(0, OPENCODE_COLS).padEnd(OPENCODE_COLS))
+  .join('')
+  .trimEnd();
