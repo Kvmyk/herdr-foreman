@@ -4,7 +4,7 @@
 // worktree it already has.
 import path from 'node:path';
 import { HERDR_KINDS } from './inventory/kinds.js';
-import { agentArgs, tabTitle } from './spawn.js';
+import { agentArgs, tabTitle, answerStartDialogs, dialogWarning, watchTrust } from './spawn.js';
 import { describeRun, isInside, phaseText } from './history.js';
 import { fail } from './errors.js';
 
@@ -85,7 +85,7 @@ export function buildResumePrompt({ slug, instructionsPath, notesPath, foremanCm
 
 // Restarts one worker's agent in its worktree: in its old pane if that pane
 // is still open in the worktree, else next to the caller (or in a new tab).
-export async function respawnWorker({ run, herdr, spec, pane = null, newTab = false, effort = null, auto = false, full = false, config, exists, now = Date.now, gitDir = null }) {
+export async function respawnWorker({ run, herdr, spec, pane = null, newTab = false, effort = null, auto = false, full = false, config, exists, now = Date.now, gitDir = null, sleep = null }) {
   const m = RESPAWN_SPEC.exec(spec);
   if (!m) throw fail('BAD_SPEC', `bad worker "${spec}"; expected name, name=kind or name=kind:model`);
   const [, name, newKind, newModel] = m;
@@ -126,13 +126,35 @@ export async function respawnWorker({ run, herdr, spec, pane = null, newTab = fa
   }
 
   const start = agentArgs({ name, kind, model, effort, auto, full, config, dirs: auto && gitDir ? [gitDir] : [], worktree: w.worktree });
-  const res = await herdr.agentStart({
+  // Like spawn: a trust dialog is answered as soon as it shows, and in auto mode so are the others.
+  const answeredEarly = new Set();
+  let done = false;
+  const target = { name, kind, paneId };
+  if (sleep) watchTrust({ herdr, w: target, sleep, isDone: () => done, answered: answeredEarly }).catch(() => {});
+  let res;
+  try {
+    res = await herdr.agentStart({
     name, kind, pane: paneId, cwd: w.worktree, space: place.space, tab: place.tab, label: place.label,
     timeoutMs: config.startTimeoutMs, args: start.args,
     // Herdr app only: the calling leader becomes the worker's parent, as at spawn.
     parent: pane ?? null, labels: { 'foreman.task': run.task, 'foreman.role': 'worker' },
     where: `${path.basename(run.repo ?? w.worktree)} / ${run.task}`, ownTab: tabs,
-  });
+    });
+  } finally {
+    done = true;
+  }
+  const warnings = [...start.warnings];
+  let status = res.ok ? 'ready' : 'not_ready';
+  let error = res.ok ? null : `${res.code}: ${res.message}`;
+  if (!res.ok && res.code !== 'agent_exited') {
+    target.paneId = res.pane ?? paneId;
+    const { answered } = await answerStartDialogs({ herdr, w: target, auto, sleep, pressed: answeredEarly.has(name) });
+    if (answered) {
+      status = 'ready';
+      error = null;
+      warnings.push(dialogWarning(target, answered));
+    }
+  }
   const { endedAt, endedPhase, ...rest } = w;
   const worker = {
     ...rest,
@@ -144,8 +166,8 @@ export async function respawnWorker({ run, herdr, spec, pane = null, newTab = fa
   };
   return {
     worker,
-    status: res.ok ? 'ready' : 'not_ready',
-    error: res.ok ? null : `${res.code}: ${res.message}`,
-    warnings: start.warnings,
+    status,
+    error,
+    warnings,
   };
 }

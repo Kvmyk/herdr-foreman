@@ -743,3 +743,16 @@ test('auto workers get their worktree pre-trusted (codex, pi) and codex drops it
   assert.ok(agentArgs({ name: 'p1', kind: 'pi', auto: true, config, worktree: '/w/p1' }).args.includes('--approve'));
   assert.deepEqual(agentArgs({ name: 'p1', kind: 'pi', config, worktree: '/w/p1' }).args, []);
 });
+
+test('in auto mode the agy trust dialog that hc reports as a permission block is answered with enter', async () => {
+  const f = fakes();
+  const keys = [];
+  const screen = ['Do you trust the contents of this project?', 'Antigravity CLI requires permission to read, edit, and execute files here.', '> Yes, I trust this folder', '  No, exit', '  ↑/↓ Navigate · enter Confirm'].join(String.fromCharCode(10));
+  f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_not_ready', message: 'agy is waiting for an answer (permission)' });
+  f.herdr.agentRead = async () => screen;
+  f.herdr.agentKeys = async (name, k) => { keys.push(k); };
+  f.herdr.agentList = async () => (keys.length ? [{ name: 'v3', agent_status: 'idle' }] : []);
+  const { workers } = await call(f, { specs: ['v3=agy'], auto: true, sleep: async () => {} });
+  assert.deepEqual(keys, [['enter']]);
+  assert.equal(workers[0].status, 'ready');
+});
