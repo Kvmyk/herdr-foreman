@@ -154,6 +154,10 @@ Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 The logo, the banners and the demo GIF are original and covered by the same license. The images in this README live on the [`assets`](https://github.com/Kvmyk/herdr-foreman/tree/assets) branch. The demo GIF follows foreman's real flow and command names, but its repository, findings and commit ids are made up. A recording of a real run is planned.
 
+## Third-party data
+
+The knowledge file `knowledge/agents.json` contains facts (scores, ranks, dates, links) taken from public sources: Epoch AI and Arena (both CC BY 4.0, credited), Terminal-Bench (Apache-2.0 GitHub repository), LiveBench and Vals AI (no licence found, facts only). Scale SEAL is disabled because of Scale's terms. This data is not under the MIT licence; see [DATA-SOURCES.md](DATA-SOURCES.md) for each source, its licence, the credit lines and how to ask for removal.
+
 ## License
 
-MIT
+MIT covers the code and the project's own selection only, not the third-party data above.

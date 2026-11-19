@@ -1,6 +1,6 @@
 # Renewable sources for the knowledge file
 
-As of 2026-11-11. Follows `2026-11-07-agent-selection.md`, whose one-off sources (blogs, aggregators, papers) never change, so the knowledge could not renew itself. Rule from now on: a claim stays in `knowledge/agents.json` only as a dated fact from a source that a maintained organisation keeps updating, that a script can read, and that is free (no key, or a free key). Every candidate below was fetched on 2026-11-11.
+As of 2026-11-11. Licences last reviewed 2026-11-19; see [DATA-SOURCES.md](../../DATA-SOURCES.md). Follows `2026-11-07-agent-selection.md`, whose one-off sources (blogs, aggregators, papers) never change, so the knowledge could not renew itself. Rule from now on: a claim stays in `knowledge/agents.json` only as a dated fact from a source that a maintained organisation keeps updating, that a script can read, and that is free (no key, or a free key). Every candidate below was fetched on 2026-11-11.
 
 ## Chosen
 
