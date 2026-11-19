@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { PROBES, HERDR_KINDS, autoArgsOf } from '../src/inventory/kinds.js';
+import { PROBES, HERDR_KINDS, autoArgsOf, trustArgsOf } from '../src/inventory/kinds.js';
 import { inventory, saveAgents } from '../src/inventory/index.js';
 import { fakeRun } from './helpers.js';
 
@@ -115,8 +115,14 @@ test('model args per kind', () => {
 test('auto args: lists, or a function of the folders the agent must write', () => {
   assert.deepEqual(autoArgsOf(PROBES.opencode), ['--auto']);
   assert.deepEqual(autoArgsOf(PROBES.gemini), ['--approval-mode', 'yolo']);
-  assert.deepEqual(autoArgsOf(PROBES.codex, { dirs: ['/r/.git', '/h'] }), ['--ask-for-approval', 'never', '--sandbox', 'workspace-write', '--add-dir', '/r/.git', '--add-dir', '/h']);
-  assert.equal(autoArgsOf(PROBES.codex).includes('danger-full-access'), false);
+  assert.deepEqual(autoArgsOf(PROBES.codex, { dirs: ['/r/.git', '/h'], platform: 'linux' }), ['--ask-for-approval', 'never', '--sandbox', 'workspace-write', '--add-dir', '/r/.git', '--add-dir', '/h']);
+  assert.equal(autoArgsOf(PROBES.codex, { platform: 'linux' }).includes('danger-full-access'), false);
+  // On Windows the workspace-write sandbox hangs every command, so auto mode drops the sandbox there.
+  assert.deepEqual(autoArgsOf(PROBES.codex, { dirs: ['/r/.git'], platform: 'win32' }), ['--dangerously-bypass-approvals-and-sandbox']);
+  assert.deepEqual(trustArgsOf(PROBES.codex, { worktree: '/w/a' }), ['-c', 'projects."/w/a".trust_level="trusted"']);
+  assert.deepEqual(trustArgsOf(PROBES.pi, { worktree: '/w/a' }), ['--approve']);
+  assert.deepEqual(trustArgsOf(PROBES.claude, { worktree: '/w/a' }), []);
+  assert.deepEqual(trustArgsOf(PROBES.pi, {}), []);
   assert.equal(autoArgsOf({}), null);
   assert.equal(PROBES.codex.verified, false);
 });

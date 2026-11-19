@@ -4,6 +4,13 @@ All notable changes to foreman are listed here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- The leader no longer asks again about permission questions or uncommitted changes when you already chose in the Herdr app or with `--auto-answer`: your choices come first in its prompt and say they override the instructions, and "off" is passed on too (`--no-auto-answer`, `--no-include-uncommitted`). A resumed run keeps its auto choice.
+- Codex in auto mode on Windows runs without its sandbox (`--dangerously-bypass-approvals-and-sandbox`), because the Windows `workspace-write` sandbox hung every shell command; the push guard stays.
+- Auto-mode workers start with their worktree already trusted (codex `-c projects."<worktree>".trust_level`, pi `--approve`), and foreman answers startup trust, permission and update dialogs for them, trying a few times. With auto-answer it also answers the leader's folder-trust question.
+- When the leader's first prompt may not have been submitted, the start message says how to read the leader and press enter.
+
 ## [0.13.2] - 2026-11-17
 
 ### Fixed
