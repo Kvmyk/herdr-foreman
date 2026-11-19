@@ -707,7 +707,7 @@ test('a worker whose trust dialog foreman answered is reported as answered to th
 test('in auto mode permission and update dialogs at startup are answered, with a few tries', async () => {
   const f = fakes();
   const keys = [];
-  const screens = ['Do you want to allow this folder?\n ❯ 1. Yes\n   2. No', 'A new version is available. Update available: press esc to skip', 'ok'];
+  const screens = ['Do you want to allow this folder?\n ❯ 1. Yes\n   2. No', ['A new version is available.', ' ❯ 1. Update now', '   2. Skip'].join(String.fromCharCode(10)), 'ok'];
   let at = 0;
   f.herdr.agentStart = async () => ({ ok: false, pane: 'w1:p9', code: 'agent_not_ready', message: 'claude is waiting for an answer' });
   f.herdr.agentRead = async () => screens[Math.min(at, screens.length - 1)];
