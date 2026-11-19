@@ -1,0 +1,17 @@
+{
+  "source_jobs": ["991af5e0-8c5f-4511-9619-a2a46939ebd4"],
+  "source_filter": {
+    "agent": "claude-code",
+    "agent_version": "2.1.231",
+    "model_name": "anthropic/claude-fable-5",
+    "reasoning_effort": "max"
+  },
+  "metadata": {
+    "model_display": { "label": "Claude Fable 5" },
+    "model_org": { "label": "Anthropic" },
+    "agent_display": { "label": "Claude Code" },
+    "reasoning_effort": "max",
+    "date": "2026-08-26"
+  },
+  "metrics": { "accuracy": 90, "n_trials": 330 }
+}

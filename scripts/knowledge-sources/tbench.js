@@ -6,13 +6,6 @@ const DIRECTORY = 'leaderboard/submissions';
 const API = `https://api.github.com/repos/${REPO}`;
 const RAW = `https://raw.githubusercontent.com/${REPO}`;
 
-function boardVersion(row) {
-  if (typeof row?.leaderboard !== 'string' || !/^\d+-\d+-\d+$/.test(row.leaderboard)) {
-    fail('tbench: invalid submission leaderboard');
-  }
-  return row.leaderboard;
-}
-
 function recordFrom(row, version) {
   const md = row.metadata;
   const modelLabel = md?.model_display?.label;
@@ -46,11 +39,15 @@ async function readSubmissions(fetchImpl) {
       getJson(fetchImpl, `${RAW}/${latest.sha}/${DIRECTORY}/${encodeURIComponent(name)}`),
     ));
     for (const row of batch) {
-      const board = boardVersion(row);
+      // Legacy submissions lack a board ID. Model, harness and trial counts
+      // can match across board versions, so use only explicit IDs.
+      const board = row?.leaderboard;
+      if (typeof board !== 'string' || !/^\d+-\d+-\d+$/.test(board)) continue;
       if (!submissions.has(board)) submissions.set(board, []);
       submissions.get(board).push(row);
     }
   }
+  if (!submissions.size) fail('tbench: no submission has a valid leaderboard');
   const board = [...submissions.keys()].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).at(-1);
   const version = board.replace(/-0$/, '').replaceAll('-', '.');
   const records = submissions.get(board).map((row) => recordFrom(row, version));

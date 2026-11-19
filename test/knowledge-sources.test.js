@@ -394,12 +394,25 @@ test('tbench: Terminal-Bench 4.1 harness + model pairs with foreman kinds', asyn
   assert.ok(fetchImpl.calls.every((url) => !new URL(url).hostname.endsWith('tbench.ai')));
 });
 
-test('tbench: invalid listing, version, score or missing submission gives no facts', async () => {
+test('tbench: skips submissions without a valid board and rejects a listing with no usable board IDs', async () => {
+  const listing = (...names) => JSON.stringify(names.map((name) => ({ type: 'file', name })));
+  const malformed = JSON.stringify({ ...JSON.parse(fixture('tbench/opus.json')), leaderboard: 'unknown' });
+  const overrides = { [TB_CONTENTS]: listing('legacy.json', 'malformed.json'), [TB_RAW + 'malformed.json']: malformed };
+  const mixed = await read('tbench', { ...overrides, [TB_CONTENTS]: listing('legacy.json', 'malformed.json', 'opus.json') });
+  assert.equal(mixed.status.ok, true);
+  assert.deepEqual(mixed.records.map(({ benchmark, model, score }) => [benchmark, model, score]), [
+    ['terminal-bench-4.1', 'claude-opus-5.5', 65.76],
+  ]);
+  const invalid = await read('tbench', overrides);
+  assert.deepEqual([invalid.records, invalid.status.ok], [[], false]);
+  assert.match(invalid.status.error, /no submission has a valid leaderboard/);
+});
+
+test('tbench: invalid listing, score or missing submission gives no facts', async () => {
   const opus = JSON.parse(fixture('tbench/opus.json'));
   const cases = [
     { [TB_CONTENTS]: '[]' },
     { [TB_COMMITS]: '[]' },
-    { [TB_RAW + 'opus.json']: JSON.stringify({ ...opus, leaderboard: 'unknown' }) },
     { [TB_RAW + 'opus.json']: JSON.stringify({ ...opus, metrics: { accuracy: '65.76' } }) },
     { [TB_RAW + 'opus.json']: null },
   ];
