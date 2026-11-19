@@ -397,9 +397,18 @@ function defaultOps(deps) {
       const res = await agentBackend(task, flag).agentPrompt(name, text, { kind });
       // Remember when this worker was briefed: wait ignores reports older than that.
       note(task, (r) => ({ briefedAt: { ...r.briefedAt, [name]: deps.now() } }));
-      if (res?.submitted === false) {
+      // null: the screen could not tell whether it went in.
+      if (res?.submitted === false || res?.submitted === null) {
         const cmd = deps.foremanCmd ?? 'foreman';
-        return { sent: name, submitted: false, hint: `the prompt may still sit in ${name}'s input; check with: ${cmd} read --task ${task} ${name}, and if it is there, press enter with: ${cmd} keys --task ${task} ${name} enter` };
+        // The text never reached the input, or a dialog holds the agent: enter would not help.
+        if (res.reason === 'lost') {
+          return { sent: name, submitted: false, hint: `the prompt never showed in ${name}'s input (the agent may not be ready, or a dialog took the keys); check with: ${cmd} read --task ${task} ${name}, then send it again` };
+        }
+        if (res.reason === 'dialog') {
+          return { sent: name, submitted: false, hint: `${res.label ?? `${name} shows a dialog`}; check with: ${cmd} read --task ${task} ${name}` };
+        }
+        const where = res.submitted === false ? 'may still sit' : 'may sit';
+        return { sent: name, submitted: res.submitted, hint: `the prompt ${where} in ${name}'s input; check with: ${cmd} read --task ${task} ${name}, and if it is there, press enter with: ${cmd} keys --task ${task} ${name} enter` };
       }
       return { sent: name };
     },
@@ -631,7 +640,7 @@ export async function main(argv, deps) {
       }
       case 'prompt': {
         const [name, text] = r.positionals;
-        print(await ops.prompt({ task, backend: r.flags['--backend'] ?? null, name, text }), (v) => stdout.write(`sent to ${v.sent}${v.hint ? `, not submitted: ${v.hint}` : ''}\n`));
+        print(await ops.prompt({ task, backend: r.flags['--backend'] ?? null, name, text }), (v) => stdout.write(`sent to ${v.sent}${v.hint ? `, ${v.submitted === null ? 'not confirmed' : 'not submitted'}: ${v.hint}` : ''}\n`));
         return 0;
       }
       case 'read': {

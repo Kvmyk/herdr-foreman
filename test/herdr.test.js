@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHerdr, HerdrError, promptStuck, submitIfStuck } from '../src/herdr.js';
+import { createHerdr, HerdrError, promptStuck, submitIfStuck, checkSubmit, clearForPrompt, STABLE_MS } from '../src/herdr.js';
+import { OPENCODE_UPDATE_MODAL, OPENCODE_READY, AGY_AUTO_NOTICE } from './fixtures/screens.js';
 import { submitStrategy } from '../src/inventory/kinds.js';
 import { fakeRun, json, herdrError } from './helpers.js';
 
@@ -152,25 +153,31 @@ function screens(...list) {
 test('submitIfStuck presses enter while the prompt sits in the input, with growing pauses', async () => {
   const pauses = [];
   let presses = 0;
-  const ok = await submitIfStuck({ read: screens('> [Pasted ~3 lines]\n  footer'), press: async () => { presses++; }, sleep: async (ms) => { pauses.push(ms); }, text: 'a\nb\nc', kind: 'codex' });
+  const ok = await submitIfStuck({ read: screens('> [Pasted ~3 lines]\n  footer'), press: async () => { presses++; }, sleep: async (ms) => { pauses.push(ms); }, text: 'a\nb\nc', kind: 'codex', platform: 'linux' });
   assert.equal(ok, false);
   assert.equal(presses, 3);
   assert.deepEqual(pauses, [500, 1000, 2000, 2000]);
 });
 
-test('submitIfStuck for a kind that loses the enter presses once even when the text is not seen, then stops', async () => {
+test('submitIfStuck never presses blindly: no text and no sign either way is unknown', async () => {
   let presses = 0;
-  const ok = await submitIfStuck({ read: screens('> \n  footer'), press: async () => { presses++; }, sleep: async () => {}, text: LONG, kind: 'pi' });
-  assert.equal(ok, true);
-  assert.equal(presses, 1);
-  let checked = 0;
-  await submitIfStuck({ read: screens('> \n  footer'), press: async () => { checked++; }, sleep: async () => {}, text: LONG, kind: null });
-  assert.equal(checked, 0);
+  const press = async () => { presses++; };
+  // An empty input is a sign the prompt went in only after the text was seen there.
+  assert.equal(await submitIfStuck({ read: screens(`> ${LONG}\n  footer`, '> \n  footer'), press, sleep: async () => {}, text: LONG, kind: 'pi', platform: 'linux' }), true);
+  assert.equal(await submitIfStuck({ read: screens(`│ ❯ ${LONG} │`, '│ ❯  │\n  footer'), press, sleep: async () => {}, text: LONG, kind: null, platform: 'linux' }), true);
+  presses = 0;
+  // Never seen, and the input stays empty: the paste was lost.
+  assert.deepEqual(await checkSubmit({ read: screens('> \n  footer'), press, sleep: async () => {}, text: LONG, kind: 'pi', platform: 'linux' }), { submitted: false, reason: 'lost' });
+  assert.equal(await submitIfStuck({ read: screens('│ ❯  │\n  footer'), press, sleep: async () => {}, text: LONG, kind: null, platform: 'linux' }), false);
+  // Neither the text nor an empty input: the screen cannot tell.
+  assert.equal(await submitIfStuck({ read: screens('some output\n  footer'), press, sleep: async () => {}, text: LONG, kind: 'pi', platform: 'linux' }), null);
+  assert.equal(await submitIfStuck({ read: async () => { throw new Error('gone'); }, press, sleep: async () => {}, text: LONG, kind: 'codex', platform: 'linux' }), null);
+  assert.equal(presses, 0);
 });
 
 test('submitIfStuck stops once the text is gone after a press', async () => {
   let presses = 0;
-  const ok = await submitIfStuck({ read: screens(`> ${LONG}`, `> ${LONG}`, '> \n  footer'), press: async () => { presses++; }, sleep: async () => {}, text: LONG, kind: 'opencode' });
+  const ok = await submitIfStuck({ read: screens(`> ${LONG}`, `> ${LONG}`, '> \n  footer'), press: async () => { presses++; }, sleep: async () => {}, text: LONG, kind: 'opencode', platform: 'linux' });
   assert.equal(ok, true);
   assert.equal(presses, 2);
 });
@@ -178,21 +185,110 @@ test('submitIfStuck stops once the text is gone after a press', async () => {
 test('submitIfStuck does not press while the agent works, or into a dialog', async () => {
   let presses = 0;
   const press = async () => { presses++; };
-  assert.equal(await submitIfStuck({ read: screens(`> ${LONG}\n• Working (1s • esc to interrupt)`), press, sleep: async () => {}, text: LONG, kind: 'codex' }), true);
-  assert.equal(await submitIfStuck({ read: screens(`> ${LONG}`), status: async () => 'working', press, sleep: async () => {}, text: LONG, kind: 'codex' }), true);
-  assert.equal(await submitIfStuck({ read: screens(`> ${LONG}\nAllow command git status? (y/n)`), press, sleep: async () => {}, text: LONG, kind: 'codex' }), false);
+  const go = (opts) => submitIfStuck({ press, sleep: async () => {}, text: LONG, kind: 'codex', platform: 'linux', ...opts });
+  assert.equal(await go({ read: screens(`> ${LONG}\n• Working (1s • esc to interrupt)`) }), true);
+  assert.equal(await go({ read: screens(`> ${LONG}`), status: async () => 'working' }), true);
+  assert.equal(await go({ read: screens(`> ${LONG}`), status: async () => ({ state: 'blocked', turn: 3 }) }), true);
+  // A turn that ended after the send: the prompt was worked on.
+  assert.equal(await go({ read: screens(`> ${LONG}`), status: async () => ({ state: 'idle', turn: 4 }), turn: 3 }), true);
+  assert.equal(await go({ read: screens(`> ${LONG}\nAllow command git status? (y/n)`) }), false);
   assert.equal(presses, 0);
   // Dialog words in the prompt itself are not a dialog.
   const text = 'Do not ask for permission; approve nothing. Then log in.';
-  assert.equal(await submitIfStuck({ read: screens(`> ${text}\n  footer`, '> \n  footer'), press, sleep: async () => {}, text, kind: 'codex' }), true);
+  assert.equal(await go({ read: screens(`> ${text}\n  footer`, '> \n  footer'), text }), true);
   assert.equal(presses, 1);
+});
+
+test('a failed press is unknown, not success', async () => {
+  const ok = await submitIfStuck({ read: screens(`> ${LONG}`), press: async () => { throw new Error('timeout'); }, sleep: async () => {}, text: LONG, kind: 'codex', platform: 'linux' });
+  assert.equal(ok, null);
+});
+
+// Captured in the Herdr app (2026-11-19): claude working in auto mode; the
+// prompt went in, but the update banner read as a dialog and the cut-short
+// "esc to inte…" was not seen as work, so the prompt was reported unsent.
+const CLAUDE_AUTO_SCREEN = [
+  '● Reading src/herdr.js',
+  '✽ Noodling… (3m 23s · ↓ 13.8k tokens)',
+  '   Update available! Run: winget upgrade Anthropic.C…',
+  '───────────────────────────────────────────────────────',
+  '❯ ',
+  '───────────────────────────────────────────────────────',
+  '  ⏵⏵ auto mode on (shift+tab to cycle) · esc to inte…',
+].join('\n');
+
+test('submitIfStuck: claude in auto mode under an update banner is working, not in a dialog', async () => {
+  let presses = 0;
+  for (const platform of ['win32', 'linux']) {
+    const ok = await submitIfStuck({ read: screens(CLAUDE_AUTO_SCREEN), press: async () => { presses++; }, sleep: async () => {}, text: 'You are worker sub1 for foreman. Your part: find why prompts are not submitted.', kind: 'claude', platform });
+    assert.equal(ok, true, platform);
+  }
+  assert.equal(presses, 0);
+});
+
+// Captured in the Herdr app (2026-11-19): a brief to codex 0.170 in a pane 27
+// columns wide. On Windows codex gets no bracketed paste, so it shows the raw
+// text and hc's closing </hc>; the start of the brief has scrolled away.
+const BRIEF = "You are worker cx1 for foreman. Your part: look at how codex starts. Context: the user reports that prompts stay in the input. Tests: npm test (node --test). Investigate only: do not modify, create or delete repository files and do not commit. Do not touch anything outside your worktree, do not push, do not create pull requests. Write at most 10 proposals to .foreman/proposals.md in your worktree, one line each: '- [high|medium|low] <file>: <problem> -> <proposed change>'. Find the real root cause, not another retry. Reply only DONE when finished.";
+const CODEX_NARROW_STUCK = [
+  '  anything outside your',
+  '  worktree, do not push,',
+  '  do not create pull',
+  '  requests. Write at most',
+  '  10 proposals',
+  '  to .foreman/proposals.md',
+  '  in your worktree, one',
+  "  line each: '- [high|",
+  '  medium|low] <file>:',
+  '  <problem> -> <proposed',
+  "  change>'. Find the real",
+  '  root cause, not another',
+  '  retry. Reply only DONE',
+  '  when finished.</hc>',
+  '',
+  '  gpt-5.5 medium ·',
+  '  ~\\.herdr-',
+  '  foreman\\worktrees\\herdr-…',
+  '  ← for agents    ⚠ 1 · f2',
+].join('\n');
+// The same pane while codex is still taking in the keys of the paste: the
+// end is not drawn yet.
+const CODEX_NARROW_TYPING = CODEX_NARROW_STUCK.split('\n').filter((l) => !/Reply only|finished/.test(l)).join('\n');
+const CODEX_EMPTY = '› Ask Codex to do anything\n\n  gpt-5.5 medium ·\n  ← for agents';
+
+test('promptStuck finds a wrapped prompt in a narrow pane by any part of it, with the raw </hc>', () => {
+  assert.equal(promptStuck(CODEX_NARROW_STUCK, BRIEF), true);
+  // Neither the first nor the last 30 characters are on the last lines here.
+  assert.equal(promptStuck(CODEX_NARROW_TYPING, BRIEF), true);
+  assert.equal(promptStuck(CODEX_EMPTY, BRIEF), false);
+});
+
+test('submitIfStuck on Windows presses only once the input has settled with the prompt\'s end in it', async () => {
+  let presses = 0;
+  const pauses = [];
+  const ok = await submitIfStuck({
+    read: screens(CODEX_NARROW_TYPING, CODEX_NARROW_STUCK, CODEX_NARROW_STUCK, CODEX_NARROW_STUCK, CODEX_EMPTY),
+    press: async () => { presses++; }, sleep: async (ms) => { pauses.push(ms); }, text: BRIEF, kind: 'codex', platform: 'win32',
+  });
+  assert.equal(ok, true);
+  assert.equal(presses, 1);
+  // Typing (no press), then stuck and still the same 300 ms later: one press, then the input is empty.
+  assert.deepEqual(pauses, [500, STABLE_MS, 1000, STABLE_MS, 2000]);
+});
+
+test('submitIfStuck reports a prompt still being typed in as not submitted, never as sent', async () => {
+  let presses = 0;
+  const ok = await submitIfStuck({ read: screens(CODEX_NARROW_TYPING, CODEX_NARROW_STUCK), press: async () => { presses++; }, sleep: async () => {}, text: BRIEF, kind: 'codex', platform: 'win32' });
+  assert.equal(ok, false);
+  assert.ok(presses >= 1);
 });
 
 test('agentPrompt for codex lets herdr wait until the agent works', async () => {
   const run = fakeRun([[/^herdr agent prompt/, json({ type: 'ok', agent_status: 'working' })]]);
   const res = await createHerdr({ run, sleep: async () => {} }).agentPrompt('w1', 'go', { kind: 'codex' });
   assert.deepEqual(res, { submitted: true });
-  assert.deepEqual(run.calls.map((c) => c.args), [['agent', 'prompt', 'w1', 'go', '--wait', '--until', 'working', '--until', 'blocked', '--timeout', '4000']]);
+  // Before it, a look whether a notice or a modal holds the agent (no screen here: it goes ahead).
+  assert.deepEqual(run.calls.map((c) => c.args), [['agent', 'read', 'w1', '--source', 'visible'], ['agent', 'prompt', 'w1', 'go', '--wait', '--until', 'working', '--until', 'blocked', '--timeout', '6000']]);
 });
 
 test('agentPrompt for codex presses enter when herdr says the prompt stalled', async () => {
@@ -206,4 +302,46 @@ test('agentPrompt for codex presses enter when herdr says the prompt stalled', a
   assert.equal(run.calls.filter((c) => c.args[1] === 'send-keys').length, 3);
   const refused = fakeRun([[/^herdr agent prompt/, herdrError('agent_blocked', 'blocked')]]);
   await assert.rejects(createHerdr({ run: refused, sleep: async () => {} }).agentPrompt('w1', 'go', { kind: 'codex' }), (err) => err.code === 'agent_blocked');
+});
+
+test('agentPrompt asks herdr for the agent status before pressing enter', async () => {
+  const run = fakeRun([
+    [/^herdr agent prompt/, herdrError('timeout', 'no answer')],
+    [/^herdr agent list/, json({ type: 'agent_list', agents: [{ name: 'w1', pane_id: 'p1', agent_status: 'working' }] })],
+    [/^herdr agent read/, { stdout: `> ${LONG}\n  footer` }],
+    [/^herdr agent send-keys/, json({ type: 'ok' })],
+  ]);
+  const res = await createHerdr({ run, sleep: async () => {}, platform: 'linux' }).agentPrompt('w1', LONG, { kind: 'codex' });
+  assert.deepEqual(res, { submitted: true });
+  assert.equal(run.calls.filter((c) => c.args[1] === 'send-keys').length, 0);
+});
+
+// Live (2026-11-19): `foreman prompt` to opencode said "sent" because its
+// empty input placeholder showed, though the text never reached the input.
+test('checkSubmit: an empty opencode input with the text never seen is a lost prompt, not a sent one', async () => {
+  let presses = 0;
+  const res = await checkSubmit({ read: screens(OPENCODE_READY), press: async () => { presses++; }, sleep: async () => {}, text: BRIEF, kind: 'opencode', platform: 'win32' });
+  assert.deepEqual(res, { submitted: false, reason: 'lost' });
+  assert.equal(presses, 0);
+  // Seen in the input first, then gone: it went in.
+  const typed = OPENCODE_READY.replace('Ask anything... "Fix a TODO in the codebase"', 'Reply only DONE when finished.');
+  const ok = await checkSubmit({ read: screens(typed, typed, OPENCODE_READY), press: async () => { presses++; }, sleep: async () => {}, text: 'Reply only DONE when finished.', kind: 'opencode', platform: 'win32' });
+  assert.deepEqual(ok, { submitted: true });
+  assert.equal(presses, 1);
+});
+
+test('checkSubmit: opencode\'s restart modal in the middle of the screen is a dialog', async () => {
+  const res = await checkSubmit({ read: screens(OPENCODE_UPDATE_MODAL), press: async () => {}, sleep: async () => {}, text: BRIEF, kind: 'opencode', platform: 'linux' });
+  assert.deepEqual(res, { submitted: false, reason: 'dialog', label: 'opencode updated itself and must be restarted' });
+});
+
+test('clearForPrompt closes a notice first, and holds a prompt back from a modal that would lose it', async () => {
+  const pressed = [];
+  const keys = async (k) => { pressed.push(...k); };
+  assert.equal(await clearForPrompt({ read: async () => AGY_AUTO_NOTICE, keys, sleep: async () => {}, kind: 'agy' }), null);
+  assert.deepEqual(pressed, ['esc']);
+  assert.deepEqual(await clearForPrompt({ read: async () => OPENCODE_UPDATE_MODAL, keys, sleep: async () => {}, kind: 'opencode' }), { submitted: false, reason: 'dialog', label: 'opencode updated itself and must be restarted' });
+  assert.equal(await clearForPrompt({ read: async () => OPENCODE_READY, keys, sleep: async () => {}, kind: 'opencode' }), null);
+  assert.equal(await clearForPrompt({ read: async () => { throw new Error('gone'); }, keys, sleep: async () => {} }), null);
+  assert.deepEqual(pressed, ['esc']);
 });

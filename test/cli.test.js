@@ -312,13 +312,15 @@ test('prompt, read and keys reach the agent', async () => {
 test('prompt goes through the backend of the run; read and keys follow the terminal foreman runs in', async () => {
   const run = fakeRun([[/^hc send/, { stdout: '{"turn":1}' }], [/^hc keys/, { stdout: '{}' }], [/^hc read/, { stdout: 'app screen' }], [/^herdr agent read/, { stdout: 'herdr screen' }]]);
   const files = { [path.join('/s/runs', 'fix-login.json')]: JSON.stringify({ task: 'fix-login', backend: 'app', workers: [] }) };
-  const h = harness({}, { files, deps: { run, which: () => null, exists: () => false, env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p1' } } });
+  const h = harness({}, { files, deps: { run, which: () => null, exists: () => false, env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p1' }, sleep: async () => {} } });
   assert.equal(await main(['prompt', '--task', 'fix-login', 'w1', 'go'], h.deps), 0);
   assert.equal(await main(['read', '--task', 'other', 'w1'], h.deps), 0);
   assert.equal(await main(['keys', '--task', 'other', '--backend', 'app', 'w1', 'esc'], h.deps), 0);
   // After a message or keys the app backend looks once whether foreman pinned the terminal (hc get);
-  // after a message it also asks hc whether the agent went busy (the second get).
-  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'send'], ['hc', 'get'], ['hc', 'get'], ['hc', 'read'], ['herdr', 'agent'], ['hc', 'keys'], ['hc', 'get']]);
+  // after a message it also asks hc whether the agent went busy, and reads the screen, at each look:
+  // a screen without the prompt and without an empty input tells nothing, so every look is made.
+  const looks = Array.from({ length: 4 }, () => [['hc', 'get'], ['hc', 'read']]).flat();
+  assert.deepEqual(run.calls.map((c) => [c.cmd, ...c.args.slice(0, 1)]), [['hc', 'read'], ['hc', 'send'], ['hc', 'get'], ...looks, ['herdr', 'agent'], ['hc', 'keys'], ['hc', 'get']]);
 });
 
 test('close-leader in the Herdr app ends the calling hc terminal', async () => {
@@ -703,4 +705,22 @@ test('prompt uses the worker\'s kind from the run and says how to finish a promp
   // codex: enter is pressed again until the tries run out.
   assert.equal(run.calls.filter((c) => c.args[0] === 'keys').length, 3);
   assert.match(h.out(), /sent to w1, not submitted: .*foreman keys --task fix-login w1 enter/);
+});
+
+test('prompt says when the screen could not confirm that the prompt went in', async () => {
+  const run = fakeRun([[/^hc send/, { stdout: '{"turn":1,"started":null}' }], [/^hc get/, { stdout: '{"status":null}' }], [/^hc keys/, { stdout: '{}' }], [/^hc read/, { stdout: 'some output\n  100% context left' }]]);
+  const files = { [path.join('/s/runs', 'fix-login.json')]: JSON.stringify({ task: 'fix-login', backend: 'app', workers: [{ name: 'w1', kind: 'codex' }] }) };
+  const h = harness({}, { files, deps: { run, which: () => null, exists: () => false, env: {}, sleep: async () => {}, writeFile: () => {}, mkdir: () => {}, now: () => 1 } });
+  assert.equal(await main(['prompt', '--task', 'fix-login', 'w1', 'go'], h.deps), 0);
+  assert.equal(run.calls.filter((c) => c.args[0] === 'keys').length, 0);
+  assert.match(h.out(), /sent to w1, not confirmed: the prompt may sit in w1's input; .*foreman keys --task fix-login w1 enter/);
+});
+
+test('prompt says when the text never reached the input, so pressing enter would not help', async () => {
+  const run = fakeRun([[/^hc send/, { stdout: '{"turn":0,"started":null}' }], [/^hc get/, { stdout: '{"status":null,"turn":0}' }], [/^hc keys/, { stdout: '{}' }], [/^hc read/, { stdout: '┃  Ask anything... "Fix a TODO in the codebase"\n┃\n  tab agents  ctrl+p commands' }]]);
+  const files = { [path.join('/s/runs', 'fix-login.json')]: JSON.stringify({ task: 'fix-login', backend: 'app', workers: [{ name: 'w1', kind: 'opencode' }] }) };
+  const h = harness({}, { files, deps: { run, which: () => null, exists: () => false, env: {}, sleep: async () => {}, writeFile: () => {}, mkdir: () => {}, now: () => 1 } });
+  assert.equal(await main(['prompt', '--task', 'fix-login', 'w1', 'go on with the task'], h.deps), 0);
+  assert.equal(run.calls.filter((c) => c.args[0] === 'keys').length, 0);
+  assert.match(h.out(), /sent to w1, not submitted: the prompt never showed in w1's input .*then send it again/);
 });

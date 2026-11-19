@@ -268,7 +268,7 @@ export default class Foreman extends View {
       return;
     }
     const where = this.where;
-    const flags = ["--backend", "app", ...(this.leader !== this.configLeader ? ["--leader", this.leader] : []), ...(this.base ? ["--base", this.base] : []), ...(this.prefs.answer ? ["--auto-answer"] : []), ...(this.prefs.uncommitted ? ["--include-uncommitted"] : [])];
+    const flags = ["--backend", "app", ...(this.leader !== this.configLeader ? ["--leader", this.leader] : []), ...(this.base ? ["--base", this.base] : []), ...(this.prefs.answer ? ["--auto-answer"] : ["--no-auto-answer"]), ...(this.prefs.uncommitted ? ["--include-uncommitted"] : ["--no-include-uncommitted"])];
     // On Windows the tab is a PowerShell that keeps telling Herdr its folder,
     // and the task reaches foreman in a file (see startArgv in folder.js).
     const windows = window()?.platform === "windows" && local(f);

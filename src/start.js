@@ -23,7 +23,7 @@ export function buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd = '
   const pointed = files.length
     ? ` Files the user pointed to (read them first): ${files.map((f) => (f.dirty ? `${f.path} (has uncommitted changes)` : f.path)).join(', ')}.`
     : '';
-  return `You are the foreman leader for task "${slug}". Read ${instructionsPath} and follow it exactly.${cmd} The user's task${body}${pointed}${prefsText(prefs)}`;
+  return `${prefsText(prefs)}You are the foreman leader for task "${slug}". Read ${instructionsPath} and follow it exactly.${cmd} The user's task${body}${pointed}`;
 }
 
 const samePath = (a, b) => pathKey(a) === pathKey(b);
@@ -163,7 +163,7 @@ export async function startForeman({
       if (multiline) throw err;
     }
   }
-  const prompt = fixedPrompt ?? buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile, prefs });
+  const prompt = fixedPrompt ? `${prefsText(prefs)}${fixedPrompt}` : buildLeaderPrompt({ task, slug, instructionsPath, foremanCmd, files, taskFile, prefs });
   const lean = config.lean !== false ? PROBES[config.leader]?.leanArgs?.leader ?? [] : [];
   // The user chose auto-answer: the task keeps that choice (spawn reads it), and the leader itself
   // starts in its auto mode, so its foreman and git commands do not ask either. A kind without an
@@ -171,7 +171,7 @@ export async function startForeman({
   let autoArgs = [];
   if (prefs.autoAnswer) {
     const dirs = [await git.commonDir?.(repo).catch(() => null), paths.home ?? path.dirname(paths.runs)].filter(Boolean);
-    autoArgs = autoArgsOf(PROBES[config.leader], { dirs }) ?? [];
+    autoArgs = autoArgsOf(PROBES[config.leader], { dirs, platform }) ?? [];
     try {
       mkdir?.(path.dirname(autoFile(paths, slug)), { recursive: true });
       writeFile?.(autoFile(paths, slug), 'auto\n');
@@ -196,15 +196,28 @@ export async function startForeman({
   // The leader runs in the user's own project, so a trust question is theirs
   // to answer. foreman waits for that answer and then hands over the task; the
   // command to do it by hand is shown only when the wait runs out.
-  if (!ready && started.code !== 'agent_exited' && trustWaitMs > 0 && classifyScreen(config.leader, await readScreen())?.type === 'trust') {
-    progress(`${config.leader} asks whether to trust this folder. Answer it in the leader's tab; foreman waits up to ${Math.round(trustWaitMs / 60000) || 1} min and then gives it the task...`);
+  let asked = !ready && started.code !== 'agent_exited' && trustWaitMs > 0 ? classifyScreen(config.leader, await readScreen()) : null;
+  // The user chose auto-answer: they already accepted responsibility, so foreman answers the leader's
+  // folder-trust question too, when the screen shows which option means yes.
+  if (asked?.type === 'trust') {
+    if (prefs.autoAnswer && asked.keys) {
+      progress(`${config.leader} asks whether to trust this folder; answering yes because you chose auto-answer...`);
+      await Promise.resolve().then(() => herdr.agentKeys(leader, asked.keys)).catch(() => {});
+    } else {
+      progress(`${config.leader} asks whether to trust this folder. Answer it in the leader's tab; foreman waits up to ${Math.round(trustWaitMs / 60000) || 1} min and then gives it the task...`);
+    }
     const answer = await waitForTrust({ herdr, name: leader, kind: config.leader, sleep, waitMs: trustWaitMs });
     if (answer === 'gone') return failed(`The leader was closed before it got the task (was the answer to "trust this folder?" no?). Run foreman again when you want to start it.`);
     ready = answer === 'ready';
   }
   if (ready) {
-    await herdr.agentPrompt(leader, prompt, { kind: config.leader });
+    const sent = await herdr.agentPrompt(leader, prompt, { kind: config.leader });
     message = `Leader "${leader}" (${config.leader}) started in pane ${paneId} for task "${slug}".`;
+    // The text may still sit in the leader's input: say how to look and how to send it.
+    if (sent?.submitted === false) {
+      const backendFlag = app && !inside ? ' --backend app' : '';
+      message += ` The task may not have been submitted: look at the leader with "${foremanCmd} read --task ${slug}${backendFlag} ${leader}" and, if the text is still in its input, send "${foremanCmd} keys --task ${slug}${backendFlag} ${leader} enter".`;
+    }
   } else {
     const backendFlag = app && !inside ? ' --backend app' : '';
     const screen = await readScreen();

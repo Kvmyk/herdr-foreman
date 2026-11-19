@@ -195,6 +195,9 @@ test('prepareResume writes the notes; a cleaned-up run cannot be resumed', async
   assert.equal(prep.task, 'fix the login');
   assert.equal(prep.repo, repo);
   assert.equal(prep.backend, 'herdr');
+  assert.equal(prep.auto, false);
+  f.all[path.join(paths.runs, 'auto.json')] = JSON.stringify(run({ task: 'auto', auto: true }));
+  assert.equal((await ops.prepareResume({ task: 'auto' })).auto, true);
   assert.match(f.all[prep.notes], /Resuming foreman run/);
   assert.ok(prep.prompt.includes(prep.notes));
   await assert.rejects(ops.prepareResume({ task: 'done' }), /is finished \(landed\)/);
@@ -222,7 +225,45 @@ test('foreman resume starts a leader in the run\'s repo; respawn passes its flag
   assert.equal(await main(['respawn', '--task', 'fix-login', 'w1=claude:opus', '--effort', 'high', '--auto'], deps), 0);
   assert.deepEqual(calls[1], { task: 'fix-login', spec: 'w1=claude:opus', newTab: false, effort: 'high', auto: true, full: false });
   assert.match(out, /send it again with foreman prompt/);
+  // A run the user chose auto-answer for starts its new leader with that choice.
+  deps.ops.prepareResume = async ({ task }) => ({ slug: task, task: 'x', repo, backend: 'app', notes: '/s/tasks/n.md', prompt: 'P', auto: true });
+  assert.equal(await main(['resume', '--task', 'fix-login'], deps), 0);
+  assert.deepEqual(calls.at(-1).prefs, { autoAnswer: true });
   // Without --task these words are a task.
   assert.equal(await main(['resume', 'the', 'upload'], deps), 0);
-  assert.equal(calls[2].task, 'resume the upload');
+  assert.equal(calls.at(-1).task, 'resume the upload');
+});
+
+const AGY_TRUST = ['Do you trust the contents of this project?', 'Antigravity CLI requires permission to read, edit, and execute files here.', '> Yes, I trust this folder', '  No, exit', '  ↑/↓ Navigate · enter Confirm'].join(String.fromCharCode(10));
+
+function blockedHerdr(screen) {
+  const h = fakeHerdr({ ready: false });
+  const keys = [];
+  let pressed = false;
+  h.agentRead = async () => screen;
+  h.agentKeys = async (name, k) => { keys.push([name, k]); pressed = true; };
+  h.agentList = async () => (pressed ? [{ name: 'w1', agent_status: 'idle' }] : []);
+  return { h, keys };
+}
+
+test('respawn --auto answers the startup trust dialog of agy with enter, like spawn', async () => {
+  const { h, keys } = blockedHerdr(AGY_TRUST);
+  const res = await respawn(h, { spec: 'w1=agy', auto: true, sleep: async () => {} });
+  assert.deepEqual(keys, [['w1', ['enter']]]);
+  assert.equal(res.status, 'ready');
+  assert.equal(res.error, null);
+  assert.ok(res.warnings.some((w) => /answered the folder-trust dialog of agy/.test(w)));
+});
+
+test('respawn answers a trust dialog even without --auto, but not a permission dialog', async () => {
+  const a = blockedHerdr(AGY_TRUST);
+  assert.equal((await respawn(a.h, { spec: 'w1=agy', sleep: async () => {} })).status, 'ready');
+  const ask = ['Do you want to allow this?', ' ❯ 1. Yes', '   2. No'].join(String.fromCharCode(10));
+  const b = blockedHerdr(ask);
+  const res = await respawn(b.h, { spec: 'w1=agy', sleep: async () => {} });
+  assert.deepEqual(b.keys, []);
+  assert.equal(res.status, 'not_ready');
+  const c = blockedHerdr(ask);
+  assert.equal((await respawn(c.h, { spec: 'w1=agy', auto: true, sleep: async () => {} })).status, 'ready');
+  assert.deepEqual(c.keys, [['w1', ['enter']]]);
 });

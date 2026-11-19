@@ -154,7 +154,7 @@ test('a codex leader may also write foreman\'s folder and the repository .git', 
   const { deps, log } = fakes();
   deps.which = () => '/bin/codex';
   deps.git.commonDir = async () => path.join(repo, '.git');
-  await startForeman({ ...deps, config: { ...DEFAULT_CONFIG, leader: 'codex' }, prefs: { autoAnswer: true }, task: 'fix it' });
+  await startForeman({ ...deps, platform: 'linux', config: { ...DEFAULT_CONFIG, leader: 'codex' }, prefs: { autoAnswer: true }, task: 'fix it' });
   const args = log.find(([k]) => k === 'start')[1].args;
   assert.deepEqual(args.slice(0, 4), ['--ask-for-approval', 'never', '--sandbox', 'workspace-write']);
   assert.ok(args.includes(path.join(repo, '.git')) && args.includes(path.resolve('/s')));
@@ -531,4 +531,48 @@ test('the leader\'s prompt carries its kind, so it is submitted the way that kin
   const r = await startForeman({ ...deps, config: { ...DEFAULT_CONFIG, leader: 'codex' }, which: () => '/bin/x', task: 'fix it' });
   assert.equal(r.ok, true, r.message);
   assert.deepEqual(seen, [{ kind: 'codex' }]);
+});
+
+test("the prompt puts the user's choices first and says they override the instructions", async () => {
+  const { takePrefs, prefsText } = await import('../src/start-prefs.js');
+  const on = buildLeaderPrompt({ task: 't', slug: 't', instructionsPath: '/i', prefs: { autoAnswer: true, includeUncommitted: false } });
+  assert.ok(on.indexOf('already chose') < on.indexOf('Read /i'));
+  assert.match(on, /do NOT ask the permission question, add --auto to every spawn/);
+  assert.match(on, /do NOT ask about uncommitted changes, leave --include-uncommitted out/);
+  const off = prefsText({ autoAnswer: false });
+  assert.match(off, /answer the workers' permission questions themselves/);
+  assert.match(off, /do not add --auto/);
+  assert.deepEqual(takePrefs(['--no-auto-answer', '--no-include-uncommitted', '--', 'x']).prefs, { autoAnswer: false, includeUncommitted: false });
+  assert.equal(prefsText({}), '');
+});
+
+test('INSTRUCTIONS.md asks the permission and uncommitted questions only when the prompt does not say', async () => {
+  const text = (await import('node:fs')).readFileSync(new URL('../leader/INSTRUCTIONS.md', import.meta.url), 'utf8');
+  assert.match(text, /If your prompt says the user already chose[^]*do not ask/);
+  assert.match(text, /Only when your prompt says nothing about it, ask once per task/);
+  assert.match(text, /when your prompt says the user already chose about uncommitted changes, do not ask/);
+  assert.match(text, /Ask now only if your prompt said nothing and you never asked/);
+  assert.ok(!text.includes('If you never asked, ask now.'));
+});
+
+test('a resumed prompt starts with the auto choice', async () => {
+  const { deps, log } = fakes();
+  await startForeman({ ...deps, writeFile: () => {}, mkdir: () => {}, slug: 'old', prompt: 'You are the foreman leader. Continue.', prefs: { autoAnswer: true }, task: 'old' });
+  assert.match(log.find(([k]) => k === 'start')[1].args.join(' '), /--permission-mode auto/);
+});
+
+test("with auto-answer the leader's folder-trust dialog is answered too", async () => {
+  const { deps, log } = fakes();
+  const keys = [];
+  let answered = false;
+  deps.herdr.agentStart = async () => ({ ok: false, pane: 'p1', code: 'agent_not_ready', message: 'waiting' });
+  deps.herdr.agentRead = async () => (answered ? '> ' : ['Do you trust the files in this folder?', ' ❯ 1. Yes, I trust this folder', '   2. No, exit'].join(String.fromCharCode(10)));
+  deps.herdr.agentKeys = async (n, k) => { keys.push(k); answered = true; };
+  deps.herdr.agentList = async () => (answered ? [{ name: 'lead', agent_status: 'idle' }] : []);
+  deps.herdr.agentPrompt = async () => ({ submitted: false });
+  const r = await startForeman({ ...deps, writeFile: () => {}, mkdir: () => {}, prefs: { autoAnswer: true }, task: 'fix it', trustWaitMs: 60000 });
+  assert.deepEqual(keys, [['1']]);
+  assert.match(r.message, /may not have been submitted/);
+  assert.match(r.message, /read --task fix-it/);
+  assert.match(r.message, /keys --task fix-it [a-z]+ enter/);
 });
