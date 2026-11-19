@@ -3,6 +3,11 @@
 
 const KINDS = [
   { type: 'trust', re: /trust (the files in |the contents of |this |the )?(this )?(folder|workspace|directory|project)|do you trust|I trust this/i, label: 'asks to trust this folder' },
+  // opencode updates itself in the background, then opens a modal that takes every key until
+  // it is closed, and closing it ends opencode: it has to be started again.
+  { type: 'restart', re: /please restart the application|restart (?:the app|opencode) to (?:use|finish|apply)/i, label: 'updated itself and must be restarted' },
+  // An information notice (agy: "Auto is now the default agent mode ... esc to dismiss"): no question.
+  { type: 'notice', re: /esc to dismiss|press esc to (?:dismiss|close)/i, label: 'shows a notice' },
   { type: 'login', re: /sign in|log ?in|authenticat|api key|not logged in/i, label: 'needs you to sign in' },
   { type: 'update', re: /update available|new version|upgrade to|press .* to update/i, label: 'offers an update' },
   { type: 'permission', re: /\(y\/n\)|\[y\/n\]|do you want to|allow .*\?|approve|permission/i, label: 'asks for permission' },
@@ -11,7 +16,9 @@ const KINDS = [
 // Which option of a folder-trust dialog is highlighted differs per agent (claude
 // preselects No, agy and codex Yes), so the answer is read off the screen.
 const OPTION = /^\s*([❯>›])?\s*(?:(\d+)[.)]\s*)?(yes|no)\b/i;
-const KEYS = { update: ['esc'], permission: ['enter'] };
+const KEYS = { update: ['esc'], permission: ['enter'], notice: ['esc'] };
+// Types read from the screen without a question shape (trust has its own words, the others say what they are).
+const UNSHAPED = new Set(['trust', 'restart', 'notice']);
 
 // The keys that choose "yes" in a trust dialog; null when the screen does not
 // show which option is highlighted. Never presses enter on a highlighted "no".
@@ -62,17 +69,19 @@ export function classifyScreen(kind, screen, { blockedKind = null } = {}) {
   // Permission, update and login need a question on screen: a word in a
   // footer, a banner or a tip is not one.
   const shaped = dialogShape(lines);
-  let hit = KINDS.find((k) => k.re.test(flat) && (k.type === 'trust' || shaped || (k.type === 'login' && LOGIN_SAID.test(flat)))) ?? null;
-  // hc said what the program asks: that wins, except for a trust dialog, whose answer is read off the screen.
-  if (STATUS_KINDS[blockedKind] && hit?.type !== 'trust') hit = KINDS.find((k) => k.type === STATUS_KINDS[blockedKind]);
+  // A notice with options under it is a question after all.
+  let hit = KINDS.find((k) => k.re.test(flat) && (k.type === 'notice' ? !shaped : UNSHAPED.has(k.type) || shaped || (k.type === 'login' && LOGIN_SAID.test(flat)))) ?? null;
+  // hc said what the program asks: that wins, except where the screen says more (a trust dialog,
+  // whose answer is read off the screen; a notice, which agy reports as a permission question).
+  if (STATUS_KINDS[blockedKind] && !UNSHAPED.has(hit?.type)) hit = KINDS.find((k) => k.type === STATUS_KINDS[blockedKind]);
   if (!hit) return null;
   const keys = hit.type === 'trust' ? trustKeys(text) : KEYS[hit.type] ?? null;
   return {
     type: hit.type,
     label: `${kind} ${hit.label}`,
     keys,
-    // Foreman may answer a trust dialog itself in its own worktrees.
-    safeToAnswer: hit.type === 'trust' && Boolean(keys),
+    // Foreman may answer a trust dialog itself in its own worktrees, and close a notice.
+    safeToAnswer: (hit.type === 'trust' || hit.type === 'notice') && Boolean(keys),
   };
 }
 
@@ -85,6 +94,7 @@ export function describeBlocked({ kind, screen, task, name, foremanCmd, blockedK
   const c = classifyScreen(kind, screen, { blockedKind });
   if (!c) return null;
   if (c.type === 'login') return `${c.label}; sign in with ${kind} in a terminal, then run foreman spawn again`;
+  if (c.type === 'restart') return `${c.label}; close it and run foreman spawn again`;
   const how = c.keys ? `; answer it with: ${keysCommand({ foremanCmd, task, name, keys: c.keys })}` : '';
   return `${c.label}${how}`;
 }
