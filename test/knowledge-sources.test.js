@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { deflateRawSync } from 'node:zlib';
 import { SOURCES, collectFacts, readSource, finalise, DEFAULT_TTL_DAYS } from '../scripts/knowledge-sources/index.js';
-import { normaliseModel, harnessKind, parseCsv, vendorFor } from '../scripts/knowledge-sources/normalise.js';
+import { createKnowledgeFetch, normaliseModel, harnessKind, parseCsv, vendorFor } from '../scripts/knowledge-sources/normalise.js';
 import { readZip } from '../scripts/knowledge-sources/epoch.js';
 import { familyFor } from '../src/knowledge.js';
 
@@ -12,6 +12,12 @@ const NOW = Date.parse('2026-11-11T12:00:00Z');
 const FIXTURES = new URL('./fixtures/sources/', import.meta.url);
 const fixture = (name) => readFileSync(new URL(name, FIXTURES));
 const source = (id) => SOURCES.find((s) => s.id === id);
+const TB_REPO = 'harbor-framework/terminal-bench';
+const TB_SHA = 'a'.repeat(40);
+const TB_API = `https://api.github.com/repos/${TB_REPO}`;
+const TB_COMMITS = `${TB_API}/commits?path=leaderboard%2Fsubmissions&per_page=1`;
+const TB_CONTENTS = `${TB_API}/contents/leaderboard/submissions?ref=${TB_SHA}`;
+const TB_RAW = `https://raw.githubusercontent.com/${TB_REPO}/${TB_SHA}/leaderboard/submissions/`;
 
 // Minimal ZIP writer (deflate, no CRC check on read) to pack the Epoch CSV fixtures.
 function zip(files, { year = 2026, month = 11, day = 11 } = {}) {
@@ -49,12 +55,11 @@ const ROUTES = {
   'https://livebench.ai/': () => fixture('livebench/index.html'),
   'https://livebench.ai/static/js/main.45868924.js': () => fixture('livebench/main.45868924.js.txt'),
   'https://livebench.ai/data/20261106/table.csv': () => fixture('livebench/table.csv'),
-  'https://www.tbench.ai/': () => fixture('tbench.html'),
+  [TB_COMMITS]: () => fixture('tbench/commits.json'),
+  [TB_CONTENTS]: () => fixture('tbench/contents.json'),
   'https://www.vals.ai/benchmarks/terminal-bench-4': () => fixture('vals-terminal-bench-4.html'),
   'https://www.vals.ai/benchmarks/vibe-code': () => fixture('vals-vibe-code.html'),
   'https://www.vals.ai/benchmarks/vals_index': () => fixture('vals-vals_index.html'),
-  'https://scale.com/leaderboard/swe-atlas': () => fixture('seal-swe-atlas.html'),
-  'https://scale.com/leaderboard/swe_bench_pro_public_v2': () => fixture('seal-swe-bench-pro-v2.html'),
 };
 
 function response(body, status = 200) {
@@ -82,6 +87,7 @@ function fakeFetch(overrides = {}) {
       const config = new URL(url).searchParams.get('config');
       return response(fixture(`lmarena-${config}.json`));
     }
+    if (url.startsWith(TB_RAW)) return response(fixture(`tbench/${url.slice(TB_RAW.length)}`));
     const route = ROUTES[url];
     return route ? response(route()) : response('not found', 404);
   };
@@ -95,7 +101,7 @@ const find = (records, where) => records.filter((r) => Object.entries(where).eve
 // ---- contract ---------------------------------------------------------
 
 test('SOURCES follow the shared contract', () => {
-  assert.deepEqual(SOURCES.map((s) => s.id), ['lmarena-webdev', 'lmarena-agent', 'epoch', 'livebench', 'tbench', 'vals', 'seal']);
+  assert.deepEqual(SOURCES.map((s) => s.id), ['lmarena-webdev', 'lmarena-agent', 'epoch', 'livebench', 'tbench', 'vals']);
   for (const s of SOURCES) {
     assert.match(s.url, /^https:\/\//);
     assert.ok(s.title && s.licence, s.id);
@@ -104,7 +110,7 @@ test('SOURCES follow the shared contract', () => {
     assert.equal(typeof s.read, 'function');
   }
   assert.equal(DEFAULT_TTL_DAYS, 45);
-  assert.deepEqual(SOURCES.filter((s) => s.kind === 'html').map((s) => s.id), ['tbench', 'vals', 'seal']);
+  assert.deepEqual(SOURCES.filter((s) => s.kind === 'html').map((s) => s.id), ['vals']);
 });
 
 test('collectFacts reads every source from the fixtures', async () => {
@@ -116,7 +122,7 @@ test('collectFacts reads every source from the fixtures', async () => {
   }
   assert.deepEqual(Object.fromEntries(Object.entries(status).map(([id, s]) => [id, s.newest])), {
     'lmarena-webdev': '2026-11-10', 'lmarena-agent': '2026-11-08', epoch: '2026-11-11', livebench: '2026-11-06',
-    tbench: '2026-11-11', vals: '2026-11-09', seal: '2026-11-06',
+    tbench: '2026-11-11', vals: '2026-11-09',
   });
   const keys = ['source', 'benchmark', 'model', 'vendor', 'harness', 'effort', 'score', 'unit', 'rank', 'of', 'date', 'category'];
   for (const r of records) {
@@ -171,13 +177,71 @@ test('status.newest is the later of the source update date and the newest result
 test('a transient HTTP error is retried, a 404 is not', async () => {
   const inner = fakeFetch();
   let failures = 1;
-  const flaky = async (url, opts) => (failures-- > 0 ? response('busy', 502) : inner(url, opts));
+  const flaky = createKnowledgeFetch(async (url, opts) =>
+    !url.endsWith('/robots.txt') && failures-- > 0 ? response('busy', 502) : inner(url, opts),
+  { wait: async () => {} });
   const { status } = await readSource(source('lmarena-agent'), { fetchImpl: flaky, now: NOW });
   assert.equal(status.ok, true);
   const calls = [];
   const missing = async (url) => { calls.push(url); return response('gone', 404); };
   const gone = await readSource(source('lmarena-agent'), { fetchImpl: missing, now: NOW });
-  assert.deepEqual([gone.status.ok, calls.length], [false, 1]);
+  assert.deepEqual([gone.status.ok, calls.filter((url) => !url.endsWith('/robots.txt')).length], [false, 1]);
+});
+
+test('source fetch honors the shared user-agent and robots rules at each redirect', async () => {
+  const origin = 'https://livebench.ai';
+  const target = 'https://data.example.test';
+  const calls = [];
+  const fetchImpl = async (url, { headers, redirect }) => {
+    calls.push(url);
+    assert.equal(headers.get('user-agent'), 'herdr-foreman-knowledge/1.0 (+https://github.com/Kvmyk/herdr-foreman)');
+    assert.equal(redirect, 'manual');
+    if (url === `${origin}/robots.txt`) return new Response('User-agent: *\nDisallow: /\nUser-agent: HERDR-FOREMAN-KNOWLEDGE\nAllow: /$');
+    if (url === `${origin}/`) return new Response(null, { status: 302, headers: { Location: `${target}/blocked/report` } });
+    if (url === `${target}/robots.txt`) return new Response('User-agent: *\nDisallow: /blocked/*\nAllow: /blocked/public$');
+    assert.fail(`Unexpected request: ${url}`);
+  };
+  const { records, status } = await readSource(source('livebench'), { fetchImpl, now: NOW });
+  assert.deepEqual(calls, [`${origin}/robots.txt`, `${origin}/`, `${target}/robots.txt`]);
+  assert.deepEqual(records, []);
+  assert.equal(status.skipped, true);
+  assert.match(status.error, /Skipped https:\/\/data\.example\.test\/blocked\/report: disallowed/);
+});
+
+test('robots rules check same-origin request paths including query strings and are shared per origin', async () => {
+  const origin = 'https://example.test';
+  const calls = [];
+  const request = createKnowledgeFetch(async (url) => {
+    calls.push(url);
+    if (url.endsWith('/robots.txt')) {
+      return new Response('User-agent: *\nDisallow: /dir\nAllow: /dir/%76iew$\nDisallow: /dir/view$');
+    }
+    if (url.endsWith('/go')) return new Response(null, { status: 301, headers: { Location: '/dir/view?private=true' } });
+    return new Response('ok');
+  });
+  assert.equal(await (await request(`${origin}/dir/view`)).text(), 'ok');
+  await assert.rejects(request(`${origin}/go`), /disallowed/);
+  assert.deepEqual(calls, [`${origin}/robots.txt`, `${origin}/dir/view`, `${origin}/go`]);
+});
+
+test('429 and 503 use Retry-After seconds and dates, and 401/403 stop immediately', async () => {
+  const delays = [];
+  const statuses = [429, 503, 200, 401, 403, 429];
+  const request = createKnowledgeFetch(async (url) => {
+    if (url.endsWith('/robots.txt')) return new Response(null, { status: 404 });
+    const status = statuses.shift();
+    const headers = status === 429 ? { 'Retry-After': statuses.length ? '3' : '300' }
+      : status === 503 ? { 'Retry-After': new Date(NOW + 7000).toUTCString() } : {};
+    return new Response(null, { status, headers });
+  }, { wait: async (delay) => delays.push(delay), now: () => NOW });
+  const url = 'https://example.test/data';
+  assert.equal((await request(url)).status, 200);
+  assert.deepEqual(delays, [3000, 7000]);
+  assert.equal((await request(url)).status, 401);
+  assert.equal((await request(url)).status, 403);
+  assert.equal((await request(url)).status, 429);
+  assert.deepEqual(delays, [3000, 7000]);
+  assert.deepEqual(statuses, []);
 });
 
 test('finalise keeps the best effort per model and harness and ranks with ties', () => {
@@ -306,10 +370,11 @@ test('livebench: newest release from the bundle, coding and long_agentic columns
   assert.equal(missing.status.ok, false);
 });
 
-// ---- html sources -----------------------------------------------------
+// ---- Terminal-Bench and Vals -------------------------------------------
 
 test('tbench: Terminal-Bench 4.1 harness + model pairs with foreman kinds', async () => {
-  const { records, status } = await read('tbench');
+  const fetchImpl = fakeFetch();
+  const { records, status } = await readSource(source('tbench'), { fetchImpl, now: NOW });
   assert.equal(status.ok, true);
   assert.deepEqual(records.map((r) => [r.rank, r.model, r.harness, r.effort, r.score]), [
     [1, 'claude-opus-5.5', 'claude', 'max', 65.76],
@@ -321,32 +386,26 @@ test('tbench: Terminal-Bench 4.1 harness + model pairs with foreman kinds', asyn
   ]);
   assert.ok(records.every((r) => r.benchmark === 'terminal-bench-4.1'));
   assert.equal(find(records, { model: 'claude-opus-5.5' })[0].date, '2026-09-22');
-  // Results keep their submission dates; newest is when the board last changed.
+  // Keep row dates and use the submissions commit for source freshness.
   assert.equal(status.newest, '2026-11-11');
+  assert.match(source('tbench').licence, /Apache-2\.0/);
+  assert.ok(fetchImpl.calls.includes(TB_CONTENTS));
+  assert.equal(fetchImpl.calls.filter((url) => url.startsWith(TB_RAW)).length, 7);
+  assert.ok(fetchImpl.calls.every((url) => !new URL(url).hostname.endsWith('tbench.ai')));
 });
 
-test('tbench: newest falls back to the newest result without updated_at', async () => {
-  const html = fixture('tbench.html').toString();
-  const noUpdate = html.replace(/,\\"updated_at\\":\\"2026-11-11T[^\\]*\\"\}/, '}');
-  assert.notEqual(noUpdate, html);
-  const { status } = await read('tbench', { 'https://www.tbench.ai/': noUpdate });
-  assert.deepEqual([status.ok, status.newest], [true, '2026-09-29']);
-  const bad = await read('tbench', { 'https://www.tbench.ai/': html.replace('\\"updated_at\\":\\"2026-11-11T', '\\"updated_at\\":\\"soon') });
-  assert.deepEqual([bad.records, bad.status.ok], [[], false]);
-});
-
-test('tbench: an unexpected shape gives ok false, never a wrong number', async () => {
-  const html = fixture('tbench.html').toString();
-  const cases = {
-    'accuracy as text': html.replace('\\"accuracy\\":65.76', '\\"accuracy\\":\\"65.76\\"'),
-    'no leaderboard': html.replaceAll('leaderboard', 'board'),
-    'ranked by something else': html.replace('\\"accessor\\":\\"metrics.accuracy\\",\\"direction\\"', '\\"accessor\\":\\"metrics.cost\\",\\"direction\\"'),
-    'no payload': '<html><body>maintenance</body></html>',
-  };
-  for (const [name, body] of Object.entries(cases)) {
-    assert.notEqual(body, html, name);
-    const { records, status } = await read('tbench', { 'https://www.tbench.ai/': body });
-    assert.deepEqual([records, status.ok], [[], false], name);
+test('tbench: invalid listing, version, score or missing submission gives no facts', async () => {
+  const opus = JSON.parse(fixture('tbench/opus.json'));
+  const cases = [
+    { [TB_CONTENTS]: '[]' },
+    { [TB_COMMITS]: '[]' },
+    { [TB_RAW + 'opus.json']: JSON.stringify({ ...opus, leaderboard: 'unknown' }) },
+    { [TB_RAW + 'opus.json']: JSON.stringify({ ...opus, metrics: { accuracy: '65.76' } }) },
+    { [TB_RAW + 'opus.json']: null },
+  ];
+  for (const overrides of cases) {
+    const { records, status } = await read('tbench', overrides);
+    assert.deepEqual([records, status.ok], [[], false]);
   }
 });
 
@@ -379,39 +438,4 @@ test('vals: an unexpected shape gives ok false, never a wrong number', async () 
     const { records, status } = await read('vals', { [url]: body });
     assert.deepEqual([records, status.ok], [[], false], name);
   }
-});
-
-test('seal: SWE Atlas variants become benchmarks with categories, SWE-bench Pro only harness pairs', async () => {
-  const { records, status } = await read('seal');
-  assert.equal(status.ok, true);
-  const atlas = records.filter((r) => r.benchmark.startsWith('swe-atlas'));
-  assert.deepEqual([...new Set(atlas.map((r) => `${r.benchmark}:${r.category}`))], [
-    'swe-atlas-qna:analysis', 'swe-atlas-testwriting:test-writing', 'swe-atlas-refactoring:refactor',
-  ]);
-  assert.deepEqual(find(atlas, { benchmark: 'swe-atlas-refactoring', rank: 1 }).map((r) => [r.model, r.score, r.date]), [['claude-opus-5.5', 77.1, '2026-11-06']]);
-  assert.equal(find(atlas, { model: 'claude-opus-5.5' }).length, 3);
-  const pro = find(records, { benchmark: 'swe-bench-pro-v2' });
-  assert.deepEqual(pro.map((r) => [r.model, r.harness, r.effort, r.score]), [
-    ['claude-opus-5', 'claude', 'xhigh', 99.4], ['gpt-6-astra', 'codex', 'high', 96.9], ['gpt-5.6-sol', 'codex', 'xhigh', 95.5],
-  ]);
-  assert.ok(!records.some((r) => /inkling/.test(r.model) && r.benchmark.startsWith('swe-bench-pro')));
-  assert.ok(records.filter((r) => r.benchmark.startsWith('swe-bench-pro')).every((r) => r.category === null));
-});
-
-test('seal: an unexpected shape gives ok false, never a wrong number', async () => {
-  const atlasUrl = 'https://scale.com/leaderboard/swe-atlas';
-  const html = fixture('seal-swe-atlas.html').toString();
-  const cases = {
-    'variant renamed': html.replace('\\"key\\":\\"qna\\"', '\\"key\\":\\"questions\\"'),
-    'score as text': html.replaceAll(/(\\"score\\":)([0-9.]+)/g, '$1\\"$2\\"'),
-    'no variants': html.replaceAll('variants', 'tabs'),
-  };
-  for (const [name, body] of Object.entries(cases)) {
-    assert.notEqual(body, html, name);
-    const { records, status } = await read('seal', { [atlasUrl]: body });
-    assert.deepEqual([records, status.ok], [[], false], name);
-  }
-  const gone = await read('seal', { 'https://scale.com/leaderboard/swe_bench_pro_public_v2': null });
-  assert.deepEqual([gone.records, gone.status.ok], [[], false]);
-  assert.match(gone.status.error, /HTTP 404/);
 });
