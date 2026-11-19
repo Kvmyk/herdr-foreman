@@ -1,5 +1,6 @@
 // What foreman knows about each agent kind herdr can start: how to tell
 // whether it can work right now (signed in, has models) and how to pass a model.
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 export const HERDR_KINDS = Object.freeze([
@@ -100,11 +101,41 @@ function codexLoginExpired({ readJson, home, now }) {
   }
 }
 
+// ~/.codex/models_cache.json: { models: [{ slug, ... }] }. Read-only; a missing or garbled file gives [].
+function codexCachedModels(home) {
+  try {
+    const cache = JSON.parse(readFileSync(path.join(home, '.codex', 'models_cache.json'), 'utf8'));
+    return (Array.isArray(cache?.models) ? cache.models : []).map((m) => m?.slug).filter((s) => typeof s === 'string' && s);
+  } catch {
+    return [];
+  }
+}
+
+// The top-level `model = "..."` of ~/.codex/config.toml (keys below a [table] do not count).
+function codexConfiguredModel(home) {
+  try {
+    for (const line of readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8').split(/\r?\n/)) {
+      if (/^\s*\[/.test(line)) break;
+      const m = line.match(/^\s*model\s*=\s*(?:"([^"]*)"|'([^']*)')/);
+      if (m) return m[1] ?? m[2] ?? null;
+    }
+  } catch {
+    // no config
+  }
+  return null;
+}
+
 async function probeCodex({ run, readJson, home, timeoutMs, now = Date.now }) {
   const res = await run('codex', ['login', 'status'], { timeoutMs });
   if (res.code !== 0) return unavailable(`not signed in; run "codex login" (${firstLine(res)})`);
   if (readJson && codexLoginExpired({ readJson, home, now })) return unavailable('sign-in expired; run "codex login"');
-  return ready([]);
+  const models = codexCachedModels(home).map((id) => ({ id, access: 'subscription' }));
+  const defaultModel = codexConfiguredModel(home);
+  const out = ready(models, defaultModel);
+  if (defaultModel && models.length && !models.some((m) => m.id === defaultModel)) {
+    out.reason = `configured model "${defaultModel}" in ~/.codex/config.toml is not offered by codex now; pass a model explicitly`;
+  }
+  return out;
 }
 
 const flag = (name) => (value) => [name, value];

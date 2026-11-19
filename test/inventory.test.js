@@ -203,3 +203,42 @@ test('codex whose token ran out long ago is unavailable although login status is
   assert.equal((await PROBES.codex.probe({ ...ctx(run, { files: fresh }), now })).status, 'ready');
   assert.equal((await PROBES.codex.probe({ ...ctx(run), now })).status, 'ready');
 });
+
+async function codexIn(files) {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(path.join(tmpdir(), 'codex-home-'));
+  try {
+    mkdirSync(path.join(dir, '.codex'));
+    for (const [name, text] of Object.entries(files)) writeFileSync(path.join(dir, '.codex', name), text);
+    const run = fakeRun({ 'codex login status': { stdout: 'Logged in using ChatGPT' } });
+    return await PROBES.codex.probe({ ...ctx(run), home: dir });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const cache = JSON.stringify({ models: [{ slug: 'gpt-6.2-sol' }, { slug: 'gpt-6.1-sol' }, { slug: 'gpt-5.6-sol' }] });
+
+test('codex lists models from models_cache.json and takes the default from config.toml', async () => {
+  const r = await codexIn({ 'models_cache.json': cache, 'config.toml': 'model = "gpt-6.1-sol"\n[projects.x]\nmodel = "other"\n' });
+  assert.deepEqual(r.models.map((m) => m.id), ['gpt-6.2-sol', 'gpt-6.1-sol', 'gpt-5.6-sol']);
+  assert.equal(r.defaultModel, 'gpt-6.1-sol');
+  assert.equal(r.reason, null);
+});
+
+test('codex notes a configured model that is not in the cache', async () => {
+  const r = await codexIn({ 'models_cache.json': cache, 'config.toml': 'model = "gpt-5.5"\n' });
+  assert.equal(r.status, 'ready');
+  assert.equal(r.defaultModel, 'gpt-5.5');
+  assert.match(r.reason, /gpt-5\.5/);
+});
+
+test('codex tolerates a missing or garbled models cache', async () => {
+  for (const files of [{}, { 'models_cache.json': '{not json', 'config.toml': 'model = "gpt-5.5"' }, { 'models_cache.json': '{"models":7}' }]) {
+    const r = await codexIn(files);
+    assert.equal(r.status, 'ready');
+    assert.deepEqual(r.models, []);
+    assert.equal(r.reason, null);
+  }
+});
