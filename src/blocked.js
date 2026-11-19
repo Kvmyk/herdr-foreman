@@ -26,12 +26,45 @@ export function trustKeys(screen) {
   return [...Array(Math.abs(yes - at)).fill(yes > at ? 'down' : 'up'), 'enter'];
 }
 
-export function classifyScreen(kind, screen) {
+// Lines an agent shows while it is not asking anything: claude's update banner
+// and permission-mode footer, codex's slash-command tips. Their words
+// ("permissions", "update available") are not a question.
+const NOISE = [
+  /update available!?\s*run:/i,
+  /\b(?:bypass permissions|auto mode|accept edits|plan mode) on\b/i,
+  /shift\+tab to cycle/i,
+  /^\s*\/\w+\s+[-–—]\s/,
+  /\?\s*for shortcuts/i,
+];
+// What a question looks like at the bottom of the screen: (y/n), or at least
+// two options, one per line, numbered or behind a selection marker.
+const YES_NO = /\(y\/n\)|\[y\/n\]/i;
+const OPTION_LINE = /^\s*(?:[❯>›●]\s*)?(?:\d+[.)]\s+\S|(?:yes|no|allow|deny|skip|cancel|always)\b)/i;
+const SHAPE_LINES = 12;
+// Said outright, a sign-in is needed even without options (an agent that stopped at its login).
+const LOGIN_SAID = /not (?:logged|signed) in|please (?:log|sign) ?in|log ?in to continue|sign ?in to continue|sign-in expired/i;
+// hc's Status.kind of a blocked program, and the type foreman gives it.
+const STATUS_KINDS = { permission: 'permission', question: 'permission', auth: 'login' };
+
+function dialogShape(lines) {
+  const bottom = lines.slice(-SHAPE_LINES);
+  return YES_NO.test(bottom.join('\n')) || bottom.filter((l) => OPTION_LINE.test(l)).length >= 2;
+}
+
+// blockedKind: the kind hc reported with a blocked status (Status.kind), which
+// says what is asked without reading the screen.
+export function classifyScreen(kind, screen, { blockedKind = null } = {}) {
   const text = String(screen ?? '');
+  const lines = text.split(/\r?\n/).filter((l) => !NOISE.some((re) => re.test(l)));
   // A narrow pane wraps a sentence over several lines: match on the joined
   // text, but read the options line by line (trustKeys) from the original.
-  const flat = text.replace(/\s+/g, ' ');
-  const hit = KINDS.find((k) => k.re.test(flat));
+  const flat = lines.join('\n').replace(/\s+/g, ' ');
+  // Permission, update and login need a question on screen: a word in a
+  // footer, a banner or a tip is not one.
+  const shaped = dialogShape(lines);
+  let hit = KINDS.find((k) => k.re.test(flat) && (k.type === 'trust' || shaped || (k.type === 'login' && LOGIN_SAID.test(flat)))) ?? null;
+  // hc said what the program asks: that wins, except for a trust dialog, whose answer is read off the screen.
+  if (STATUS_KINDS[blockedKind] && hit?.type !== 'trust') hit = KINDS.find((k) => k.type === STATUS_KINDS[blockedKind]);
   if (!hit) return null;
   const keys = hit.type === 'trust' ? trustKeys(text) : KEYS[hit.type] ?? null;
   return {
@@ -48,8 +81,8 @@ export function keysCommand({ foremanCmd = 'foreman', task, name, keys }) {
 }
 
 // One sentence for a person or a leader: what it asks and what to run.
-export function describeBlocked({ kind, screen, task, name, foremanCmd }) {
-  const c = classifyScreen(kind, screen);
+export function describeBlocked({ kind, screen, task, name, foremanCmd, blockedKind = null }) {
+  const c = classifyScreen(kind, screen, { blockedKind });
   if (!c) return null;
   if (c.type === 'login') return `${c.label}; sign in with ${kind} in a terminal, then run foreman spawn again`;
   const how = c.keys ? `; answer it with: ${keysCommand({ foremanCmd, task, name, keys: c.keys })}` : '';

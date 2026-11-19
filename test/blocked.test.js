@@ -5,7 +5,7 @@ import { classifyScreen, describeBlocked, keysCommand, trustKeys } from '../src/
 test('classifies the four kinds of blocking screens', () => {
   assert.equal(classifyScreen('claude', 'Do you trust the files in this folder?').type, 'trust');
   assert.equal(classifyScreen('agy', 'Please sign in to continue').type, 'login');
-  assert.equal(classifyScreen('codex', 'Update available! 0.1 -> 0.2').type, 'update');
+  assert.equal(classifyScreen('codex', 'Update available! 0.1 -> 0.2\n › 1. Update now\n   2. Skip').type, 'update');
   assert.equal(classifyScreen('pi', 'Run rm -rf build? [y/n]').type, 'permission');
   assert.equal(classifyScreen('pi', 'compiling...'), null);
 });
@@ -53,8 +53,8 @@ test('trust dialogs wrapped at 40 columns are still found and answered', () => {
 
 test('permission, update and login prompts wrapped at 40 columns are found', () => {
   assert.equal(classifyScreen('pi', 'Do you want to\nrun rm -rf build?\n  1. Yes\n  2. No').type, 'permission');
-  assert.equal(classifyScreen('pi', 'Allow this tool to\n   edit   files?').type, 'permission');
-  assert.equal(classifyScreen('codex', 'Update\navailable! 0.1 -> 0.2').type, 'update');
+  assert.equal(classifyScreen('pi', 'Allow this tool to\n   edit   files?\n ❯ Yes\n   No').type, 'permission');
+  assert.equal(classifyScreen('codex', 'Update\navailable! 0.1 -> 0.2\n › 1. Update now\n   2. Skip').type, 'update');
   assert.equal(classifyScreen('agy', 'Please sign\nin to continue').type, 'login');
 });
 
@@ -65,4 +65,36 @@ test('describeBlocked names the exact keys command; login has none', () => {
   assert.doesNotMatch(describeBlocked({ kind: 'agy', screen: 'Trust this folder?', task: 't', name: 'w1' }), /keys/);
   assert.doesNotMatch(describeBlocked({ kind: 'agy', screen: 'Please log in', task: 't', name: 'w1' }), /keys/);
   assert.equal(describeBlocked({ kind: 'agy', screen: 'busy', task: 't', name: 'w1' }), null);
+});
+
+// Captured in the Herdr app (2026-11-19): claude working in auto mode, pane ~55 columns.
+const CLAUDE_AUTO_FOOTER = [
+  '✽ Noodling… (3m 23s · ↓ 13.8k tokens)',
+  '   Update available! Run: winget upgrade Anthropic.C…',
+  '❯ ',
+  '  ⏵⏵ auto mode on (shift+tab to cycle) · esc to inte…',
+].join('\n');
+
+test('banners, footers and tips are not questions', () => {
+  assert.equal(classifyScreen('claude', CLAUDE_AUTO_FOOTER), null);
+  assert.equal(classifyScreen('claude', '❯ \n  ⏵⏵ bypass permissions on (shift+tab to cycle)'), null);
+  assert.equal(classifyScreen('codex', '  /permissions - choose what Codex is allowed to do\n  /model - choose the model\n› Ask Codex to do anything'), null);
+  assert.equal(classifyScreen('agy', 'Running with permissions skipped\n> \n  approve: auto'), null);
+  assert.equal(classifyScreen('pi', 'type /login to switch accounts\n> '), null);
+  // A real question under the same banner is still found, and not taken for the update.
+  const asks = `${CLAUDE_AUTO_FOOTER}\nDo you want to run npm test?\n ❯ 1. Yes\n   2. No`;
+  assert.equal(classifyScreen('claude', asks).type, 'permission');
+});
+
+test('a sign-in said outright is found without options', () => {
+  assert.equal(classifyScreen('codex', 'Not logged in. Run codex login').type, 'login');
+  assert.equal(classifyScreen('codex', '› 1. Sign in with ChatGPT\n  2. Provide your own API key').type, 'login');
+});
+
+test('the kind hc reports with a blocked status decides what is asked', () => {
+  assert.equal(classifyScreen('codex', 'working on it', { blockedKind: 'permission' }).type, 'permission');
+  assert.equal(classifyScreen('codex', '', { blockedKind: 'auth' }).type, 'login');
+  assert.equal(classifyScreen('claude', CLAUDE, { blockedKind: 'question' }).type, 'trust');
+  assert.equal(classifyScreen('codex', 'working on it', { blockedKind: null }), null);
+  assert.match(describeBlocked({ kind: 'codex', screen: '', task: 't', name: 'w1', blockedKind: 'permission' }), /codex asks for permission/);
 });

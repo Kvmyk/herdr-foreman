@@ -77,7 +77,7 @@ test('paneClose kills and removes the terminal; a missing one is pane_not_found'
 test('read, prompt and keys use hc read, send and keys', async () => {
   const run = fakeRun([[/^hc read/, { stdout: 'screen\n' }], [/^hc send/, out({ turn: 2 })], [/^hc keys/, out({ status: 'idle' })], [/^hc get/, out({ address: 't7', labels: {} })]]);
   const pauses = [];
-  const herdr = createHerdrApp({ run, sleep: async (ms) => { pauses.push(ms); } });
+  const herdr = createHerdrApp({ run, sleep: async (ms) => { pauses.push(ms); }, platform: 'linux' });
   assert.equal(await herdr.agentRead('w1'), 'screen\n');
   await herdr.agentRead('w1', { lines: 50 });
   await herdr.agentPrompt('w1', '-starts with a dash', { kind: 'claude' });
@@ -87,6 +87,8 @@ test('read, prompt and keys use hc read, send and keys', async () => {
     ['read', '--lines', '50', 'w1'],
     ['send', '--json', 'w1', '--', '-starts with a dash'],
     // After a message or keys: did foreman pin this terminal? (see answered)
+    ['get', '--json', 'w1'],
+    // The send did not say the agent started: hc's status, then the screen.
     ['get', '--json', 'w1'],
     ['read', '--lines', '0', 'w1'],
     ['keys', '--json', 'w1', 'down'],
@@ -155,8 +157,59 @@ test('agentStart keeps the warning in the tab when a later worker of that tab is
 
 test('agentPrompt for claude presses enter once when the prompt is still in the input', async () => {
   const run = fakeRun([[/^hc send/, out({ turn: 1 })], [/^hc read/, { stdout: 'x\n> hello there\n' }], [/^hc keys/, out({})]]);
-  await createHerdrApp({ run, sleep: async () => {} }).agentPrompt('w1', 'hello there', { kind: 'claude' });
-  assert.deepEqual(run.calls.map((c) => c.args[0]), ['send', 'get', 'read', 'keys']);
+  await createHerdrApp({ run, sleep: async () => {}, platform: 'linux' }).agentPrompt('w1', 'hello there', { kind: 'claude' });
+  assert.deepEqual(run.calls.map((c) => c.args[0]), ['send', 'get', 'get', 'read', 'keys']);
+  // On Windows the input is read twice, 300 ms apart, before enter is pressed.
+  const win = fakeRun([[/^hc send/, out({ turn: 1 })], [/^hc read/, { stdout: 'x\n> hello there\n' }], [/^hc keys/, out({})]]);
+  await createHerdrApp({ run: win, sleep: async () => {}, platform: 'win32' }).agentPrompt('w1', 'hello there', { kind: 'claude' });
+  assert.deepEqual(win.calls.map((c) => c.args[0]), ['send', 'get', 'get', 'read', 'read', 'keys']);
+});
+
+test('agentPrompt trusts hc when the send says the agent started, and reads hc get\'s status record', async () => {
+  const started = fakeRun([[/^hc send/, out({ turn: 1, started: true, status: 'idle' })], [/^hc get/, out({ address: 't1', labels: {} })]]);
+  assert.deepEqual(await createHerdrApp({ run: started, sleep: async () => {} }).agentPrompt('w1', 'go', { kind: 'codex' }), { submitted: true });
+  assert.deepEqual(started.calls.map((c) => c.args[0]), ['send', 'get']);
+  // started false: the screen is checked; `hc get` gives the status as a record.
+  const working = fakeRun([
+    [/^hc send/, out({ turn: 1, started: false })],
+    [/^hc get/, out({ address: 't1', labels: {}, turn: 1, status: { app: 'codex', state: 'working' } })],
+    [/^hc read/, { stdout: '› go' }], [/^hc keys/, out({})],
+  ]);
+  assert.deepEqual(await createHerdrApp({ run: working, sleep: async () => {}, platform: 'linux' }).agentPrompt('w1', 'go', { kind: 'codex' }), { submitted: true });
+  assert.equal(working.calls.filter((c) => c.args[0] === 'keys').length, 0);
+  // A turn past the send's: it was worked on, even though it is idle again.
+  const ended = fakeRun([
+    [/^hc send/, out({ turn: 4, started: null })],
+    [/^hc get/, out({ address: 't1', labels: {}, turn: 5, status: { app: 'codex', state: 'error', msg: 'model not supported' } })],
+    [/^hc read/, { stdout: '› go' }], [/^hc keys/, out({})],
+  ]);
+  assert.deepEqual(await createHerdrApp({ run: ended, sleep: async () => {}, platform: 'linux' }).agentPrompt('w1', 'go', { kind: 'codex' }), { submitted: true });
+  assert.equal(ended.calls.filter((c) => c.args[0] === 'keys').length, 0);
+});
+
+test('agentStart: an error the agent reports is said in its words, and nobody is called for it', async () => {
+  const run = fakeRun([
+    [/^hc run/, out({ address: 't78' })],
+    [/^hc wait/, out({ ended: true, reason: 'status', status: 'error', terminal: 't78' })],
+    [/^hc get/, out({ address: 't78', status: { app: 'codex', state: 'error', msg: "The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account." } })],
+    [/^herdr-app do/, { code: 0 }],
+    [/^hc label/, out({})],
+  ]);
+  const res = await createHerdrApp({ run }).agentStart({ name: 'cx1', kind: 'codex', cwd: '/wt', tab: 'tb1', label: 'foreman:x' });
+  assert.deepEqual(res, { ok: false, pane: 't78', code: 'agent_error', message: "codex reported an error: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account." });
+  assert.equal(run.calls.some((c) => c.line.startsWith('hc label')), false);
+  const dos = run.calls.filter((c) => c.cmd === 'herdr-app').map((c) => c.args.slice(1));
+  assert.deepEqual(dos, [['tab.rename', JSON.stringify({ id: 'tb1', name: 'foreman:x' })]]);
+});
+
+test('agentStart says what a blocked agent asks when hc knows', async () => {
+  const run = fakeRun([
+    [/^hc run/, out({ address: 't3' })],
+    [/^hc wait/, out({ ended: true, reason: 'status', status: 'blocked' })],
+    [/^hc get/, out({ address: 't3', status: { app: 'claude', state: 'blocked', kind: 'permission' } })],
+  ]);
+  const res = await createHerdrApp({ run }).agentStart({ name: 'w1', kind: 'claude', cwd: '/wt' });
+  assert.deepEqual(res, { ok: false, pane: 't3', code: 'agent_not_ready', message: 'claude is waiting for an answer (permission)' });
 });
 
 // A window showing the leader t1 (pane pL) alone in tab tbA, or more terminals.
@@ -438,7 +491,7 @@ test('agentPrompt for codex presses enter after a settle pause until the prompt 
     [/^hc read/, () => ({ stdout: ++reads < 2 ? '› [Pasted Content 1520 chars]\n  100% context left' : '› \n  100% context left' })],
     [/^hc keys/, out({})],
   ]);
-  const res = await createHerdrApp({ run, sleep: async () => {} }).agentPrompt('w1', 'x'.repeat(1520), { kind: 'codex' });
+  const res = await createHerdrApp({ run, sleep: async () => {}, platform: 'linux' }).agentPrompt('w1', 'x'.repeat(1520), { kind: 'codex' });
   assert.deepEqual(res, { submitted: true });
   assert.equal(run.calls.filter((c) => c.args[0] === 'keys').length, 1);
 });
