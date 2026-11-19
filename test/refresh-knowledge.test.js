@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import tbench from '../scripts/knowledge-sources/tbench.js';
 import {
   detectNewModels, analyzeNewModels, checkSources, refresh, serializeKnowledge, renderLogEntry,
   applyFacts, factText, selectFamilyFacts, selectHarnessFacts, fetchReleases, latestModels,
@@ -187,6 +188,20 @@ test('serializeKnowledge reproduces the committed file byte for byte', () => {
   const file = new URL('../knowledge/agents.json', import.meta.url);
   const text = readFileSync(file, 'utf8');
   assert.equal(serializeKnowledge(JSON.parse(text)), text);
+});
+
+test('Terminal-Bench attribution matches the committed metadata and survives refresh', () => {
+  const file = new URL('../knowledge/agents.json', import.meta.url);
+  const committed = JSON.parse(readFileSync(file, 'utf8'));
+  const { url, title, kind, licence, attribution } = tbench;
+  const { ttlDays, newest, checked, ok } = committed.sourceMeta.tbench;
+  assert.equal(committed.sources.tbench, url);
+  assert.deepEqual(committed.sourceMeta.tbench, { title, kind, licence, attribution, ttlDays, newest, checked, ok });
+
+  const next = base();
+  applyFacts(next, { status: { tbench: { ok: true, newest: '2026-11-11' } } }, [{ ttlDays, ...tbench }], '2026-11-11');
+  assert.equal(next.sources.tbench, url);
+  assert.deepEqual(next.sourceMeta.tbench.attribution, attribution);
 });
 
 // ---- Facts, releases, latest models, compatibility ----------------------

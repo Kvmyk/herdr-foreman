@@ -12,12 +12,11 @@ const NOW = Date.parse('2026-11-11T12:00:00Z');
 const FIXTURES = new URL('./fixtures/sources/', import.meta.url);
 const fixture = (name) => readFileSync(new URL(name, FIXTURES));
 const source = (id) => SOURCES.find((s) => s.id === id);
-const TB_REPO = 'harbor-framework/terminal-bench';
-const TB_SHA = 'a'.repeat(40);
-const TB_API = `https://api.github.com/repos/${TB_REPO}`;
-const TB_COMMITS = `${TB_API}/commits?path=leaderboard%2Fsubmissions&per_page=1`;
-const TB_CONTENTS = `${TB_API}/contents/leaderboard/submissions?ref=${TB_SHA}`;
-const TB_RAW = `https://raw.githubusercontent.com/${TB_REPO}/${TB_SHA}/leaderboard/submissions/`;
+const TB_API = 'https://api.harborframework.com/functions/v1/leaderboard-read';
+const TB_ROBOTS = 'https://api.harborframework.com/robots.txt';
+const TB_LIST = 'https://api.harborframework.com/functions/v1/api/v1/leaderboards?package=terminal-bench%2Fterminal-bench&page_size=100';
+const TB_LIST_NEXT = `${TB_LIST}&cursor=next-board-page`;
+const { boards: TB_BOARDS, pages: TB_PAGES } = JSON.parse(fixture('tbench.json'));
 
 // Minimal ZIP writer (deflate, no CRC check on read) to pack the Epoch CSV fixtures.
 function zip(files, { year = 2026, month = 11, day = 11 } = {}) {
@@ -55,8 +54,9 @@ const ROUTES = {
   'https://livebench.ai/': () => fixture('livebench/index.html'),
   'https://livebench.ai/static/js/main.45868924.js': () => fixture('livebench/main.45868924.js.txt'),
   'https://livebench.ai/data/20261106/table.csv': () => fixture('livebench/table.csv'),
-  [TB_COMMITS]: () => fixture('tbench/commits.json'),
-  [TB_CONTENTS]: () => fixture('tbench/contents.json'),
+  [TB_LIST]: () => JSON.stringify(TB_BOARDS[0]),
+  [TB_LIST_NEXT]: () => JSON.stringify(TB_BOARDS[1]),
+  [TB_API]: ({ body }) => JSON.stringify(TB_PAGES[JSON.parse(body).page - 1]),
   'https://www.vals.ai/benchmarks/terminal-bench-4': () => fixture('vals-terminal-bench-4.html'),
   'https://www.vals.ai/benchmarks/vibe-code': () => fixture('vals-vibe-code.html'),
   'https://www.vals.ai/benchmarks/vals_index': () => fixture('vals-vals_index.html'),
@@ -76,20 +76,19 @@ function response(body, status = 200) {
 // overrides: url -> body (string/Buffer) or function returning one; null means 404.
 function fakeFetch(overrides = {}) {
   const calls = [];
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, options) => {
     calls.push(url);
     if (url in overrides) {
       const o = overrides[url];
       if (o === null) return response('not found', 404);
-      return response(typeof o === 'function' ? o() : o);
+      return response(typeof o === 'function' ? o(options) : o);
     }
     if (url.startsWith('https://datasets-server.huggingface.co/rows?')) {
       const config = new URL(url).searchParams.get('config');
       return response(fixture(`lmarena-${config}.json`));
     }
-    if (url.startsWith(TB_RAW)) return response(fixture(`tbench/${url.slice(TB_RAW.length)}`));
     const route = ROUTES[url];
-    return route ? response(route()) : response('not found', 404);
+    return route ? response(route(options)) : response('not found', 404);
   };
   fetchImpl.calls = calls;
   return fetchImpl;
@@ -397,8 +396,23 @@ test('livebench: newest release from the bundle, coding and long_agentic columns
 
 // ---- Terminal-Bench and Vals -------------------------------------------
 
-test('tbench: Terminal-Bench 4.1 harness + model pairs with foreman kinds', async () => {
-  const fetchImpl = fakeFetch();
+test('tbench: finds the newest public board and posts for both result pages', async () => {
+  const fetchFixture = fakeFetch();
+  const requests = [];
+  const fetchImpl = (url, options) => {
+    assert.equal(options.headers.get('user-agent'), 'herdr-foreman-knowledge/1.0 (+https://github.com/Kvmyk/herdr-foreman)');
+    assert.equal(options.headers.has('authorization'), false);
+    if (url.startsWith(TB_LIST)) {
+      assert.equal(options.method ?? 'GET', 'GET');
+      assert.equal(options.headers.get('harbor-api-version'), '2026-09-10.preview');
+    }
+    if (url === TB_API) {
+      assert.equal(options.method, 'POST');
+      assert.equal(options.headers.get('content-type'), 'application/json');
+      requests.push(JSON.parse(options.body));
+    }
+    return fetchFixture(url, options);
+  };
   const { records, status } = await readSource(source('tbench'), { fetchImpl, now: NOW });
   assert.equal(status.ok, true);
   assert.deepEqual(records.map((r) => [r.rank, r.model, r.harness, r.effort, r.score]), [
@@ -411,38 +425,53 @@ test('tbench: Terminal-Bench 4.1 harness + model pairs with foreman kinds', asyn
   ]);
   assert.ok(records.every((r) => r.benchmark === 'terminal-bench-4.1'));
   assert.equal(find(records, { model: 'claude-opus-5.5' })[0].date, '2026-09-22');
-  // Keep row dates and use the submissions commit for source freshness.
+  // Keep row dates and use the board update date for source freshness.
   assert.equal(status.newest, '2026-11-11');
-  assert.match(source('tbench').licence, /Apache-2\.0/);
-  assert.ok(fetchImpl.calls.includes(TB_CONTENTS));
-  assert.equal(fetchImpl.calls.filter((url) => url.startsWith(TB_RAW)).length, 7);
-  assert.ok(fetchImpl.calls.every((url) => !new URL(url).hostname.endsWith('tbench.ai')));
+  assert.deepEqual(fetchFixture.calls, [TB_ROBOTS, TB_LIST, TB_LIST_NEXT, TB_API, TB_API]);
+  assert.deepEqual(requests, [1, 2].map((page) => ({
+    package: 'terminal-bench/terminal-bench', name: '4-1-0', page, page_size: 100,
+  })));
 });
 
-test('tbench: skips submissions without a valid board and rejects a listing with no usable board IDs', async () => {
-  const listing = (...names) => JSON.stringify(names.map((name) => ({ type: 'file', name })));
-  const malformed = JSON.stringify({ ...JSON.parse(fixture('tbench/opus.json')), leaderboard: 'unknown' });
-  const overrides = { [TB_CONTENTS]: listing('legacy.json', 'malformed.json'), [TB_RAW + 'malformed.json']: malformed };
-  const mixed = await read('tbench', { ...overrides, [TB_CONTENTS]: listing('legacy.json', 'malformed.json', 'opus.json') });
-  assert.equal(mixed.status.ok, true);
-  assert.deepEqual(mixed.records.map(({ benchmark, model, score }) => [benchmark, model, score]), [
-    ['terminal-bench-4.1', 'claude-opus-5.5', 65.76],
-  ]);
-  const invalid = await read('tbench', overrides);
-  assert.deepEqual([invalid.records, invalid.status.ok], [[], false]);
-  assert.match(invalid.status.error, /no submission has a valid leaderboard/);
+test('tbench: robots restrictions and HTTP 401 or 403 prevent further requests', async () => {
+  const blockedFetch = fakeFetch({ [TB_ROBOTS]: 'User-agent: *\nDisallow: /functions/' });
+  const blocked = await readSource(source('tbench'), { fetchImpl: blockedFetch, now: NOW });
+  assert.equal(blocked.status.skipped, true);
+  assert.deepEqual(blockedFetch.calls, [TB_ROBOTS]);
+
+  for (const code of [401, 403]) {
+    const calls = [];
+    const fetchFixture = fakeFetch();
+    const fetchImpl = async (url, options) => {
+      calls.push([url, options.method ?? 'GET']);
+      if (url === TB_API) return new Response(null, { status: code });
+      return fetchFixture(url, options);
+    };
+    const denied = await readSource(source('tbench'), { fetchImpl, now: NOW });
+    assert.equal(denied.status.ok, false);
+    assert.match(denied.status.error, new RegExp(`HTTP ${code}$`));
+    assert.deepEqual(calls, [[TB_ROBOTS, 'GET'], [TB_LIST, 'GET'], [TB_LIST_NEXT, 'GET'], [TB_API, 'POST']]);
+  }
 });
 
-test('tbench: invalid listing, score or missing submission gives no facts', async () => {
-  const opus = JSON.parse(fixture('tbench/opus.json'));
-  const cases = [
-    { [TB_CONTENTS]: '[]' },
-    { [TB_COMMITS]: '[]' },
-    { [TB_RAW + 'opus.json']: JSON.stringify({ ...opus, metrics: { accuracy: '65.76' } }) },
-    { [TB_RAW + 'opus.json']: null },
-  ];
-  for (const overrides of cases) {
-    const { records, status } = await read('tbench', overrides);
+test('tbench: an empty public list or repeated cursor gives no facts', async () => {
+  const empty = await read('tbench', { [TB_LIST]: JSON.stringify({ items: [], next_cursor: null }) });
+  assert.match(empty.status.error, /no public versioned leaderboard/);
+  const loop = await read('tbench', { [TB_LIST_NEXT]: JSON.stringify(TB_BOARDS[0]) });
+  assert.match(loop.status.error, /invalid leaderboard list cursor/);
+});
+
+test('tbench: mismatched board, invalid score or inconsistent page gives no facts', async () => {
+  const [first, second] = TB_PAGES;
+  const changePage = (updated) => ({ body }) => JSON.stringify(JSON.parse(body).page === 1 ? first : updated);
+  const [row, ...rest] = second.rows;
+  for (const page of [
+    { ...second, leaderboard: { ...second.leaderboard, id: 'other-board' } },
+    { ...second, pagination: { ...second.pagination, page: 1 } },
+    { ...second, rows: rest },
+    { ...second, rows: [{ ...row, metrics: { accuracy: '57.58' } }, ...rest] },
+  ]) {
+    const { records, status } = await read('tbench', { [TB_API]: changePage(page) });
     assert.deepEqual([records, status.ok], [[], false]);
   }
 });

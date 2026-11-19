@@ -1,0 +1,206 @@
+{
+  "boards": [
+    {
+      "items": [
+        {
+          "name": "3-0-0",
+          "visibility": "public",
+          "package": "terminal-bench/terminal-bench"
+        },
+        {
+          "name": "4-0-0",
+          "visibility": "public",
+          "package": "terminal-bench/terminal-bench"
+        },
+        {
+          "name": "99-0-0",
+          "visibility": "private",
+          "package": "terminal-bench/terminal-bench"
+        }
+      ],
+      "next_cursor": "next-board-page"
+    },
+    {
+      "items": [
+        {
+          "name": "4-1-0",
+          "visibility": "public",
+          "package": "terminal-bench/terminal-bench"
+        },
+        {
+          "name": "99-0-0",
+          "visibility": "public",
+          "package": "other/benchmark"
+        },
+        {
+          "name": "research",
+          "visibility": "public",
+          "package": "terminal-bench/terminal-bench"
+        }
+      ],
+      "next_cursor": null
+    }
+  ],
+  "pages": [
+    {
+      "leaderboard": {
+        "id": "example-board",
+        "package": "terminal-bench/terminal-bench",
+        "name": "4-1-0",
+        "title": "Terminal-Bench 4.1",
+        "updated_at": "2026-11-11T08:00:00Z",
+        "rank_by": [
+          {
+            "accessor": "metrics.accuracy",
+            "direction": "desc"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "rank": 1,
+          "metadata": {
+            "model_display": {
+              "label": "Claude Opus 5.5"
+            },
+            "model_org": {
+              "label": "Anthropic"
+            },
+            "agent_display": {
+              "label": "Claude Code"
+            },
+            "reasoning_effort": "max",
+            "date": "2026-09-22"
+          },
+          "metrics": {
+            "accuracy": 65.76
+          }
+        },
+        {
+          "rank": 2,
+          "metadata": {
+            "model_display": {
+              "label": "GPT-6.1 Sol"
+            },
+            "model_org": {
+              "label": "OpenAI"
+            },
+            "agent_display": {
+              "label": "Codex"
+            },
+            "reasoning_effort": "max",
+            "date": "2026-09-29"
+          },
+          "metrics": {
+            "accuracy": 60.91
+          }
+        },
+        {
+          "rank": 3,
+          "metadata": {
+            "model_display": {
+              "label": "GPT-6 Astra"
+            },
+            "model_org": {
+              "label": "OpenAI"
+            },
+            "agent_display": {
+              "label": "Codex"
+            },
+            "reasoning_effort": "max",
+            "date": "2026-09-29"
+          },
+          "metrics": {
+            "accuracy": 60.3
+          }
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "page_size": 3,
+        "total": 6,
+        "total_pages": 2
+      }
+    },
+    {
+      "leaderboard": {
+        "id": "example-board",
+        "package": "terminal-bench/terminal-bench",
+        "name": "4-1-0",
+        "title": "Terminal-Bench 4.1",
+        "updated_at": "2026-11-11T08:00:00Z",
+        "rank_by": [
+          {
+            "accessor": "metrics.accuracy",
+            "direction": "desc"
+          }
+        ]
+      },
+      "rows": [
+        {
+          "rank": 4,
+          "metadata": {
+            "model_display": {
+              "label": "Claude Fable 5.1"
+            },
+            "model_org": {
+              "label": "Anthropic"
+            },
+            "agent_display": {
+              "label": "Claude Code"
+            },
+            "reasoning_effort": "xhigh",
+            "date": "2026-09-29"
+          },
+          "metrics": {
+            "accuracy": 57.58
+          }
+        },
+        {
+          "rank": 5,
+          "metadata": {
+            "model_display": {
+              "label": "GLM-5.3"
+            },
+            "model_org": {
+              "label": "Zhipu AI"
+            },
+            "agent_display": {
+              "label": "Claude Code"
+            },
+            "reasoning_effort": "max",
+            "date": "2026-09-29"
+          },
+          "metrics": {
+            "accuracy": 41.21
+          }
+        },
+        {
+          "rank": 6,
+          "metadata": {
+            "model_display": {
+              "label": "Gemini 3.8 Flash"
+            },
+            "model_org": {
+              "label": "Google"
+            },
+            "agent_display": {
+              "label": "Terminus 2"
+            },
+            "reasoning_effort": "high",
+            "date": "2026-09-29"
+          },
+          "metrics": {
+            "accuracy": 18.18
+          }
+        }
+      ],
+      "pagination": {
+        "page": 2,
+        "page_size": 3,
+        "total": 6,
+        "total_pages": 2
+      }
+    }
+  ]
+}

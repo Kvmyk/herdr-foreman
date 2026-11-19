@@ -265,7 +265,9 @@ export function applyFacts(next, { records = [], status = {} }, sourceList, toda
     else if (st.ok) live.add(s.id);
     next.sources[s.id] = s.url;
     meta[s.id] = {
-      title: s.title, kind: s.kind, licence: s.licence, ...(s.attribution && { attribution: s.attribution }), ttlDays: s.ttlDays,
+      title: s.title, kind: s.kind, licence: s.licence,
+      ...(s.attribution ? { attribution: s.attribution } : {}),
+      ttlDays: s.ttlDays,
       newest: st.ok ? st.newest : before?.newest ?? null, checked: today, ok: Boolean(st.ok),
     };
   }

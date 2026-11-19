@@ -10,7 +10,7 @@ As of 2026-11-11. Licences last reviewed 2026-11-19; see [DATA-SOURCES.md](../..
 | models.dev `api.json` | `families[].latest`, new-model stubs | JSON, MIT, updated daily |
 | OpenRouter `/api/v1/models` | second signal for new and retiring models (not used yet) | JSON, no key |
 | LMArena dataset on Hugging Face (`webdev`, `agent`) | preference ranks of current models | JSON via datasets-server, CC-BY-4.0 |
-| [Terminal-Bench leaderboard submissions](https://github.com/harbor-framework/terminal-bench/tree/main/leaderboard/submissions) | harness + model scores | GitHub JSON, [Apache-2.0](https://github.com/harbor-framework/terminal-bench/blob/main/LICENSE) |
+| [Terminal-Bench leaderboard](https://www.tbench.ai/) | harness + model scores | [Harbor Hub public JSON API](https://docs.harborframework.com/harbor-hub/leaderboards#display-a-leaderboard-on-your-own-website), documented for display. [Upstream citation](https://github.com/harbor-framework/terminal-bench/blob/main/CITATION.cff) |
 | Epoch AI benchmark data | `deepswe` and model metadata | CSV in a zip, CC-BY-4.0 |
 | LiveBench, Vals | extra leaderboards (adapters in `scripts/knowledge-sources/`) | see the adapters |
 | Vendor documentation (Claude Code, Codex, opencode, Antigravity, Gemini CLI discussion) | `permissions` and the Gemini end-of-access fact; links only, not read by the script | HTML or Markdown |

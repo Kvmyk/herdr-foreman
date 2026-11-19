@@ -1,10 +1,10 @@
-// Terminal-Bench publishes leaderboard submissions in its Apache-2.0 repository.
-import { getJson, normaliseModel, effortWord, vendorFor, vendorLabel, harnessKind, isoDay, percent, fail } from './normalise.js';
+import { createKnowledgeFetch, getJson, postJson, normaliseModel, effortWord, vendorFor, vendorLabel, harnessKind, isoDay, percent, fail } from './normalise.js';
 
-const REPO = 'harbor-framework/terminal-bench';
-const DIRECTORY = 'leaderboard/submissions';
-const API = `https://api.github.com/repos/${REPO}`;
-const RAW = `https://raw.githubusercontent.com/${REPO}`;
+const API = 'https://api.harborframework.com/functions/v1';
+const PACKAGE = 'terminal-bench/terminal-bench';
+// The public list route backs `harbor hub leaderboard list` in the Harbor SDK.
+const LIST_VERSION = '2026-09-10.preview';
+const PAGE_SIZE = 100;
 
 function recordFrom(row, version) {
   const md = row.metadata;
@@ -20,45 +20,66 @@ function recordFrom(row, version) {
   };
 }
 
-async function readSubmissions(fetchImpl) {
-  const commits = await getJson(fetchImpl, `${API}/commits?path=${encodeURIComponent(DIRECTORY)}&per_page=1`);
-  const latest = commits?.[0];
-  if (typeof latest?.sha !== 'string' || !/^[0-9a-f]{40}$/.test(latest.sha)) fail('tbench: missing submissions commit');
-  const updated = isoDay(latest.commit?.committer?.date) ?? fail('tbench: invalid submissions commit date');
-
-  // Pin the directory listing and downloads to the same revision.
-  const files = await getJson(fetchImpl, `${API}/contents/${DIRECTORY}?ref=${latest.sha}`);
-  if (!Array.isArray(files) || files.length >= 1000) fail('tbench: missing or incomplete submission listing');
-  const names = files.filter((file) => file?.type === 'file' && /^[^/]+\.json$/.test(file.name)).map((file) => file.name);
-  if (!names.length) fail('tbench: no submission files');
-
-  const submissions = new Map();
-  const concurrency = 4;
-  for (let i = 0; i < names.length; i += concurrency) {
-    const batch = await Promise.all(names.slice(i, i + concurrency).map((name) =>
-      getJson(fetchImpl, `${RAW}/${latest.sha}/${DIRECTORY}/${encodeURIComponent(name)}`),
-    ));
-    for (const row of batch) {
-      // Legacy submissions lack a board ID. Model, harness and trial counts
-      // can match across board versions, so use only explicit IDs.
-      const board = row?.leaderboard;
-      if (typeof board !== 'string' || !/^\d+-\d+-\d+$/.test(board)) continue;
-      if (!submissions.has(board)) submissions.set(board, []);
-      submissions.get(board).push(row);
+async function newestPublicBoard(request) {
+  const names = [];
+  const cursors = new Set();
+  const query = new URLSearchParams({ package: PACKAGE, page_size: String(PAGE_SIZE) });
+  for (;;) {
+    const data = await getJson(request, `${API}/api/v1/leaderboards?${query}`, {
+      headers: { 'harbor-api-version': LIST_VERSION },
+    });
+    if (!Array.isArray(data?.items)) fail('tbench: invalid leaderboard list');
+    for (const board of data.items) {
+      if (board?.package === PACKAGE && board.visibility === 'public'
+        && typeof board.name === 'string' && /^\d+-\d+-\d+$/.test(board.name)) names.push(board.name);
     }
+    const cursor = data.next_cursor;
+    if (cursor == null) break;
+    if (typeof cursor !== 'string' || !cursor || cursors.has(cursor)) fail('tbench: invalid leaderboard list cursor');
+    cursors.add(cursor);
+    query.set('cursor', cursor);
   }
-  if (!submissions.size) fail('tbench: no submission has a valid leaderboard');
-  const board = [...submissions.keys()].sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).at(-1);
-  const version = board.replace(/-0$/, '').replaceAll('-', '.');
-  const records = submissions.get(board).map((row) => recordFrom(row, version));
+  return names.sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).at(-1)
+    ?? fail('tbench: no public versioned leaderboard');
+}
+
+async function readLeaderboard(fetchImpl) {
+  const request = createKnowledgeFetch(fetchImpl);
+  const name = await newestPublicBoard(request);
+  const readPage = (page) => postJson(request, `${API}/leaderboard-read`, { package: PACKAGE, name, page, page_size: PAGE_SIZE });
+  const first = await readPage(1);
+  const board = first?.leaderboard;
+  if (board?.name !== name || board.package !== PACKAGE || typeof board.id !== 'string') fail('tbench: unexpected leaderboard');
+  if (board.rank_by?.[0]?.accessor !== 'metrics.accuracy') fail('tbench: leaderboard is not ranked by accuracy');
+  const { total, total_pages: pages } = first.pagination ?? {};
+  if (!Number.isSafeInteger(total) || !Number.isSafeInteger(pages) || pages < 1 || pages > total) {
+    fail('tbench: invalid leaderboard pagination');
+  }
+  const updated = isoDay(board.updated_at) ?? fail('tbench: invalid leaderboard update date');
+  const version = name.replace(/-0$/, '').replaceAll('-', '.');
+  const records = [];
+  for (let page = 1; page <= pages; page++) {
+    const data = page === 1 ? first : await readPage(page);
+    if (data?.leaderboard?.id !== board.id || data.leaderboard.updated_at !== board.updated_at
+      || data.pagination?.page !== page || data.pagination.total_pages !== pages || data.pagination.total !== total
+      || !Array.isArray(data.rows) || !data.rows.length) {
+      fail(`tbench: inconsistent leaderboard page ${page}`);
+    }
+    for (const row of data.rows) records.push(recordFrom(row, version));
+  }
+  if (records.length !== total) fail('tbench: incomplete leaderboard');
   return Object.assign(records, { updated });
 }
 
 export default {
   id: 'tbench',
-  url: `https://github.com/${REPO}/tree/main/${DIRECTORY}`,
-  title: 'Terminal-Bench leaderboard submissions',
+  url: 'https://www.tbench.ai/',
+  title: 'Terminal-Bench leaderboard (Harbor Hub public API)',
   kind: 'data',
-  licence: 'Apache-2.0 (harbor-framework/terminal-bench)',
-  read: ({ fetchImpl }) => readSubmissions(fetchImpl),
+  licence: 'facts; public read API documented for display; repo Apache-2.0; no site terms (checked 2026-11-19)',
+  attribution: {
+    creator: 'Terminal-Bench (Stanford / Harbor / Laude Institute)',
+    citation: 'https://github.com/harbor-framework/terminal-bench/blob/main/CITATION.cff',
+  },
+  read: ({ fetchImpl }) => readLeaderboard(fetchImpl),
 };
