@@ -194,9 +194,10 @@ test('Terminal-Bench attribution matches the committed metadata and survives ref
   const file = new URL('../knowledge/agents.json', import.meta.url);
   const committed = JSON.parse(readFileSync(file, 'utf8'));
   const { url, title, kind, licence, attribution } = tbench;
-  const { ttlDays, newest, checked, ok } = committed.sourceMeta.tbench;
+  const { ttlDays, newest, checked, ok, lastOk, failures, error } = committed.sourceMeta.tbench;
+  const state = Object.fromEntries(Object.entries({ lastOk, failures, error }).filter(([, v]) => v !== undefined));
   assert.equal(committed.sources.tbench, url);
-  assert.deepEqual(committed.sourceMeta.tbench, { title, kind, licence, attribution, ttlDays, newest, checked, ok });
+  assert.deepEqual(committed.sourceMeta.tbench, { title, kind, licence, attribution, ttlDays, newest, checked, ok, ...state });
 
   const next = base();
   applyFacts(next, { status: { tbench: { ok: true, newest: '2026-11-11' } } }, [{ ttlDays, ...tbench }], '2026-11-11');
@@ -255,7 +256,7 @@ test('applyFacts writes facts, tendencies and updated from the newest fact, and 
   assert.equal(k.harnesses.pi.facts, undefined);
   assert.deepEqual(k.families[1].tendencies, []);
   assert.equal(k.families[1].updated, '2026-08-01');
-  assert.deepEqual(k.sourceMeta.tbench, { title: 'tbench', kind: 'data', licence: 'CC-BY-4.0', ttlDays: 45, newest: '2026-11-11', checked: '2026-11-11', ok: true });
+  assert.deepEqual(k.sourceMeta.tbench, { title: 'tbench', kind: 'data', licence: 'CC-BY-4.0', ttlDays: 45, newest: '2026-11-11', checked: '2026-11-11', ok: true, lastOk: '2026-11-11' });
 });
 
 test('applyFacts carries the attribution of a source into sourceMeta', () => {
@@ -308,18 +309,69 @@ test('a source older than its ttl is frozen and its facts are dropped', () => {
   assert.equal(k.harnesses.claude.facts, undefined);
 });
 
-test('one failure keeps the facts, two failures in a row freeze the source', () => {
+test('one failure keeps the facts, a second one more than 7 days after the last ok run freezes the source', () => {
   const k = base();
   applyFacts(k, { records: [rec()], status: { tbench: { ok: true, newest: '2026-11-11', count: 1 } } }, [src('tbench')], '2026-11-11');
   const down = { records: [], status: { tbench: { ok: false, newest: null, count: 0, error: 'HTTP 500' } } };
   const first = applyFacts(k, down, [src('tbench')], '2026-11-18');
   assert.deepEqual(first.frozen, []);
+  assert.deepEqual(first.failed, [{ id: 'tbench', error: 'HTTP 500', frozen: false }]);
   assert.equal(k.families[0].facts.length, 1);
   assert.equal(k.sourceMeta.tbench.ok, false);
   assert.equal(k.sourceMeta.tbench.newest, '2026-11-11');
   const second = applyFacts(k, down, [src('tbench')], '2026-11-25');
-  assert.match(second.frozen[0].reason, /ok false twice in a row \(HTTP 500\)/);
+  assert.match(second.frozen[0].reason, /failed 2 runs in a row, last ok 2026-11-11 \(HTTP 500\)/);
+  assert.deepEqual(second.failed, [{ id: 'tbench', error: 'HTTP 500', frozen: true }]);
   assert.equal(k.families[0].facts, undefined);
+});
+
+// Regression for 2026-11-17, when both Arena sources failed on datasets-server and
+// sourceMeta kept only ok:false, without the error.
+test('a failing source records its error, keeps attribution and facts within the grace period, and clears the error once ok', () => {
+  const attribution = { creator: 'Arena Intelligence, Inc. (lmarena-ai)', licenceUrl: 'https://creativecommons.org/licenses/by/4.0/', modified: 'ratings rounded to 0.1' };
+  const arena = src('lmarena-webdev', { attribution });
+  const fact = rec({ source: 'lmarena-webdev', benchmark: 'webdev-arena', harness: null, unit: 'elo', score: 1500.1 });
+  const k = base();
+  applyFacts(k, { records: [fact], status: { 'lmarena-webdev': { ok: true, newest: '2026-11-15', count: 1 } } }, [arena], '2026-11-16');
+  const error = 'https://datasets-server.huggingface.co/rows?dataset=lmarena-ai%2Fleaderboard-dataset&config=webdev&split=latest&offset=100&length=100: HTTP 500';
+  const down = { records: [], status: { 'lmarena-webdev': { ok: false, newest: null, count: 0, error } } };
+  // Two failures within 7 days of the last ok run: facts stay.
+  for (const day of ['2026-11-17', '2026-11-18']) {
+    const { frozen, failed } = applyFacts(k, down, [arena], day);
+    assert.deepEqual(frozen, []);
+    assert.deepEqual(failed, [{ id: 'lmarena-webdev', error, frozen: false }]);
+    assert.equal(k.families[0].facts.length, 1);
+  }
+  assert.deepEqual(k.sourceMeta['lmarena-webdev'], {
+    title: 'lmarena-webdev', kind: 'data', licence: 'CC-BY-4.0', attribution, ttlDays: 45,
+    newest: '2026-11-15', checked: '2026-11-18', ok: false, lastOk: '2026-11-16', failures: 2, error,
+  });
+  const log = renderLogEntry({ today: '2026-11-18', stubs: [], links: [], warnings: [], failed: [{ id: 'lmarena-webdev', error, frozen: false }] });
+  assert.ok(log.includes(`- Source \`lmarena-webdev\` failed, its facts are kept for now: ${error}`), log);
+  // Back to ok: the error and the failure count go, lastOk moves on.
+  applyFacts(k, { records: [fact], status: { 'lmarena-webdev': { ok: true, newest: '2026-11-18', count: 1 } } }, [arena], '2026-11-19');
+  assert.deepEqual(k.sourceMeta['lmarena-webdev'], {
+    title: 'lmarena-webdev', kind: 'data', licence: 'CC-BY-4.0', attribution, ttlDays: 45,
+    newest: '2026-11-18', checked: '2026-11-19', ok: true, lastOk: '2026-11-19',
+  });
+  // Three failed runs in a row freeze the source even within the grace period.
+  for (const day of ['2026-11-20', '2026-11-21']) assert.deepEqual(applyFacts(k, down, [arena], day).frozen, []);
+  const third = applyFacts(k, down, [arena], '2026-11-22');
+  assert.match(third.frozen[0].reason, /failed 3 runs in a row, last ok 2026-11-19/);
+  assert.equal(k.families[0].facts, undefined);
+  assert.deepEqual(k.sourceMeta['lmarena-webdev'].attribution, attribution);
+});
+
+test('entries written before lastOk existed: ok counts as last ok on its checked date, ok false as one failure', () => {
+  const down = { records: [], status: { tbench: { ok: false, newest: null, count: 0, error: 'HTTP 502' } } };
+  const legacy = (ok) => ({ ...base(), sourceMeta: { tbench: { title: 'tbench', kind: 'data', licence: 'CC-BY-4.0', ttlDays: 45, newest: '2026-11-15', checked: '2026-11-17', ok } } });
+  const wasOk = legacy(true);
+  applyFacts(wasOk, down, [src('tbench')], '2026-11-18');
+  assert.deepEqual([wasOk.sourceMeta.tbench.lastOk, wasOk.sourceMeta.tbench.failures], ['2026-11-17', 1]);
+  const wasDown = legacy(false);
+  const { frozen } = applyFacts(wasDown, down, [src('tbench')], '2026-11-18');
+  assert.deepEqual(frozen, []);
+  assert.deepEqual([wasDown.sourceMeta.tbench.lastOk, wasDown.sourceMeta.tbench.failures], [undefined, 2]);
 });
 
 test('fetchReleases reads dist-tags.latest and its publish time; a failing package is a warning', async () => {
@@ -361,8 +413,13 @@ test('refresh with a fake collectFacts stores facts, releases and the log lines;
   const log = renderLogEntry(r);
   assert.match(log, /Source `dead` is frozen, its facts were dropped/);
   assert.match(log, /Harness `claude` release unknown -> 2.1.322/);
+  const same = await refresh({ knowledge: r.knowledge, api, fetchImpl, collectFacts, sourceList, packages: { claude: '@anthropic-ai/claude-code' }, now: NOW + 3600 * 1000 });
+  assert.equal(same.changed, false);
+  // A week later only lastOk of the sources that answered moves on.
   const again = await refresh({ knowledge: r.knowledge, api, fetchImpl, collectFacts, sourceList, packages: { claude: '@anthropic-ai/claude-code' }, now: NOW + 7 * DAY });
-  assert.equal(again.changed, false);
+  const withoutDates = (k) => JSON.stringify({ ...k, updated: null }, (key, v) => (['checked', 'lastOk'].includes(key) ? undefined : v));
+  assert.equal(withoutDates(again.knowledge), withoutDates(r.knowledge));
+  assert.equal(again.knowledge.sourceMeta.tbench.lastOk, '2026-11-18');
 });
 
 test('the regenerated shape is valid for the current validator and for foreman v0.9.1 clients', async () => {
@@ -393,5 +450,5 @@ test('serializeKnowledge keeps facts, release and sourceMeta on one line each an
   assert.deepEqual(JSON.parse(text), r.knowledge);
   assert.equal(serializeKnowledge(JSON.parse(text)), text);
   assert.match(text, /\n {8}\{"text":"Terminal-Bench 4\.1, claude-opus-5\.5: 65\.8%[^\n]*"source":"tbench"\}\n/);
-  assert.match(text, /\n {4}"tbench": \{"title":"tbench"[^\n]*"ok":true\},?\n/);
+  assert.match(text, /\n {4}"tbench": \{"title":"tbench"[^\n]*"ok":true,"lastOk":"2026-11-11"\},?\n/);
 });

@@ -238,12 +238,21 @@ export const pickTendencies = (facts, max = MAX_TENDENCIES) => facts.slice(0, ma
 
 const newest = (facts) => facts.reduce((m, f) => (f.date > m ? f.date : m), '');
 
+// A failing source keeps its facts for a grace period: it is frozen from its second
+// failed run in a row once more than FREEZE_GRACE_DAYS have passed since its last ok
+// run (sourceMeta.lastOk), and always at FREEZE_AFTER_FAILURES failed runs in a row.
+export const FREEZE_GRACE_DAYS = 7;
+export const FREEZE_AFTER_FAILURES = 3;
+
 // Replaces the facts of every source that answered and is not frozen; keeps the
-// facts of a source that failed once; drops those of a frozen source. Mutates next.
-// status[id].newest is the last time the source itself changed.
-// Returns { frozen: [{id, reason}], unmatched: [{model, source}] }.
+// facts of a failing source within its grace period; drops those of a frozen source.
+// sourceMeta records lastOk, and for a failing source the failed runs in a row and the
+// error. Mutates next. status[id].newest is the last time the source itself changed.
+// Returns { frozen: [{id, reason}], unmatched: [{model, source}], failed: [{id, error, frozen}] }
+// (failed leaves out sources skipped for robots.txt, which refresh() already warns about).
 export function applyFacts(next, { records = [], status = {} }, sourceList, today) {
   const frozen = [];
+  const failed = [];
   const unmatched = [];
   const meta = (next.sourceMeta ??= {});
   const live = new Set();
@@ -252,10 +261,17 @@ export function applyFacts(next, { records = [], status = {} }, sourceList, toda
     const st = status[s.id] ?? { ok: false, newest: null, count: 0, error: 'no status returned' };
     const before = meta[s.id];
     const age = st.newest ? daysBetween(today, st.newest) : null;
+    // Entries written before lastOk existed: an ok entry was last ok when it was checked.
+    const lastOk = st.ok ? today : before?.lastOk ?? (before?.ok === true ? before.checked ?? null : null);
+    const failures = st.ok ? 0 : (before?.failures ?? (before?.ok === false ? 1 : 0)) + 1;
+    const error = st.ok ? null : String(st.error ?? 'unknown error');
     let reason = null;
     if (!st.ok) {
-      if (before?.ok === false) reason = `returned ok false twice in a row${st.error ? ` (${st.error})` : ''}`;
-      else keep.add(s.id);
+      const since = lastOk ? daysBetween(today, lastOk) : null;
+      if (failures >= FREEZE_AFTER_FAILURES || (failures >= 2 && since !== null && since > FREEZE_GRACE_DAYS)) {
+        reason = `failed ${failures} runs in a row${lastOk ? `, last ok ${lastOk}` : ''} (${error})`;
+      } else keep.add(s.id);
+      if (!st.skipped) failed.push({ id: s.id, error, frozen: Boolean(reason) });
     } else if (age === null) {
       reason = 'returned no dated record';
     } else if (age > s.ttlDays) {
@@ -269,6 +285,8 @@ export function applyFacts(next, { records = [], status = {} }, sourceList, toda
       ...(s.attribution ? { attribution: s.attribution } : {}),
       ttlDays: s.ttlDays,
       newest: st.ok ? st.newest : before?.newest ?? null, checked: today, ok: Boolean(st.ok),
+      ...(lastOk ? { lastOk } : {}),
+      ...(st.ok ? {} : { failures, error }),
     };
   }
 
@@ -305,7 +323,7 @@ export function applyFacts(next, { records = [], status = {} }, sourceList, toda
     if (facts.length) h.facts = facts;
     else delete h.facts;
   }
-  return { frozen, unmatched };
+  return { frozen, unmatched, failed };
 }
 
 // ---- Harness releases and newest models ----------------------------------
@@ -372,13 +390,14 @@ export async function refresh({ knowledge, api, fetchImpl, collectFacts = null, 
   for (const { models, ...stub } of stubs) next.families.push(stub);
 
   let frozen = [];
+  let failed = [];
   let unmatched = [];
   if (collectFacts) {
     const collected = await collectFacts({ fetchImpl, now });
     for (const [id, status] of Object.entries(collected.status ?? {})) {
       if (status.skipped) warnings.push(`source ${id}: ${status.error}`);
     }
-    ({ frozen, unmatched } = applyFacts(next, collected, sourceList, today));
+    ({ frozen, unmatched, failed } = applyFacts(next, collected, sourceList, today));
   }
 
   const { releases, warnings: npmWarnings } = await fetchReleases(fetchImpl, packages);
@@ -409,13 +428,14 @@ export async function refresh({ knowledge, api, fetchImpl, collectFacts = null, 
 
   const changed = comparable(next) !== comparable(knowledge);
   if (changed) next.updated = today;
-  return { knowledge: next, changed, stubs, review, links, frozen, unmatched, releaseChanges, warnings, today };
+  return { knowledge: next, changed, stubs, review, links, frozen, failed, unmatched, releaseChanges, warnings, today };
 }
 
 export function renderLogEntry(result) {
   const lines = [`## ${result.today}`, ''];
   for (const s of result.stubs) lines.push(`- New unverified family \`${s.id}\` (${s.vendor}, match \`${s.match}\`) for: ${s.models.join(', ')}.`);
   for (const r of result.review ?? []) lines.push(`- Needs a manual look, no stub added (${r.reason}): ${r.models.join(', ')} (${r.provider}, models.dev family \`${r.family}\`).`);
+  for (const f of (result.failed ?? []).filter((x) => !x.frozen)) lines.push(`- Source \`${f.id}\` failed, its facts are kept for now: ${f.error}`);
   for (const f of result.frozen ?? []) lines.push(`- Source \`${f.id}\` is frozen, its facts were dropped: ${f.reason}.`);
   if (result.unmatched?.length) {
     lines.push('- Facts for models no family matches (not stored; add a family or fix the model id):');
@@ -480,6 +500,7 @@ async function main() {
   }
   for (const l of result.links.filter((x) => x.verdict === 'moved')) console.log(`${notice}source ${l.id} moved to ${l.finalUrl}`);
   for (const r of result.review) console.log(`${notice}no stub for ${r.models.join(', ')}: ${r.reason}`);
+  for (const f of result.failed) console.log(`${annotate}source ${f.id} failed: ${f.error}`);
   for (const f of result.frozen) console.log(`${annotate}source ${f.id} is frozen: ${f.reason}`);
   for (const w of result.warnings) console.log(`${annotate}${w}`);
 
