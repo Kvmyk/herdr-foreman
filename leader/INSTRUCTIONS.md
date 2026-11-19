@@ -70,7 +70,7 @@ Send every brief in one shell call: `foreman prompt --task <slug> <name> "<brief
 
 > You are worker <name> for foreman. Your part: <part>. Relevant files: <files>. Tests: <command>. Investigate only: do not modify, create or delete repository files and do not commit. Write at most 10 proposals to <reportDir>/proposals.md, one line each: "- [high|medium|low] <file>: <problem> -> <proposed change>". If your part is a new feature, describe how you would build it in at most 10 lines instead. Reply only DONE when finished.
 
-If `foreman prompt` answers `not submitted`, read that worker with `foreman read` and, if the brief still sits in its input, send `foreman keys --task <slug> <name> enter`.
+If `foreman prompt` answers `not submitted` or `not confirmed`, read that worker with `foreman read` and, if the brief still sits in its input, send `foreman keys --task <slug> <name> enter`. If it says the prompt never showed in the input, or names a dialog, read the worker, deal with what is on its screen, and send the brief again.
 
 Then run `foreman wait --task <slug> --phase investigate`. It returns within 9 minutes:
 
