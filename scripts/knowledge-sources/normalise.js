@@ -104,6 +104,12 @@ export function createKnowledgeFetch(fetchImpl, { wait = (ms) => new Promise((re
       if (!location) return res;
       await res.body?.cancel();
       if (redirects >= MAX_REDIRECTS) fail(`Too many redirects: ${input}`);
+      // Match Fetch semantics when redirecting a POST to a different method.
+      if (options.method === 'POST' && [301, 302, 303].includes(res.status)) {
+        const headers = new Headers(options.headers);
+        headers.delete('content-type');
+        options = { ...options, method: 'GET', body: undefined, headers };
+      }
       url = new URL(location, url);
     }
   }
@@ -135,14 +141,22 @@ export function createKnowledgeFetch(fetchImpl, { wait = (ms) => new Promise((re
   return guardedFetch;
 }
 
-async function get(fetchImpl, url) {
-  const res = await createKnowledgeFetch(fetchImpl)(url);
+async function requestData(fetchImpl, url, options) {
+  const res = await createKnowledgeFetch(fetchImpl)(url, options);
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
   return res;
 }
-export const getText = async (fetchImpl, url) => (await get(fetchImpl, url)).text();
-export const getJson = async (fetchImpl, url) => (await get(fetchImpl, url)).json();
-export const getBuffer = async (fetchImpl, url) => Buffer.from(await (await get(fetchImpl, url)).arrayBuffer());
+export const getText = async (fetchImpl, url) => (await requestData(fetchImpl, url)).text();
+export const getJson = async (fetchImpl, url, options) => (await requestData(fetchImpl, url, options)).json();
+export const getBuffer = async (fetchImpl, url) => Buffer.from(await (await requestData(fetchImpl, url)).arrayBuffer());
+export async function postJson(fetchImpl, url, payload) {
+  const response = await requestData(fetchImpl, url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+}
 
 // All rows of one split from the Hugging Face datasets-server (100 per page).
 export async function hfRows(fetchImpl, { dataset, config, split, maxPages = 30 }) {

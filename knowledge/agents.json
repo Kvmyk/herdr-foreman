@@ -374,7 +374,7 @@
     "lmarena-agent": {"title":"LMArena Agent Arena","kind":"data","licence":"CC-BY-4.0","ttlDays":45,"newest":"2026-11-15","checked":"2026-11-17","ok":false},
     "epoch": {"title":"Epoch AI benchmarking hub","kind":"data","licence":"CC-BY-4.0","ttlDays":45,"newest":"2026-11-17","checked":"2026-11-17","ok":true},
     "livebench": {"title":"LiveBench 2.0","kind":"data","licence":"none stated (site data)","ttlDays":45,"newest":"2026-11-06","checked":"2026-11-17","ok":true},
-    "tbench": {"title":"Terminal-Bench leaderboard submissions","kind":"data","licence":"Apache-2.0 (harbor-framework/terminal-bench)","ttlDays":45,"newest":"2026-11-17","checked":"2026-11-17","ok":true},
+    "tbench": {"title":"Terminal-Bench leaderboard (Harbor Hub public API)","kind":"data","licence":"facts; public read API documented for display; repo Apache-2.0; no site terms (checked 2026-11-19)","attribution":{"creator":"Terminal-Bench (Stanford / Harbor / Laude Institute)","citation":"https://github.com/harbor-framework/terminal-bench/blob/main/CITATION.cff"},"ttlDays":45,"newest":"2026-11-17","checked":"2026-11-17","ok":true},
     "vals": {"title":"Vals AI benchmarks","kind":"html","licence":"none stated (public site; robots.txt allows the benchmark pages)","ttlDays":45,"newest":"2026-11-16","checked":"2026-11-17","ok":true},
     "npm": {"title":"npm registry (harness releases)","kind":"data","licence":"public package metadata","ttlDays":30,"newest":"2026-11-17","checked":"2026-11-17","ok":true},
     "models-dev": {"title":"models.dev model catalog","kind":"data","licence":"MIT","ttlDays":30,"newest":"2026-11-17","checked":"2026-11-17","ok":true}
