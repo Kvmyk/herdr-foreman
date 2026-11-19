@@ -6,8 +6,14 @@
 // pane id. Failures become HerdrError with hc's error kind as code.
 import { randomBytes } from 'node:crypto';
 import { HerdrError, realSleep, sendKeys, submitIfStuck } from './herdr.js';
-import { appArgv, submitStrategy } from './inventory/kinds.js';
+import { appArgv } from './inventory/kinds.js';
 import { appStackSteps } from './layout.js';
+
+// `hc ls` gives a terminal's status as its state word, `hc get` as the whole
+// Status record ({ app, state, kind, msg }); either way, the state word.
+export function statusState(status) {
+  return typeof status === 'string' ? status : status?.state ?? null;
+}
 
 function parseJson(text) {
   try {
@@ -28,7 +34,7 @@ function errorOf(res) {
 // Ids shaped like the app's own (sp<hex>, tb<hex>).
 const randomId = (prefix) => `${prefix}${randomBytes(16).toString('hex')}`;
 
-export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = randomId, sleep = realSleep }) {
+export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = randomId, sleep = realSleep, platform = process.platform }) {
   // Options go before positionals: hc takes none after them.
   async function call(command, args, timeoutMs = 30000) {
     const res = await run(hc, [command, '--json', ...args], { timeoutMs });
@@ -302,7 +308,15 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
         const w = await call('wait', ['--timeout', String(secs), pane], (secs + 15) * 1000);
         if (w.ended && ['idle', 'done'].includes(w.status)) res = { ok: true, pane };
         else if (w.reason === 'exit') res = { ok: false, pane, code: 'agent_exited', message: `${kind} exited (code ${w.exit_code})` };
-        else if (w.status === 'blocked') res = { ok: false, pane, code: 'agent_not_ready', message: `${kind} is waiting for an answer` };
+        // An error the agent reported (a model it cannot use, a failed sign-in) is not
+        // a question: it is said in the agent's own words, and nobody is called for it.
+        else if (w.status === 'error') {
+          const msg = (await call('get', [pane]).catch(() => null))?.status?.msg;
+          res = { ok: false, pane, code: 'agent_error', message: `${kind} reported an error${msg ? `: ${msg}` : ''}` };
+        } else if (w.status === 'blocked') {
+          const asks = (await call('get', [pane]).catch(() => null))?.status?.kind;
+          res = { ok: false, pane, code: 'agent_not_ready', message: `${kind} is waiting for an answer${asks ? ` (${asks})` : ''}` };
+        }
         // A folder-trust dialog comes before the agent reports any status.
         else res = { ok: false, pane, code: 'agent_not_ready', message: `${kind} did not report ready within ${secs}s; it may be asking whether to trust the folder` };
       } catch (err) {
@@ -339,16 +353,22 @@ export function createHerdrApp({ run, hc = 'hc', app = 'herdr-app', newId = rand
     // hc refuses to type into a blocked agent: answer its question with keys first.
     // A message that went in means nobody is waited for there any more (the
     // person may have answered in the terminal itself), so foreman's pin comes off.
-    // kind picks how the prompt is made sure to be submitted (submitStrategy):
-    // after a settle delay enter is pressed again while the text sits in the
-    // input. hc's status only counts when it says working or blocked: kinds
-    // that send no status reports always look idle.
+    // hc's reply says whether the agent went working within a few seconds
+    // (started; null for a program that sends no status reports). Only when it
+    // did not is the screen read: kind picks how (submitStrategy), and enter is
+    // pressed while the text sits in the input. hc's status (`get` gives a
+    // Status record: its state) and a turn past the send's count as work.
     async agentPrompt(target, text, { kind = null } = {}) {
-      await call('send', [target, '--', text]);
+      const sent = await call('send', [target, '--', text]);
       await this.answered(target);
+      if (sent?.started === true) return { submitted: true };
+      const turn = typeof sent?.turn === 'number' ? sent.turn : null;
       const submitted = await submitIfStuck({
-        read: () => this.agentRead(target), press: () => call('keys', [target, 'enter']), sleep, text, kind,
-        status: async () => (submitStrategy(kind).wait ? (await call('get', [target]))?.status ?? null : null),
+        read: () => this.agentRead(target), press: () => call('keys', [target, 'enter']), sleep, text, kind, turn, platform,
+        status: async () => {
+          const t = await call('get', [target]);
+          return { state: statusState(t?.status), turn: typeof t?.turn === 'number' ? t.turn : null };
+        },
       });
       return { submitted };
     },
